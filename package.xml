@@ -7,8 +7,7 @@
   <maintainer email="your.email@example.com">Your Name</maintainer>
   <license>Apache License 2.0</license>
 
-  <buildtool_depend>ament_cmake</buildtool_depend>
-  <buildtool_depend>ament_cmake_python</buildtool_depend>
+  <buildtool_depend>ament_python</buildtool_depend>
 
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
@@ -23,12 +22,6 @@
   <test_depend>ament_lint_common</test_depend>
 
   <export>
-    <build_type>ament_cmake</build_type>
-    <!-- Add the config files to be installed -->
-    <data_files>
-      <config>
-        config/cartographer_config.lua
-      </config>
-    </data_files>
+    <build_type>ament_python</build_type>
   </export>
 </package> 

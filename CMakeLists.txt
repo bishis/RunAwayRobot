@@ -16,12 +16,6 @@ find_package(rplidar_ros REQUIRED)
 # Install Python modules
 ament_python_install_package(${PROJECT_NAME})
 
-# Install Python executables
-install(PROGRAMS
-  scripts/wall_follower
-  DESTINATION lib/${PROJECT_NAME}
-)
-
 # Install launch files
 install(DIRECTORY
   launch

@@ -10,6 +10,8 @@ import tf2_ros
 from geometry_msgs.msg import TransformStamped, Twist, Quaternion
 import math
 from tf2_ros import TransformBroadcaster
+import numpy as np
+from scipy.linalg import block_diag
 
 # Define GPIO pins for motor control
 motor_left = Servo(18)   # GPIO for Left Motor
@@ -24,6 +26,54 @@ TRACK_WIDTH = 0.17           # Distance between tracks
 TURN_ANGLE = 90             # Degrees to turn
 MIN_TURN_ANGLE = 85         # Minimum acceptable turn angle
 MAX_TURN_ANGLE = 95         # Maximum acceptable turn angle
+
+class ExtendedKalmanFilter:
+    def __init__(self):
+        # State vector [x, y, theta]
+        self.state = np.zeros(3)
+        
+        # State covariance matrix
+        self.P = np.diag([0.1, 0.1, 0.1])
+        
+        # Process noise
+        self.Q = np.diag([0.1, 0.1, 0.1])
+        
+        # Measurement noise
+        self.R = np.diag([0.1, 0.1, 0.1])
+
+    def predict(self, v, w, dt):
+        # State transition matrix
+        theta = self.state[2]
+        
+        # Update state
+        self.state[0] += v * np.cos(theta) * dt
+        self.state[1] += v * np.sin(theta) * dt
+        self.state[2] += w * dt
+        
+        # Jacobian of state transition
+        F = np.array([
+            [1, 0, -v * np.sin(theta) * dt],
+            [0, 1, v * np.cos(theta) * dt],
+            [0, 0, 1]
+        ])
+        
+        # Update covariance
+        self.P = F @ self.P @ F.T + self.Q
+
+    def update(self, measurement):
+        # Measurement matrix (identity for direct state measurement)
+        H = np.eye(3)
+        
+        # Kalman gain
+        S = H @ self.P @ H.T + self.R
+        K = self.P @ H.T @ np.linalg.inv(S)
+        
+        # Update state
+        innovation = measurement - self.state
+        self.state += K @ innovation
+        
+        # Update covariance
+        self.P = (np.eye(3) - K @ H) @ self.P
 
 class WallFollower(Node):
 
@@ -67,7 +117,18 @@ class WallFollower(Node):
         self.target_angle = 0.0
         self.wall_detected = False
 
+        # Initialize EKF
+        self.ekf = ExtendedKalmanFilter()
+        
+        # Update odometry tracking variables to use EKF state
+        self.x = 0.0
+        self.y = 0.0
+        self.th = 0.0
+
     def lidar_callback(self, msg):
+        # Store latest scan for EKF update
+        self.latest_scan = msg
+        
         # Get front-facing LIDAR data
         num_readings = len(msg.ranges)
         front_start = num_readings // 3
@@ -208,6 +269,21 @@ class WallFollower(Node):
     def publish_odom(self):
         try:
             current_time = self.get_clock().now()
+            dt = (current_time - self.last_time).nanoseconds / 1e9
+            
+            # Predict step with current velocities
+            self.ekf.predict(self.last_linear_vel, self.last_angular_vel, dt)
+            
+            # Update robot state from EKF
+            self.x = float(self.ekf.state[0])
+            self.y = float(self.ekf.state[1])
+            self.th = float(self.ekf.state[2])
+            
+            # If we have laser scan data, use it to update the filter
+            if hasattr(self, 'latest_scan'):
+                # Create measurement vector from scan data
+                measurement = np.array([self.x, self.y, self.th])
+                self.ekf.update(measurement)
             
             # Log odometry data periodically (every second to avoid spam)
             if (current_time - self.last_time).nanoseconds / 1e9 >= 1.0:

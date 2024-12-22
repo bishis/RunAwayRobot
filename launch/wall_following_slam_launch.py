@@ -1,17 +1,9 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, TimerAction
 from launch_ros.actions import Node
 
 def generate_launch_description():
-    # Get the path to the Cartographer config file
-    cartographer_config_dir = os.path.join(
-        get_package_share_directory('motor_controller'),
-        'config'
-    )
-    configuration_basename = 'cartographer_config.lua'
-
     return LaunchDescription([
         # Static Transform Publisher for map->odom
         Node(
@@ -29,56 +21,6 @@ def generate_launch_description():
             arguments=['0', '0', '0.1', '0', '0', '0', 'base_link', 'laser_frame']
         ),
 
-        # Launch Cartographer SLAM
-        Node(
-            package='cartographer_ros',
-            executable='cartographer_node',
-            name='cartographer_node',
-            output='screen',
-            parameters=[{
-                'use_sim_time': False,
-                'publish_frame_projected_2d': True,
-                'num_laser_scans': 1,
-                'num_multi_echo_laser_scans': 0,
-                'num_subdivisions_per_laser_scan': 1,
-                'num_point_clouds': 0,
-                'publish_tracked_pose': True,
-                'publish_tracked_scan': True,
-            }],
-            arguments=[
-                '-configuration_directory', cartographer_config_dir,
-                '-configuration_basename', configuration_basename
-            ],
-            remappings=[
-                ('scan', '/scan'),
-                ('odom', '/odom'),
-                ('imu', '')  # Explicitly disable IMU
-            ]
-        ),
-
-        # Add a delay before starting the occupancy grid node
-        TimerAction(
-            period=2.0,
-            actions=[
-                Node(
-                    package='cartographer_ros',
-                    executable='cartographer_occupancy_grid_node',
-                    name='cartographer_occupancy_grid_node',
-                    output='screen',
-                    parameters=[{
-                        'use_sim_time': False,
-                        'resolution': 0.05,
-                        'publish_period_sec': 1.0,
-                        'track_unknown_space': True,
-                        'publish_full_map': True,
-                    }],
-                    remappings=[
-                        ('map', '/map')
-                    ]
-                ),
-            ]
-        ),
-
         # Launch RPLIDAR Node
         Node(
             package='rplidar_ros',
@@ -94,7 +36,7 @@ def generate_launch_description():
             }]
         ),
 
-        # Launch Wall Follower Node
+        # Launch Wall Follower Node with EKF
         Node(
             package='motor_controller',
             executable='wall_follower',

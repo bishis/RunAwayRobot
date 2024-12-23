@@ -6,11 +6,6 @@ from launch_ros.actions import Node
 from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
-    # Get the path to config files
-    pkg_dir = get_package_share_directory('motor_controller')
-    cartographer_config_dir = os.path.join(pkg_dir, 'config')
-    configuration_basename = 'cartographer_config.lua'
-
     # Launch Arguments
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
     
@@ -52,23 +47,39 @@ def generate_launch_description():
             }]
         ),
 
-        # Launch Cartographer SLAM
+        # Launch SLAM Toolbox
         Node(
-            package='cartographer_ros',
-            executable='cartographer_ros_node',
-            name='cartographer_node',
+            package='slam_toolbox',
+            executable='async_slam_toolbox_node',
+            name='slam_toolbox',
             output='screen',
             parameters=[{
                 'use_sim_time': use_sim_time,
-            }],
-            arguments=[
-                '-configuration_directory', cartographer_config_dir,
-                '-configuration_basename', configuration_basename
-            ],
-            remappings=[
-                ('scan', '/scan'),
-                ('imu', '')  # Disable IMU
-            ]
+                'base_frame': 'base_link',
+                'odom_frame': 'odom',
+                'map_frame': 'map',
+                'mode': 'mapping',
+                'max_laser_range': 12.0,
+                'resolution': 0.05,
+                'minimum_time_interval': 0.2,
+                'transform_timeout': 0.2,
+                'map_update_interval': 1.0,
+                'publish_period': 1.0,
+                'use_scan_matching': True,
+                'use_scan_barycenter': True,
+                'minimum_travel_distance': 0.1,
+                'minimum_travel_heading': 0.1,
+                'scan_buffer_size': 10,
+                'scan_buffer_maximum_scan_distance': 10.0,
+                'link_match_minimum_response_fine': 0.1,
+                'link_scan_maximum_distance': 1.5,
+                'loop_search_maximum_distance': 3.0,
+                'do_loop_closing': True,
+                'loop_match_minimum_chain_size': 3,
+                'loop_match_maximum_variance_coarse': 3.0,
+                'loop_match_minimum_response_coarse': 0.35,
+                'loop_match_minimum_response_fine': 0.45,
+            }]
         ),
 
         # Launch Mobile Robot Controller Node

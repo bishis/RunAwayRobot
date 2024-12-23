@@ -1,14 +1,88 @@
+import numpy as np
+
 class LidarProcessor:
-    """Processes LIDAR data for obstacle detection."""
+    """Processes LIDAR data for obstacle detection and navigation."""
     
     def __init__(self, safety_radius=0.3, detection_distance=0.5):
         self.SAFETY_RADIUS = safety_radius
         self.DETECTION_DISTANCE = detection_distance
         
+        # Define sectors for different directions
+        self.SECTOR_SIZE = 30  # degrees
+        self.sectors = {
+            'front': (345, 15),    # -15 to +15 degrees
+            'front_left': (15, 45),
+            'left': (75, 105),     # 90 degrees ± 15
+            'rear': (165, 195),    # 180 degrees ± 15
+            'right': (255, 285)    # 270 degrees ± 15
+        }
+        
     def process_scan(self, ranges):
-        """Process LIDAR ranges and return minimum front distance."""
+        """Process full 360° LIDAR scan and return processed data."""
+        if not ranges:
+            return None
+            
         num_readings = len(ranges)
-        front_start = num_readings // 3
-        front_end = 2 * num_readings // 3
-        front_distances = ranges[front_start:front_end]
-        return min(front_distances) 
+        angles = np.linspace(0, 360, num_readings, endpoint=False)
+        
+        # Convert ranges to numpy array for efficient processing
+        ranges_array = np.array(ranges)
+        
+        # Filter out invalid readings
+        valid_mask = np.isfinite(ranges_array)
+        valid_ranges = ranges_array[valid_mask]
+        valid_angles = angles[valid_mask]
+        
+        sector_data = {}
+        for sector_name, (start, end) in self.sectors.items():
+            # Handle wraparound for front sector
+            if start > end:  # e.g., front sector (345° to 15°)
+                mask = (valid_angles >= start) | (valid_angles <= end)
+            else:
+                mask = (valid_angles >= start) & (valid_angles <= end)
+                
+            sector_ranges = valid_ranges[mask]
+            if len(sector_ranges) > 0:
+                sector_data[sector_name] = {
+                    'min_distance': np.min(sector_ranges),
+                    'mean_distance': np.mean(sector_ranges),
+                    'readings': len(sector_ranges)
+                }
+            else:
+                sector_data[sector_name] = {
+                    'min_distance': float('inf'),
+                    'mean_distance': float('inf'),
+                    'readings': 0
+                }
+        
+        return sector_data
+    
+    def get_navigation_command(self, sector_data):
+        """Determine navigation command based on LIDAR data."""
+        if not sector_data:
+            return 'stop'
+            
+        front_dist = sector_data['front']['min_distance']
+        left_dist = sector_data['left']['min_distance']
+        right_dist = sector_data['right']['min_distance']
+        
+        # Emergency stop if too close in front
+        if front_dist < self.SAFETY_RADIUS:
+            return 'stop'
+            
+        # If approaching wall, decide which way to turn
+        if front_dist < self.DETECTION_DISTANCE:
+            # Turn towards the side with more space
+            if left_dist > right_dist:
+                return 'turn_left'
+            else:
+                return 'turn_right'
+                
+        # If clear ahead but too close to walls, make adjustments
+        if left_dist < self.SAFETY_RADIUS:
+            return 'adjust_right'
+        if right_dist < self.SAFETY_RADIUS:
+            return 'adjust_left'
+            
+        # All clear, move forward
+        return 'forward' 

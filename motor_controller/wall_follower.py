@@ -55,64 +55,48 @@ class MobileRobotController(Node):
 
     def lidar_callback(self, msg):
         """Handle incoming LIDAR data."""
-        min_distance = self.lidar.process_scan(msg.ranges)
-        self.get_logger().info(f"Front distance: {min_distance:.2f}m")
-        
-        if min_distance < self.lidar.SAFETY_RADIUS:
-            self.get_logger().warn(f"Emergency stop! Wall at {min_distance:.2f}m")
+        sector_data = self.lidar.process_scan(msg.ranges)
+        if not sector_data:
+            self.get_logger().warn("No valid LIDAR data")
             self.motors.stop()
             return
             
-        if not self.state.is_turning:
-            if min_distance < self.lidar.DETECTION_DISTANCE:
-                self.get_logger().info("Wall detected, starting turn")
-                self.start_turn()
-            else:
-                self.get_logger().info("No wall detected, moving forward")
-                self.move_forward()
-        else:
-            self.execute_turn()
-
-    def start_turn(self):
-        """Initialize a turn maneuver."""
-        self.state.is_turning = True
-        self.state.start_turn_angle = self.state.theta
-        self.state.target_angle = self.state.theta + math.radians(90)
+        # Log distances for debugging
         self.get_logger().info(
-            f"Starting turn from {math.degrees(self.state.theta):.1f}° "
-            f"to {math.degrees(self.state.target_angle):.1f}°"
-        )
-
-    def execute_turn(self):
-        """Execute the turning maneuver."""
-        angle_turned = self.navigator.calculate_turn_progress(
-            self.state.theta, 
-            self.state.start_turn_angle
+            f"Distances - Front: {sector_data['front']['min_distance']:.2f}m, "
+            f"Left: {sector_data['left']['min_distance']:.2f}m, "
+            f"Right: {sector_data['right']['min_distance']:.2f}m"
         )
         
-        self.get_logger().info(f"Turn progress: {angle_turned:.1f}°")
+        # Get navigation command
+        command = self.lidar.get_navigation_command(sector_data)
+        self.execute_command(command)
         
-        if self.navigator.is_turn_complete(angle_turned):
-            self.get_logger().info("Turn complete")
-            self.state.is_turning = False
-            self.move_forward()
-        else:
-            self.turn_right()
-
-    def move_forward(self):
-        """Move the robot forward."""
-        self.get_logger().info("Moving forward")
-        self.motors.set_speeds(1.0, 1.0)
-        self.state.update_velocity(self.navigator.LINEAR_SPEED, 0.0)
-
-    def turn_right(self):
-        """Execute a right turn."""
-        self.get_logger().info("Turning right")
-        self.motors.set_speeds(
-            self.navigator.TURN_SPEED, 
-            -self.navigator.TURN_SPEED
-        )
-        self.state.update_velocity(0.0, -self.navigator.TURN_SPEED)
+    def execute_command(self, command):
+        """Execute navigation command."""
+        if command == 'stop':
+            self.get_logger().warn("Emergency stop!")
+            self.motors.stop()
+            
+        elif command == 'turn_left':
+            self.get_logger().info("Turning left")
+            self.motors.set_speeds(-0.5, 0.5)
+            
+        elif command == 'turn_right':
+            self.get_logger().info("Turning right")
+            self.motors.set_speeds(0.5, -0.5)
+            
+        elif command == 'adjust_left':
+            self.get_logger().info("Adjusting left")
+            self.motors.set_speeds(0.3, 0.5)
+            
+        elif command == 'adjust_right':
+            self.get_logger().info("Adjusting right")
+            self.motors.set_speeds(0.5, 0.3)
+            
+        elif command == 'forward':
+            self.get_logger().info("Moving forward")
+            self.motors.set_speeds(0.5, 0.5)
 
     def publish_odom(self):
         """Publish odometry data."""

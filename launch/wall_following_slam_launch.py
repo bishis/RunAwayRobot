@@ -1,10 +1,22 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, TimerAction
 from launch_ros.actions import Node
+from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
+    # Launch Arguments
+    use_sim_time = LaunchConfiguration('use_sim_time', default='false')
+    
     return LaunchDescription([
+        # Launch Arguments
+        DeclareLaunchArgument(
+            'use_sim_time',
+            default_value='false',
+            description='Use simulation time'
+        ),
+
         # Static Transform Publisher for map->odom
         Node(
             package='tf2_ros',
@@ -26,7 +38,6 @@ def generate_launch_description():
             package='rplidar_ros',
             executable='rplidar_composition',
             name='rplidar_node',
-            output='screen',
             parameters=[{
                 'serial_port': '/dev/ttyUSB0',
                 'serial_baudrate': 115200,
@@ -36,11 +47,32 @@ def generate_launch_description():
             }]
         ),
 
-        # Launch Wall Follower Node with EKF
+        # Launch Wall Follower Node
         Node(
             package='motor_controller',
             executable='wall_follower',
             name='wall_follower',
-            output='screen'
+            output='screen',
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                # Add any additional parameters your wall follower might need
+                'safety_radius': 0.3,
+                'detection_distance': 0.5,
+                'turn_speed': 1.0,
+                'linear_speed': 0.3,
+            }]
+        ),
+
+        # Launch RViz2 for visualization
+        Node(
+            package='rviz2',
+            executable='rviz2',
+            name='rviz2',
+            arguments=['-d', os.path.join(
+                get_package_share_directory('motor_controller'),
+                'config',
+                'wall_follower.rviz'
+            )],
+            parameters=[{'use_sim_time': use_sim_time}]
         )
     ])

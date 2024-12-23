@@ -77,12 +77,27 @@ class LidarProcessor:
                 return 'turn_left'
             else:
                 return 'turn_right'
-                
-        # If clear ahead but too close to walls, make adjustments
-        if left_dist < self.SAFETY_RADIUS:
-            return 'adjust_right'
-        if right_dist < self.SAFETY_RADIUS:
-            return 'adjust_left'
+        
+        # Wall following behavior
+        target_wall_distance = 0.5  # Desired distance from wall
+        
+        # If we're too far from both walls, find the nearest one and move towards it
+        if left_dist > target_wall_distance and right_dist > target_wall_distance:
+            return 'forward'
             
-        # All clear, move forward
+        # Follow the nearest wall
+        if left_dist <= right_dist:
+            # Following left wall
+            if left_dist < target_wall_distance * 0.8:  # Too close to left wall
+                return 'turn_right'
+            elif left_dist > target_wall_distance * 1.2:  # Too far from left wall
+                return 'turn_left'
+        else:
+            # Following right wall
+            if right_dist < target_wall_distance * 0.8:  # Too close to right wall
+                return 'turn_left'
+            elif right_dist > target_wall_distance * 1.2:  # Too far from right wall
+                return 'turn_right'
+        
+        # If we're at a good distance from the wall, go forward
         return 'forward' 

@@ -87,14 +87,6 @@ class MobileRobotController(Node):
             self.get_logger().info("Turning right")
             self.motors.set_speeds(1, -1)
             
-        elif command == 'adjust_left':
-            self.get_logger().info("Adjusting left")
-            self.motors.set_speeds(0.4, 0.6)
-            
-        elif command == 'adjust_right':
-            self.get_logger().info("Adjusting right")
-            self.motors.set_speeds(0.6, 0.4)
-            
         elif command == 'forward':
             self.get_logger().info("Moving forward")
             self.motors.set_speeds(1, 1)

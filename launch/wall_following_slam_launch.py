@@ -6,10 +6,6 @@ from launch_ros.actions import Node
 from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
-    # Get the path to config files
-    pkg_dir = get_package_share_directory('motor_controller')
-    slam_config_path = os.path.join(pkg_dir, 'config', 'slam_config.yaml')
-    
     # Launch Arguments
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
     
@@ -51,13 +47,33 @@ def generate_launch_description():
             }]
         ),
 
-        # Launch SLAM Toolbox
+        # Launch Hector SLAM
         Node(
-            package='slam_toolbox',
-            executable='async_slam_toolbox_node',
-            name='slam_toolbox',
+            package='hector_mapping',
+            executable='hector_mapping',
+            name='hector_mapping',
             output='screen',
-            parameters=[slam_config_path]
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'map_frame': 'map',
+                'base_frame': 'base_link',
+                'odom_frame': 'odom',
+                'pub_map_odom_transform': True,
+                'scan_topic': '/scan',
+                'map_resolution': 0.05,
+                'map_size': 2048,
+                'map_start_x': 0.5,
+                'map_start_y': 0.5,
+                'map_update_distance_thresh': 0.1,
+                'map_update_angle_thresh': 0.1,
+                'map_pub_period': 1.0,
+                'update_factor_free': 0.4,
+                'update_factor_occupied': 0.9,
+                'laser_min_dist': 0.1,
+                'laser_max_dist': 30.0,
+                'laser_z_min_value': -1.0,
+                'laser_z_max_value': 1.0,
+            }]
         ),
 
         # Launch Mobile Robot Controller Node

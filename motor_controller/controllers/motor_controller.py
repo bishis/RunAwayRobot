@@ -1,28 +1,12 @@
-import RPi.GPIO as GPIO
+from gpiozero import Servo
 
 class MotorController:
-    """Handles low-level motor control operations for L298N or similar motor drivers."""
+    """Handles low-level motor control operations using Servo controllers."""
     
     def __init__(self, left_pin=18, right_pin=12):
-        # Setup GPIO
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
-        
-        # Store pin numbers
-        self.LEFT_PIN = left_pin
-        self.RIGHT_PIN = right_pin
-        
-        # Setup pins
-        GPIO.setup(self.LEFT_PIN, GPIO.OUT)
-        GPIO.setup(self.RIGHT_PIN, GPIO.OUT)
-        
-        # Setup PWM
-        self.left_pwm = GPIO.PWM(self.LEFT_PIN, 1000)  # 1000 Hz frequency
-        self.right_pwm = GPIO.PWM(self.RIGHT_PIN, 1000)
-        
-        # Start PWM with 0% duty cycle
-        self.left_pwm.start(0)
-        self.right_pwm.start(0)
+        # Initialize Servo objects for motors
+        self.motor_left = Servo(left_pin)
+        self.motor_right = Servo(right_pin)
         
         # Initialize velocities
         self.left_wheel_vel = 0.0
@@ -33,13 +17,13 @@ class MotorController:
         Set motor speeds between -1 and 1.
         Positive values for forward, negative for reverse.
         """
-        # Convert speeds to PWM duty cycle (0-100)
-        left_pwm = abs(left_speed) * 100
-        right_pwm = abs(right_speed) * 100
+        # Clamp values between -1 and 1
+        left_speed = max(min(left_speed, 1.0), -1.0)
+        right_speed = max(min(right_speed, 1.0), -1.0)
         
-        # Apply PWM values
-        self.left_pwm.ChangeDutyCycle(left_pwm)
-        self.right_pwm.ChangeDutyCycle(right_pwm)
+        # Set motor values
+        self.motor_left.value = left_speed
+        self.motor_right.value = right_speed
         
         # Store velocities
         self.left_wheel_vel = left_speed
@@ -47,16 +31,11 @@ class MotorController:
         
     def stop(self):
         """Stop both motors."""
-        self.left_pwm.ChangeDutyCycle(0)
-        self.right_pwm.ChangeDutyCycle(0)
+        self.motor_left.value = 0
+        self.motor_right.value = 0
         self.left_wheel_vel = 0.0
         self.right_wheel_vel = 0.0
         
     def __del__(self):
-        """Cleanup GPIO on object destruction."""
-        try:
-            self.left_pwm.stop()
-            self.right_pwm.stop()
-            GPIO.cleanup([self.LEFT_PIN, self.RIGHT_PIN])
-        except:
-            pass  # Ignore cleanup errors 
+        """Cleanup on object destruction."""
+        self.stop() 

@@ -1,11 +1,15 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, TimerAction
+from launch.actions import DeclareLaunchArgument
 from launch_ros.actions import Node
 from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
+    # Get the path to config files
+    pkg_dir = get_package_share_directory('motor_controller')
+    slam_config_path = os.path.join(pkg_dir, 'config', 'slam_config.yaml')
+    
     # Launch Arguments
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
     
@@ -47,23 +51,13 @@ def generate_launch_description():
             }]
         ),
 
-        # Launch Mapping Node
+        # Launch SLAM Toolbox
         Node(
             package='slam_toolbox',
             executable='async_slam_toolbox_node',
             name='slam_toolbox',
             output='screen',
-            parameters=[{
-                'use_sim_time': use_sim_time,
-                'max_laser_range': 20.0,
-                'resolution': 0.05,
-                'map_update_interval': 5.0,
-                'transform_timeout': 0.2,
-                'map_frame': 'map',
-                'base_frame': 'base_link',
-                'odom_frame': 'odom',
-                'scan_topic': '/scan',
-            }]
+            parameters=[slam_config_path]
         ),
 
         # Launch Mobile Robot Controller Node
@@ -80,17 +74,4 @@ def generate_launch_description():
                 'linear_speed': 0.3,
             }]
         ),
-
-        # Launch RViz2 for visualization
-        # Node(
-        #     package='rviz2',
-        #     executable='rviz2',
-        #     name='rviz2',
-        #     arguments=['-d', os.path.join(
-        #         get_package_share_directory('motor_controller'),
-        #         'config',
-        #         'wall_follower.rviz'
-        #     )],
-        #     parameters=[{'use_sim_time': use_sim_time}]
-        # )
     ])

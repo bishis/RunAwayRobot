@@ -47,6 +47,25 @@ def generate_launch_description():
             }]
         ),
 
+        # Launch Mapping Node
+        Node(
+            package='slam_toolbox',
+            executable='async_slam_toolbox_node',
+            name='slam_toolbox',
+            output='screen',
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'max_laser_range': 20.0,
+                'resolution': 0.05,
+                'map_update_interval': 5.0,
+                'transform_timeout': 0.2,
+                'map_frame': 'map',
+                'base_frame': 'base_link',
+                'odom_frame': 'odom',
+                'scan_topic': '/scan',
+            }]
+        ),
+
         # Launch Mobile Robot Controller Node
         Node(
             package='motor_controller',

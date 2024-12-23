@@ -33,8 +33,8 @@ class MobileRobotController(Node):
         # Initialize ROS2 components
         self.setup_ros_components()
         
-        # Add test timer
-        self.create_timer(5.0, self.test_motors)  # Test motors every 5 seconds
+        # Remove the test timer
+        # self.create_timer(5.0, self.test_motors)
         
     def setup_ros_components(self):
         """Setup ROS2 publishers, subscribers, and transforms."""
@@ -148,26 +148,6 @@ class MobileRobotController(Node):
         """Process incoming map data."""
         # Implementation remains similar but moved to separate method for clarity
         pass
-
-    def test_motors(self):
-        """Test motor functionality."""
-        self.get_logger().info("Testing motors")
-        
-        # Test sequence
-        self.get_logger().info("Testing forward")
-        self.motors.set_speeds(0.7, 0.7)
-        time.sleep(2)
-        
-        self.get_logger().info("Testing left turn")
-        self.motors.set_speeds(-0.7, 0.7)
-        time.sleep(2)
-        
-        self.get_logger().info("Testing right turn")
-        self.motors.set_speeds(0.7, -0.7)
-        time.sleep(2)
-        
-        self.get_logger().info("Stopping")
-        self.motors.stop()
 
 def main(args=None):
     rclpy.init(args=args)

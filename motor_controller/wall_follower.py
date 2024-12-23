@@ -167,7 +167,14 @@ class WallFollower(Node):
         # Forward
         self.get_logger().info("Moving forward")
         self.motors.set_speeds(0.5, 0.5)
-        self.create_timer(2.0, lambda: self.motors.stop(), one_shot=True)
+        
+        # Create a regular timer that will stop after one execution
+        self._stop_timer = self.create_timer(2.0, self._stop_test)
+        
+    def _stop_test(self):
+        """Stop the motors and destroy the timer."""
+        self.motors.stop()
+        self._stop_timer.cancel()  # Cancel the timer after stopping
 
 def main(args=None):
     rclpy.init(args=args)

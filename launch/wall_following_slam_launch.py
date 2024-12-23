@@ -64,15 +64,15 @@ def generate_launch_description():
         ),
 
         # Launch RViz2 for visualization
-        Node(
-            package='rviz2',
-            executable='rviz2',
-            name='rviz2',
-            arguments=['-d', os.path.join(
-                get_package_share_directory('motor_controller'),
-                'config',
-                'wall_follower.rviz'
-            )],
-            parameters=[{'use_sim_time': use_sim_time}]
-        )
+        # Node(
+        #     package='rviz2',
+        #     executable='rviz2',
+        #     name='rviz2',
+        #     arguments=['-d', os.path.join(
+        #         get_package_share_directory('motor_controller'),
+        #         'config',
+        #         'wall_follower.rviz'
+        #     )],
+        #     parameters=[{'use_sim_time': use_sim_time}]
+        # )
     ])

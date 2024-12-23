@@ -29,6 +29,9 @@ class WallFollower(Node):
         # Initialize ROS2 components
         self.setup_ros_components()
         
+        # Add test timer
+        self.create_timer(5.0, self.test_motors)  # Test motors every 5 seconds
+        
     def setup_ros_components(self):
         """Setup ROS2 publishers, subscribers, and transforms."""
         self.odom_pub = self.create_publisher(Odometry, 'odom', 10)
@@ -59,8 +62,10 @@ class WallFollower(Node):
             
         if not self.state.is_turning:
             if min_distance < self.lidar.DETECTION_DISTANCE:
+                self.get_logger().info("Wall detected, starting turn")
                 self.start_turn()
             else:
+                self.get_logger().info("No wall detected, moving forward")
                 self.move_forward()
         else:
             self.execute_turn()
@@ -93,11 +98,13 @@ class WallFollower(Node):
 
     def move_forward(self):
         """Move the robot forward."""
+        self.get_logger().info("Moving forward")
         self.motors.set_speeds(1.0, 1.0)
         self.state.update_velocity(self.navigator.LINEAR_SPEED, 0.0)
 
     def turn_right(self):
         """Execute a right turn."""
+        self.get_logger().info("Turning right")
         self.motors.set_speeds(
             self.navigator.TURN_SPEED, 
             -self.navigator.TURN_SPEED
@@ -153,6 +160,14 @@ class WallFollower(Node):
         """Process incoming map data."""
         # Implementation remains similar but moved to separate method for clarity
         pass
+
+    def test_motors(self):
+        """Test motor functionality."""
+        self.get_logger().info("Testing motors")
+        # Forward
+        self.get_logger().info("Moving forward")
+        self.motors.set_speeds(0.5, 0.5)
+        self.create_timer(2.0, lambda: self.motors.stop(), one_shot=True)
 
 def main(args=None):
     rclpy.init(args=args)

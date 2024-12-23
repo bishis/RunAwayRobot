@@ -7,14 +7,24 @@ from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
     # Launch Arguments
-    use_sim_time = LaunchConfiguration('use_sim_time', default='false')
+    use_sim_time_arg = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false',
+        description='Use simulation time if true'
+    )
+    
+    use_sim_time = LaunchConfiguration('use_sim_time')
     
     return LaunchDescription([
         # Launch Arguments
-        DeclareLaunchArgument(
-            'use_sim_time',
-            default_value='false',
-            description='Use simulation time'
+        use_sim_time_arg,
+
+        # Static Transform Publisher for base_footprint->base_link
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='base_footprint_to_base_broadcaster',
+            arguments=['0', '0', '0.1', '0', '0', '0', 'base_footprint', 'base_link']
         ),
 
         # Static Transform Publisher for base_link->laser_frame
@@ -46,8 +56,8 @@ def generate_launch_description():
             name='slam_toolbox',
             output='screen',
             parameters=[{
-                'use_sim_time': False,
-                'base_frame': 'base_link',
+                'use_sim_time': use_sim_time,
+                'base_frame': 'base_footprint',
                 'odom_frame': 'odom',
                 'map_frame': 'map',
                 'mode': 'mapping',
@@ -81,7 +91,7 @@ def generate_launch_description():
             name='mobile_robot_controller',
             output='screen',
             parameters=[{
-                'use_sim_time': False,
+                'use_sim_time': use_sim_time,
                 'safety_radius': 0.3,
                 'detection_distance': 0.5,
                 'turn_speed': 1.0,

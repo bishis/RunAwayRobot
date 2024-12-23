@@ -6,6 +6,11 @@ from launch_ros.actions import Node
 from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
+    # Get the path to config files
+    pkg_dir = get_package_share_directory('motor_controller')
+    cartographer_config_dir = os.path.join(pkg_dir, 'config')
+    configuration_basename = 'cartographer_config.lua'
+
     # Launch Arguments
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
     
@@ -47,52 +52,34 @@ def generate_launch_description():
             }]
         ),
 
-        # Launch ICP Odometry Node
+        # Launch Cartographer SLAM
         Node(
-            package='icp_localization_ros',
-            executable='icp_localization',
-            name='icp_localization',
+            package='cartographer_ros',
+            executable='cartographer_node',
+            name='cartographer_node',
             output='screen',
             parameters=[{
                 'use_sim_time': use_sim_time,
-                'publish_tf': True,
-                'scan_topic': '/scan',
-                'base_frame': 'base_link',
-                'odom_frame': 'odom',
-                'max_iterations': 30,
-                'tolerance': 0.001,
-                'max_correspondence_distance': 0.1,
-                'max_translation': 0.1,
-                'max_rotation': 0.2,
-            }]
+            }],
+            arguments=[
+                '-configuration_directory', cartographer_config_dir,
+                '-configuration_basename', configuration_basename
+            ],
+            remappings=[
+                ('scan', '/scan'),
+                ('imu', '')  # Disable IMU
+            ]
         ),
 
-        # Launch Map Server
+        # Launch Cartographer Occupancy Grid Node
         Node(
-            package='nav2_map_server',
-            executable='map_server',
-            name='map_server',
+            package='cartographer_ros',
+            executable='occupancy_grid_node',
+            name='cartographer_occupancy_grid_node',
             output='screen',
             parameters=[{
                 'use_sim_time': use_sim_time,
-                'yaml_filename': 'map.yaml',
-                'topic_name': 'map',
-                'frame_id': 'map',
                 'resolution': 0.05,
-            }]
-        ),
-
-        # Launch Map Saver
-        Node(
-            package='nav2_map_server',
-            executable='map_saver_server',
-            name='map_saver',
-            output='screen',
-            parameters=[{
-                'use_sim_time': use_sim_time,
-                'save_map_timeout': 5.0,
-                'free_thresh_default': 0.25,
-                'occupied_thresh_default': 0.65,
             }]
         ),
 

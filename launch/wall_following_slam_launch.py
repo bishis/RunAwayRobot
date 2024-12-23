@@ -47,53 +47,52 @@ def generate_launch_description():
             }]
         ),
 
-        # Launch RTAB-Map SLAM
+        # Launch ICP Odometry Node
         Node(
-            package='rtabmap_ros',
-            executable='rtabmap',
-            name='rtabmap',
+            package='icp_localization_ros',
+            executable='icp_localization',
+            name='icp_localization',
             output='screen',
             parameters=[{
                 'use_sim_time': use_sim_time,
-                
-                # Frame settings
-                'frame_id': 'base_link',
-                'odom_frame_id': 'odom',
-                'map_frame_id': 'map',
-                
-                # Disable odometry as we don't have wheel encoders
-                'subscribe_depth': False,
-                'subscribe_rgb': False,
-                'subscribe_scan': True,
-                'subscribe_scan_cloud': False,
-                'subscribe_odom_info': False,
-                
-                # SLAM settings for LIDAR-only operation
-                'Reg/Strategy': '1',           # ICP
-                'Reg/Force3DoF': 'true',      # 2D SLAM
-                'GridGlobal/MinSize': '20',
-                'RGBD/ProximityBySpace': 'true',
-                'RGBD/AngularUpdate': '0.1',   # Update map when robot rotates by 0.1 rad
-                'RGBD/LinearUpdate': '0.1',    # Update map when robot moves by 0.1 m
-                'RGBD/OptimizeFromGraphEnd': 'false',
-                'Grid/FromDepth': 'false',
-                'Grid/RayTracing': 'true',
-                'GridGlobal/OccupancyThr': '0.65',
-                'GridGlobal/ProbHit': '0.7',
-                'GridGlobal/ProbMiss': '0.4',
-                
-                # ICP parameters
-                'Icp/VoxelSize': '0.05',
-                'Icp/MaxCorrespondenceDistance': '0.1',
-                'Icp/PointToPlane': 'true',
-                'Icp/Iterations': '10',
-                'Icp/Epsilon': '0.001',
-                
-                # Loop closure
-                'RGBD/LoopClosureReextractFeatures': 'true',
-                'Optimizer/Strategy': '1',     # TORO
-                'Optimizer/Iterations': '100',
-                'Optimizer/Epsilon': '0.001',
+                'publish_tf': True,
+                'scan_topic': '/scan',
+                'base_frame': 'base_link',
+                'odom_frame': 'odom',
+                'max_iterations': 30,
+                'tolerance': 0.001,
+                'max_correspondence_distance': 0.1,
+                'max_translation': 0.1,
+                'max_rotation': 0.2,
+            }]
+        ),
+
+        # Launch Map Server
+        Node(
+            package='nav2_map_server',
+            executable='map_server',
+            name='map_server',
+            output='screen',
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'yaml_filename': 'map.yaml',
+                'topic_name': 'map',
+                'frame_id': 'map',
+                'resolution': 0.05,
+            }]
+        ),
+
+        # Launch Map Saver
+        Node(
+            package='nav2_map_server',
+            executable='map_saver_server',
+            name='map_saver',
+            output='screen',
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'save_map_timeout': 5.0,
+                'free_thresh_default': 0.25,
+                'occupied_thresh_default': 0.65,
             }]
         ),
 

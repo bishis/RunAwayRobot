@@ -79,6 +79,10 @@ class MobileRobotController(Node):
             self.get_logger().warn("Emergency stop!")
             self.motors.stop()
             
+        elif command == 'reverse':
+            self.get_logger().info("Reversing")
+            self.motors.set_speeds(-0.7, -0.7)  # Reverse at reduced speed
+            
         elif command == 'turn_left':
             self.get_logger().info("Turning left")
             self.motors.set_speeds(-1, 1)

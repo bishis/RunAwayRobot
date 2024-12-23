@@ -62,9 +62,9 @@ class LidarProcessor:
         left_dist = sector_data['left']['min_distance']
         right_dist = sector_data['right']['min_distance']
         
-        # Emergency stop if too close in front
+        # If extremely close to front wall, reverse
         if front_dist < self.SAFETY_RADIUS:
-            return 'stop'
+            return 'reverse'
             
         # If approaching wall, decide which way to turn
         if front_dist < self.DETECTION_DISTANCE:
@@ -77,7 +77,7 @@ class LidarProcessor:
         # Wall following behavior
         target_wall_distance = 0.5  # Desired distance from wall
         
-        # If we're too far from both walls, find the nearest one and move towards it
+        # If we're too far from both walls, move forward
         if left_dist > target_wall_distance and right_dist > target_wall_distance:
             return 'forward'
             
@@ -95,5 +95,4 @@ class LidarProcessor:
             elif right_dist > target_wall_distance * 1.2:  # Too far from right wall
                 return 'turn_right'
         
-        # If we're at a good distance from the wall, go forward
         return 'forward' 

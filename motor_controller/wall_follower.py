@@ -8,6 +8,7 @@ from geometry_msgs.msg import TransformStamped, Quaternion
 import tf2_ros
 from tf2_ros import TransformBroadcaster
 import math
+import time
 
 from .controllers.motor_controller import MotorController
 from .controllers.navigation_controller import NavigationController
@@ -80,23 +81,23 @@ class MobileRobotController(Node):
             
         elif command == 'turn_left':
             self.get_logger().info("Turning left")
-            self.motors.set_speeds(-0.5, 0.5)
+            self.motors.set_speeds(-1, 1)
             
         elif command == 'turn_right':
             self.get_logger().info("Turning right")
-            self.motors.set_speeds(0.5, -0.5)
+            self.motors.set_speeds(1, -1)
             
         elif command == 'adjust_left':
             self.get_logger().info("Adjusting left")
-            self.motors.set_speeds(0.3, 0.5)
+            self.motors.set_speeds(0.4, 0.6)
             
         elif command == 'adjust_right':
             self.get_logger().info("Adjusting right")
-            self.motors.set_speeds(0.5, 0.3)
+            self.motors.set_speeds(0.6, 0.4)
             
         elif command == 'forward':
             self.get_logger().info("Moving forward")
-            self.motors.set_speeds(0.5, 0.5)
+            self.motors.set_speeds(1, 1)
 
     def publish_odom(self):
         """Publish odometry data."""
@@ -151,17 +152,22 @@ class MobileRobotController(Node):
     def test_motors(self):
         """Test motor functionality."""
         self.get_logger().info("Testing motors")
-        # Forward
-        self.get_logger().info("Moving forward")
-        self.motors.set_speeds(0.5, 0.5)
         
-        # Create a regular timer that will stop after one execution
-        self._stop_timer = self.create_timer(2.0, self._stop_test)
+        # Test sequence
+        self.get_logger().info("Testing forward")
+        self.motors.set_speeds(0.7, 0.7)
+        time.sleep(2)
         
-    def _stop_test(self):
-        """Stop the motors and destroy the timer."""
+        self.get_logger().info("Testing left turn")
+        self.motors.set_speeds(-0.7, 0.7)
+        time.sleep(2)
+        
+        self.get_logger().info("Testing right turn")
+        self.motors.set_speeds(0.7, -0.7)
+        time.sleep(2)
+        
+        self.get_logger().info("Stopping")
         self.motors.stop()
-        self._stop_timer.cancel()  # Cancel the timer after stopping
 
 def main(args=None):
     rclpy.init(args=args)

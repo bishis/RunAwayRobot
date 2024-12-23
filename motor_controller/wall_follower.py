@@ -346,6 +346,20 @@ class WallFollower(Node):
         except Exception as e:
             self.get_logger().error(f'Error publishing odometry: {str(e)}')
 
+    def stop_motors(self):
+        """Stop both motors immediately."""
+        self.get_logger().info("Stopping motors")
+        motor_left.value = 0.0
+        motor_right.value = 0.0
+        
+        # Update velocity tracking
+        self.last_linear_vel = 0.0
+        self.last_angular_vel = 0.0
+        
+        # Update wheel velocities
+        self.left_wheel_vel = 0.0
+        self.right_wheel_vel = 0.0
+
 def main(args=None):
     rclpy.init(args=args)
     wall_follower = WallFollower()

@@ -47,15 +47,14 @@ def generate_launch_description():
             }]
         ),
 
-        # Launch Wall Follower Node
+        # Launch Mobile Robot Controller Node
         Node(
             package='motor_controller',
             executable='wall_follower',
-            name='wall_follower',
+            name='mobile_robot_controller',
             output='screen',
             parameters=[{
                 'use_sim_time': use_sim_time,
-                # Add any additional parameters your wall follower might need
                 'safety_radius': 0.3,
                 'detection_distance': 0.5,
                 'turn_speed': 1.0,

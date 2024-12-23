@@ -14,14 +14,17 @@ from .controllers.navigation_controller import NavigationController
 from .models.robot_state import RobotState
 from .processors.lidar_processor import LidarProcessor
 
-class WallFollower(Node):
-    """Main ROS2 node for wall following behavior."""
+class MobileRobotController(Node):
+    """Main ROS2 node for autonomous mobile robot control."""
     
     def __init__(self):
-        super().__init__('wall_follower')
+        super().__init__('mobile_robot_controller')
         
-        # Initialize components
-        self.motors = MotorController()
+        # Initialize components with just PWM pins
+        self.motors = MotorController(
+            left_pin=18,    # GPIO18 for left motor
+            right_pin=12    # GPIO12 for right motor
+        )
         self.state = RobotState()
         self.lidar = LidarProcessor()
         self.navigator = NavigationController()
@@ -178,15 +181,15 @@ class WallFollower(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    wall_follower = WallFollower()
+    robot = MobileRobotController()
 
     try:
-        rclpy.spin(wall_follower)
+        rclpy.spin(robot)
     except KeyboardInterrupt:
-        wall_follower.get_logger().info("Stopping motors")
-        wall_follower.motors.stop()
+        robot.get_logger().info("Stopping motors")
+        robot.motors.stop()
     finally:
-        wall_follower.destroy_node()
+        robot.destroy_node()
         rclpy.shutdown()
 
 if __name__ == '__main__':

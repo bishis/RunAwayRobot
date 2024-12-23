@@ -55,7 +55,7 @@ def generate_launch_description():
         # Launch Cartographer SLAM
         Node(
             package='cartographer_ros',
-            executable='cartographer_node',
+            executable='cartographer_ros_node',
             name='cartographer_node',
             output='screen',
             parameters=[{
@@ -69,18 +69,6 @@ def generate_launch_description():
                 ('scan', '/scan'),
                 ('imu', '')  # Disable IMU
             ]
-        ),
-
-        # Launch Cartographer Occupancy Grid Node
-        Node(
-            package='cartographer_ros',
-            executable='occupancy_grid_node',
-            name='cartographer_occupancy_grid_node',
-            output='screen',
-            parameters=[{
-                'use_sim_time': use_sim_time,
-                'resolution': 0.05,
-            }]
         ),
 
         # Launch Mobile Robot Controller Node

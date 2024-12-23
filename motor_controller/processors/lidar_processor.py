@@ -7,14 +7,14 @@ class LidarProcessor:
         self.SAFETY_RADIUS = safety_radius
         self.DETECTION_DISTANCE = detection_distance
         
-        # Define sectors for different directions
+        # Define sectors for different directions (RPLIDAR A1 mounted backwards)
         self.SECTOR_SIZE = 30  # degrees
         self.sectors = {
-            'front': (345, 15),    # -15 to +15 degrees
-            'front_left': (15, 45),
-            'left': (75, 105),     # 90 degrees ± 15
-            'rear': (165, 195),    # 180 degrees ± 15
-            'right': (255, 285)    # 270 degrees ± 15
+            'front': (180, 210),    # 180° to 210° is now front
+            'front_left': (210, 240),
+            'left': (260, 280),     # ~270° is now left
+            'rear': (0, 20),        # 0° is now rear
+            'right': (80, 100)      # ~90° is now right
         }
         
     def process_scan(self, ranges):
@@ -28,24 +28,20 @@ class LidarProcessor:
         # Convert ranges to numpy array for efficient processing
         ranges_array = np.array(ranges)
         
-        # Filter out invalid readings
-        valid_mask = np.isfinite(ranges_array)
+        # Filter out invalid readings and zeros
+        valid_mask = (np.isfinite(ranges_array)) & (ranges_array > 0.1)
         valid_ranges = ranges_array[valid_mask]
         valid_angles = angles[valid_mask]
         
         sector_data = {}
         for sector_name, (start, end) in self.sectors.items():
-            # Handle wraparound for front sector
-            if start > end:  # e.g., front sector (345° to 15°)
-                mask = (valid_angles >= start) | (valid_angles <= end)
-            else:
-                mask = (valid_angles >= start) & (valid_angles <= end)
-                
+            mask = (valid_angles >= start) & (valid_angles <= end)
             sector_ranges = valid_ranges[mask]
+            
             if len(sector_ranges) > 0:
                 sector_data[sector_name] = {
-                    'min_distance': np.min(sector_ranges),
-                    'mean_distance': np.mean(sector_ranges),
+                    'min_distance': float(np.min(sector_ranges)),
+                    'mean_distance': float(np.mean(sector_ranges)),
                     'readings': len(sector_ranges)
                 }
             else:

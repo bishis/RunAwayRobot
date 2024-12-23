@@ -17,14 +17,6 @@ def generate_launch_description():
             description='Use simulation time'
         ),
 
-        # Static Transform Publisher for map->odom
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='map_to_odom_broadcaster',
-            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
-        ),
-
         # Static Transform Publisher for base_link->laser_frame
         Node(
             package='tf2_ros',
@@ -54,21 +46,21 @@ def generate_launch_description():
             name='slam_toolbox',
             output='screen',
             parameters=[{
-                'use_sim_time': use_sim_time,
+                'use_sim_time': False,
                 'base_frame': 'base_link',
                 'odom_frame': 'odom',
                 'map_frame': 'map',
                 'mode': 'mapping',
                 'max_laser_range': 12.0,
                 'resolution': 0.05,
-                'minimum_time_interval': 0.2,
-                'transform_timeout': 0.2,
-                'map_update_interval': 1.0,
-                'publish_period': 1.0,
+                'minimum_time_interval': 0.1,
+                'transform_timeout': 0.5,
+                'map_update_interval': 0.5,
+                'publish_period': 0.5,
                 'use_scan_matching': True,
                 'use_scan_barycenter': True,
-                'minimum_travel_distance': 0.1,
-                'minimum_travel_heading': 0.1,
+                'minimum_travel_distance': 0.05,
+                'minimum_travel_heading': 0.05,
                 'scan_buffer_size': 10,
                 'scan_buffer_maximum_scan_distance': 10.0,
                 'link_match_minimum_response_fine': 0.1,
@@ -89,7 +81,7 @@ def generate_launch_description():
             name='mobile_robot_controller',
             output='screen',
             parameters=[{
-                'use_sim_time': use_sim_time,
+                'use_sim_time': False,
                 'safety_radius': 0.3,
                 'detection_distance': 0.5,
                 'turn_speed': 1.0,

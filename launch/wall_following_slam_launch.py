@@ -47,32 +47,53 @@ def generate_launch_description():
             }]
         ),
 
-        # Launch Hector SLAM
+        # Launch RTAB-Map SLAM
         Node(
-            package='hector_mapping',
-            executable='hector_mapping',
-            name='hector_mapping',
+            package='rtabmap_ros',
+            executable='rtabmap',
+            name='rtabmap',
             output='screen',
             parameters=[{
                 'use_sim_time': use_sim_time,
-                'map_frame': 'map',
-                'base_frame': 'base_link',
-                'odom_frame': 'odom',
-                'pub_map_odom_transform': True,
-                'scan_topic': '/scan',
-                'map_resolution': 0.05,
-                'map_size': 2048,
-                'map_start_x': 0.5,
-                'map_start_y': 0.5,
-                'map_update_distance_thresh': 0.1,
-                'map_update_angle_thresh': 0.1,
-                'map_pub_period': 1.0,
-                'update_factor_free': 0.4,
-                'update_factor_occupied': 0.9,
-                'laser_min_dist': 0.1,
-                'laser_max_dist': 30.0,
-                'laser_z_min_value': -1.0,
-                'laser_z_max_value': 1.0,
+                
+                # Frame settings
+                'frame_id': 'base_link',
+                'odom_frame_id': 'odom',
+                'map_frame_id': 'map',
+                
+                # Disable odometry as we don't have wheel encoders
+                'subscribe_depth': False,
+                'subscribe_rgb': False,
+                'subscribe_scan': True,
+                'subscribe_scan_cloud': False,
+                'subscribe_odom_info': False,
+                
+                # SLAM settings for LIDAR-only operation
+                'Reg/Strategy': '1',           # ICP
+                'Reg/Force3DoF': 'true',      # 2D SLAM
+                'GridGlobal/MinSize': '20',
+                'RGBD/ProximityBySpace': 'true',
+                'RGBD/AngularUpdate': '0.1',   # Update map when robot rotates by 0.1 rad
+                'RGBD/LinearUpdate': '0.1',    # Update map when robot moves by 0.1 m
+                'RGBD/OptimizeFromGraphEnd': 'false',
+                'Grid/FromDepth': 'false',
+                'Grid/RayTracing': 'true',
+                'GridGlobal/OccupancyThr': '0.65',
+                'GridGlobal/ProbHit': '0.7',
+                'GridGlobal/ProbMiss': '0.4',
+                
+                # ICP parameters
+                'Icp/VoxelSize': '0.05',
+                'Icp/MaxCorrespondenceDistance': '0.1',
+                'Icp/PointToPlane': 'true',
+                'Icp/Iterations': '10',
+                'Icp/Epsilon': '0.001',
+                
+                # Loop closure
+                'RGBD/LoopClosureReextractFeatures': 'true',
+                'Optimizer/Strategy': '1',     # TORO
+                'Optimizer/Iterations': '100',
+                'Optimizer/Epsilon': '0.001',
             }]
         ),
 

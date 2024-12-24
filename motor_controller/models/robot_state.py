@@ -7,9 +7,12 @@ class RobotState:
         self.theta = 0.0
         self.linear_vel = 0.0
         self.angular_vel = 0.0
-        self.is_turning = False
-        self.start_turn_angle = 0.0
-        self.target_angle = 0.0
+        
+        # Frame names
+        self.base_frame = 'base_link'  # Changed from base_footprint
+        self.odom_frame = 'odom'
+        self.map_frame = 'map'
+        self.laser_frame = 'laser'
 
     def update_pose(self, x, y, theta):
         self.x = x

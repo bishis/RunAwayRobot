@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
-import os
 from glob import glob
+import os
 
 package_name = 'motor_controller'
 
@@ -13,18 +13,19 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.py')),
-        ('share/' + package_name + '/config', glob('config/*')),
+        ('share/' + package_name + '/config', glob('config/*.rviz')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='your_name',
-    maintainer_email='your_email@example.com',
-    description='Wall following robot controller',
-    license='TODO: License declaration',
+    maintainer_email='your.email@example.com',
+    description='Motor controller package with wall following capabilities',
+    license='Apache License 2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'wall_follower = motor_controller.wall_follower:main',
+            'test_motors = motor_controller.test_motors:test_motors',
         ],
     },
 )

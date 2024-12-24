@@ -1,0 +1,38 @@
+slam_toolbox:
+  ros__parameters:
+    # Robot frame setup
+    odom_frame: odom
+    map_frame: map
+    base_frame: base_link
+    scan_topic: /scan
+    mode: mapping
+
+    # SLAM params
+    resolution: 0.05
+    max_laser_range: 12.0
+    minimum_time_interval: 0.2
+    transform_timeout: 0.2
+    map_update_interval: 2.0
+    publish_period: 1.0
+    max_update_rate: 10.0
+
+    # Debug
+    debug_logging: true
+    throttle_scans: 1
+
+    # Map management
+    enable_interactive_mode: false
+    map_file_name: ""
+    map_start_pose: [0.0, 0.0, 0.0]
+
+    # Transform publishing
+    publish_frame_transforms: true
+    use_pose_graph_backend: true
+    use_scan_matching: true
+    use_scan_barycenter: true
+    minimum_travel_distance: 0.1
+    minimum_travel_heading: 0.1
+    scan_buffer_size: 10
+    link_match_minimum_response_fine: 0.1
+    loop_search_maximum_distance: 3.0
+    do_loop_closing: true 

@@ -1,78 +1,110 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, TimerAction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
-from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
-    # Launch Arguments
-    use_sim_time = LaunchConfiguration('use_sim_time', default='false')
+    # Get the launch directory
+    pkg_dir = get_package_share_directory('motor_controller')
+    rplidar_dir = get_package_share_directory('rplidar_ros')
+    turtlebot4_dir = get_package_share_directory('turtlebot4_navigation')
     
     return LaunchDescription([
-        # Launch Arguments
-        DeclareLaunchArgument(
-            'use_sim_time',
-            default_value='false',
-            description='Use simulation time'
-        ),
-
-        # Static Transform Publisher for map->odom
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='map_to_odom_broadcaster',
-            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
-        ),
-
-        # Static Transform Publisher for base_link->laser_frame
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='base_to_laser_broadcaster',
-            arguments=['0', '0', '0.1', '0', '0', '0', 'base_link', 'laser_frame']
-        ),
-
-        # Launch RPLIDAR Node
+        # 1. Launch RPLIDAR and wait for it to be ready
         Node(
             package='rplidar_ros',
-            executable='rplidar_composition',
+            executable='rplidar_node',
             name='rplidar_node',
-            parameters=[{
-                'serial_port': '/dev/ttyUSB0',
-                'serial_baudrate': 115200,
-                'frame_id': 'laser_frame',
-                'inverted': False,
-                'angle_compensate': True,
-            }]
-        ),
-
-        # Launch Wall Follower Node
-        Node(
-            package='motor_controller',
-            executable='wall_follower',
-            name='wall_follower',
             output='screen',
             parameters=[{
-                'use_sim_time': use_sim_time,
-                # Add any additional parameters your wall follower might need
-                'safety_radius': 0.3,
-                'detection_distance': 0.5,
-                'turn_speed': 1.0,
-                'linear_speed': 0.3,
+                'serial_port': '/dev/ttyUSB0',
+                'frame_id': 'laser',
+                'angle_compensate': True,
+                'scan_mode': 'Standard'
             }]
         ),
 
-        # Launch RViz2 for visualization
-        # Node(
-        #     package='rviz2',
-        #     executable='rviz2',
-        #     name='rviz2',
-        #     arguments=['-d', os.path.join(
-        #         get_package_share_directory('motor_controller'),
-        #         'config',
-        #         'wall_follower.rviz'
-        #     )],
-        #     parameters=[{'use_sim_time': use_sim_time}]
-        # )
+        # 2. Wait longer for LIDAR to start
+        TimerAction(
+            period=5.0,  # Increased delay
+            actions=[
+                Node(
+                    package='rf2o_laser_odometry',
+                    executable='rf2o_laser_odometry_node',
+                    name='rf2o_laser_odometry',
+                    output='screen',
+                    parameters=[{
+                        'laser_scan_topic': '/scan',
+                        'odom_topic': '/odom_rf2o',
+                        'publish_tf': True,
+                        'base_frame_id': 'base_link',
+                        'odom_frame_id': 'odom',
+                        'freq': 20.0
+                    }]
+                )
+            ]
+        ),
+
+        # 3. Wait then launch transforms
+        TimerAction(
+            period=4.0,
+            actions=[
+                IncludeLaunchDescription(
+                    PythonLaunchDescriptionSource(
+                        os.path.join(pkg_dir, 'launch', 'transforms.launch.py')
+                    )
+                )
+            ]
+        ),
+
+        # 4. Wait then launch TurtleBot4 SLAM
+        TimerAction(
+            period=6.0,
+            actions=[
+                IncludeLaunchDescription(
+                    PythonLaunchDescriptionSource(
+                        os.path.join(turtlebot4_dir, 'launch', 'slam.launch.py')
+                    ),
+                    launch_arguments={
+                        'use_sim_time': 'false',
+                        'sync': 'true'
+                    }.items()
+                )
+            ]
+        ),
+
+        # 5. Wait then launch RViz2
+        TimerAction(
+            period=8.0,
+            actions=[
+                Node(
+                    package='rviz2',
+                    executable='rviz2',
+                    name='rviz2',
+                    arguments=['-d', os.path.join(pkg_dir, 'config', 'slam_view.rviz')]
+                )
+            ]
+        ),
+
+        # 6. Wait then launch Robot Controller
+        TimerAction(
+            period=10.0,
+            actions=[
+                Node(
+                    package='motor_controller',
+                    executable='wall_follower',
+                    name='mobile_robot_controller',
+                    output='screen',
+                    parameters=[{
+                        'use_sim_time': False,
+                        'safety_radius': 0.3,
+                        'detection_distance': 0.5,
+                        'turn_speed': 1.0,
+                        'linear_speed': 0.3,
+                    }]
+                )
+            ]
+        )
     ])

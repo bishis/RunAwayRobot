@@ -29,6 +29,8 @@
 
   <depend>cartographer</depend>
   <depend>cartographer_ros</depend>
+  <depend>cartographer_ros_msgs</depend>
+  <depend>cartographer_rviz</depend>
 
   <export>
     <build_type>ament_python</build_type>

@@ -85,10 +85,14 @@ class MobileRobotController(Node):
     def mapping_control_loop(self):
         """Execute the square wave mapping pattern."""
         if self.last_odom is None:
+            self.get_logger().warn("Waiting for odometry data...")
             return
+
+        self.get_logger().info(f"State: {self.mapper_state.current_state}, Distance: {self.distance_traveled:.2f}, Angle: {math.degrees(self.angle_turned):.2f}")
 
         if self.mapper_state.current_state == MappingState.FORWARD:
             if self.distance_traveled >= self.mapper_state.segment_length:
+                self.get_logger().info("Segment complete, turning...")
                 self.distance_traveled = 0
                 self.angle_turned = 0
                 if self.mapper_state.direction > 0:
@@ -97,21 +101,25 @@ class MobileRobotController(Node):
                     self.mapper_state.current_state = MappingState.TURN_LEFT
                 self.motors.stop()
             else:
-                self.motors.set_speeds(0.3, 0.3)  # Move forward slowly
+                self.get_logger().info("Moving forward...")
+                self.motors.set_speeds(0.5, 0.5)  # Increased speed slightly
 
         elif self.mapper_state.current_state in [MappingState.TURN_LEFT, MappingState.TURN_RIGHT]:
             target_angle = math.radians(self.mapper_state.turn_angle)
             if abs(self.angle_turned) >= target_angle:
+                self.get_logger().info("Turn complete, moving forward...")
                 self.distance_traveled = 0
                 self.angle_turned = 0
                 self.mapper_state.current_state = MappingState.FORWARD
-                self.mapper_state.direction *= -1  # Switch direction for next turn
+                self.mapper_state.direction *= -1
                 self.motors.stop()
             else:
                 if self.mapper_state.current_state == MappingState.TURN_LEFT:
-                    self.motors.set_speeds(-0.3, 0.3)  # Turn left
+                    self.get_logger().info("Turning left...")
+                    self.motors.set_speeds(-0.5, 0.5)  # Increased turn speed
                 else:
-                    self.motors.set_speeds(0.3, -0.3)  # Turn right
+                    self.get_logger().info("Turning right...")
+                    self.motors.set_speeds(0.5, -0.5)  # Increased turn speed
 
         # Publish transform
         try:

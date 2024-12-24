@@ -10,6 +10,10 @@ def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
     rplidar_dir = get_package_share_directory('rplidar_ros')
     
+    # Get Cartographer configuration
+    cartographer_config_dir = os.path.join(pkg_dir, 'config')
+    configuration_basename = 'cartographer.lua'
+
     return LaunchDescription([
         # 1. Launch RPLIDAR
         IncludeLaunchDescription(
@@ -43,53 +47,30 @@ def generate_launch_description():
             arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
         ),
 
+        # 4. Launch Cartographer
         Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='map_to_odom',
-            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
-        ),
-
-        # 4. Launch SLAM Toolbox with Hector-like parameters
-        Node(
-            package='slam_toolbox',
-            executable='async_slam_toolbox_node',
-            name='slam_toolbox',
+            package='cartographer_ros',
+            executable='cartographer_node',
+            name='cartographer_node',
             output='screen',
-            parameters=[{
-                'use_sim_time': False,
-                'base_frame': 'base_link',
-                'odom_frame': 'odom',
-                'map_frame': 'map',
-                'scan_topic': '/scan',
-                'mode': 'mapping',
-
-                # Map parameters (from Hector)
-                'publish_map': True,
-                'resolution': 0.025,  # Higher resolution like Hector
-                'map_publish_interval': 0.5,
-                'map_update_interval': 0.5,
-                'map_size': 2048,  # Larger map size
-
-                # Scan matching parameters
-                'use_scan_matching': True,
-                'use_scan_barycenter': True,
-                'minimum_travel_distance': 0.05,
-                'minimum_travel_heading': 0.1,
-                'max_laser_range': 30.0,
-                'transform_timeout': 0.1,
-                'update_factor_free': 0.4,  # From Hector
-                'update_factor_occupied': 0.9,  # From Hector
-                'publish_period': 0.5,
-
-                # Loop closure
-                'enable_interactive_mode': False,
-                'loop_search_maximum_distance': 5.0,
-                'do_loop_closing': True
-            }]
+            parameters=[{'use_sim_time': False}],
+            arguments=[
+                '-configuration_directory', cartographer_config_dir,
+                '-configuration_basename', configuration_basename
+            ]
         ),
 
-        # 5. Launch Robot Controller
+        # 5. Launch Cartographer Occupancy Grid
+        Node(
+            package='cartographer_ros',
+            executable='occupancy_grid_node',
+            name='occupancy_grid_node',
+            output='screen',
+            parameters=[{'use_sim_time': False}],
+            arguments=['-resolution', '0.05', '-publish_period_sec', '1.0']
+        ),
+
+        # 6. Launch Robot Controller
         Node(
             package='motor_controller',
             executable='wall_follower',

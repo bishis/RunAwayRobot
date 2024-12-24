@@ -9,10 +9,8 @@ def generate_launch_description():
     # Get the launch directory
     pkg_dir = get_package_share_directory('motor_controller')
     rplidar_dir = get_package_share_directory('rplidar_ros')
+    turtlebot4_dir = get_package_share_directory('turtlebot4_navigation')
     
-    # Get SLAM config
-    slam_config = os.path.join(pkg_dir, 'config', 'slam_params.yaml')
-
     return LaunchDescription([
         # 1. Launch RPLIDAR
         IncludeLaunchDescription(
@@ -46,37 +44,16 @@ def generate_launch_description():
             arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
         ),
 
-        # 4. Launch SLAM Toolbox
-        Node(
-            package='slam_toolbox',
-            executable='async_slam_toolbox_node',
-            name='slam_toolbox',
-            output='screen',
-            parameters=[{
-                'use_sim_time': False,
-                'base_frame': 'base_link',
-                'odom_frame': 'odom',
-                'map_frame': 'map',
-                'scan_topic': '/scan',
-                'mode': 'mapping',
-                'publish_map': True,
-                'resolution': 0.05,
-                'map_update_interval': 1.0,
-                'max_laser_range': 12.0,
-                'transform_timeout': 0.2,
-                'map_update_interval': 1.0,
-                'publish_period': 1.0,
-                'use_scan_matching': True,
-                'use_scan_barycenter': True,
-                'minimum_travel_distance': 0.1,
-                'minimum_travel_heading': 0.1,
-                'scan_buffer_size': 10,
-                'scan_buffer_maximum_scan_distance': 10.0,
-                'link_match_minimum_response_fine': 0.1,
-                'link_scan_maximum_distance': 1.5,
-                'loop_search_maximum_distance': 3.0,
-                'do_loop_closing': True
-            }]
+        # 4. Launch TurtleBot4 SLAM
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(turtlebot4_dir, 'launch', 'slam.launch.py')
+            ),
+            launch_arguments={
+                'use_sim_time': 'false',
+                'sync': 'true',
+                'localization': 'false'
+            }.items()
         ),
 
         # 5. Launch Robot Controller

@@ -38,7 +38,24 @@ def generate_launch_description():
             }.items()
         ),
 
-        # 2. Static Transforms
+        # 2. Launch RF2O Laser Odometry
+        Node(
+            package='rf2o_laser_odometry',
+            executable='rf2o_laser_odometry_node',
+            name='rf2o_laser_odometry',
+            output='screen',
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'laser_scan_topic': '/scan',
+                'odom_topic': '/odom_rf2o',
+                'publish_tf': True,
+                'base_frame_id': 'base_footprint',
+                'odom_frame_id': 'odom',
+                'freq': 20.0
+            }]
+        ),
+
+        # 3. Static Transforms
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
@@ -60,7 +77,7 @@ def generate_launch_description():
             arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
         ),
 
-        # 3. Launch SLAM Toolbox
+        # 4. Launch SLAM Toolbox
         Node(
             package='slam_toolbox',
             executable='async_slam_toolbox_node',
@@ -93,7 +110,7 @@ def generate_launch_description():
             }]
         ),
 
-        # 4. Launch Robot Controller
+        # 5. Launch Robot Controller
         Node(
             package='motor_controller',
             executable='wall_follower',
@@ -108,7 +125,7 @@ def generate_launch_description():
             }]
         ),
 
-        # 5. Launch RViz2 for visualization
+        # 6. Launch RViz2 for visualization
         Node(
             package='rviz2',
             executable='rviz2',

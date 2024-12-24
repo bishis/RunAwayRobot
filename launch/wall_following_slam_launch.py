@@ -40,17 +40,41 @@ def generate_launch_description():
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
+            name='map_to_odom_init',
+            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
+        ),
+
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
             name='base_link_to_laser',
             arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
         ),
 
-        # Launch SLAM Toolbox
+        # Launch SLAM Toolbox with explicit parameters
         Node(
             package='slam_toolbox',
             executable='async_slam_toolbox_node',
             name='slam_toolbox',
             output='screen',
-            parameters=[slam_config]
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'base_frame': 'base_link',
+                'odom_frame': 'odom',
+                'map_frame': 'map',
+                'scan_topic': '/scan',
+                'mode': 'mapping',
+                'resolution': 0.05,
+                'max_laser_range': 12.0,
+                'transform_timeout': 0.2,
+                'map_update_interval': 2.0,
+                'publish_period': 1.0,
+                'max_update_rate': 10.0,
+                'enable_interactive_mode': False,
+                'debug_logging': True,
+                'throttle_scans': 1,
+                'publish_frame_transforms': True
+            }]
         ),
 
         # Launch Mobile Robot Controller Node

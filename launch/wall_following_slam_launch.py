@@ -80,6 +80,20 @@ def generate_launch_description():
                 'loop_match_maximum_variance_coarse': 3.0,
                 'loop_match_minimum_response_coarse': 0.35,
                 'loop_match_minimum_response_fine': 0.45,
+                
+                # Add these parameters for map publishing
+                'map_publish_interval': 1.0,
+                'enable_interactive_mode': False,
+                'enable_slam_toolbox_debug': True,
+                'debug_logging': True,
+                'throttle_scans': 1,
+                'transform_publish_period': 0.02,
+                'map_update_period': 1.0,
+                'resolution_closure_threshold': 0.05,
+                'minimum_angle_penalty': 0.9,
+                'minimum_distance_penalty': 0.5,
+                'optimize_after_n_scans': 1,
+                'publish_occupancy_map': True,  # Important!
             }]
         ),
 

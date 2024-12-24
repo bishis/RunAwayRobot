@@ -11,30 +11,36 @@ def generate_launch_description():
     rplidar_dir = get_package_share_directory('rplidar_ros')
     turtlebot4_dir = get_package_share_directory('turtlebot4_navigation')
     
-    # Get SLAM params path
-    slam_params_path = os.path.join(pkg_dir, 'config', 'slam.yaml')
-    
     return LaunchDescription([
-        # 1. Launch RPLIDAR (wait 2 seconds)
+        # 1. Launch RPLIDAR
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(rplidar_dir, 'launch', 'rplidar_a1_launch.py')
             )
         ),
 
-        # 2. Launch RF2O Odometry (wait 2 seconds)
+        # 2. Wait then launch RF2O Odometry
         TimerAction(
             period=2.0,
             actions=[
-                IncludeLaunchDescription(
-                    PythonLaunchDescriptionSource(
-                        os.path.join(pkg_dir, 'launch', 'odometry.launch.py')
-                    )
+                Node(
+                    package='rf2o_laser_odometry',
+                    executable='rf2o_laser_odometry_node',
+                    name='rf2o_laser_odometry',
+                    output='screen',
+                    parameters=[{
+                        'laser_scan_topic': '/scan',
+                        'odom_topic': '/odom_rf2o',
+                        'publish_tf': True,
+                        'base_frame_id': 'base_link',
+                        'odom_frame_id': 'odom',
+                        'freq': 20.0
+                    }]
                 )
             ]
         ),
 
-        # 3. Launch Static Transforms (wait 2 seconds)
+        # 3. Wait then launch transforms
         TimerAction(
             period=4.0,
             actions=[
@@ -46,7 +52,7 @@ def generate_launch_description():
             ]
         ),
 
-        # 4. Launch SLAM (wait 2 seconds)
+        # 4. Wait then launch TurtleBot4 SLAM
         TimerAction(
             period=6.0,
             actions=[
@@ -55,25 +61,27 @@ def generate_launch_description():
                         os.path.join(turtlebot4_dir, 'launch', 'slam.launch.py')
                     ),
                     launch_arguments={
-                        'params_file': slam_params_path
+                        'use_sim_time': 'false',
+                        'sync': 'true'
                     }.items()
                 )
             ]
         ),
 
-        # 5. Launch Robot Visualization (wait 2 seconds)
+        # 5. Wait then launch RViz2
         TimerAction(
             period=8.0,
             actions=[
-                IncludeLaunchDescription(
-                    PythonLaunchDescriptionSource(
-                        os.path.join(turtlebot4_dir, 'launch', 'view_robot.launch.py')
-                    )
+                Node(
+                    package='rviz2',
+                    executable='rviz2',
+                    name='rviz2',
+                    arguments=['-d', os.path.join(pkg_dir, 'config', 'slam_view.rviz')]
                 )
             ]
         ),
 
-        # 6. Launch Robot Controller (wait 10 seconds)
+        # 6. Wait then launch Robot Controller
         TimerAction(
             period=10.0,
             actions=[

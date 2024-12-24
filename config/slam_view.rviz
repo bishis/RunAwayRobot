@@ -1,39 +1,50 @@
 Panels:
   - Class: rviz_common/Displays
+    Help Height: 78
     Name: Displays
     Property Tree Widget:
       Expanded:
         - /Global Options1
+        - /Status1
         - /TF1/Frames1
-        - /Odometry1
+        - /LaserScan1
+        - /Map1
       Splitter Ratio: 0.5
-    Tree Height: 719
+    Tree Height: 549
 Visualization Manager:
   Class: ""
   Displays:
-    - Class: rviz_common/TF
+    - Alpha: 0.5
+      Cell Size: 1
+      Class: rviz_default_plugins/Grid
+      Color: 160; 160; 164
       Enabled: true
-      Frame Timeout: 15
-      Frames:
-        All Enabled: true
-    - Class: rviz_common/Map
-      Topic: /map
-      Scheme: map
-    - Class: rviz_common/LaserScan
+      Name: Grid
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+      Show Arrows: true
+      Show Axes: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Class: rviz_default_plugins/LaserScan
       Topic: /scan
-      Style: Points
-    - Class: rviz_common/Odometry
+      Enabled: true
+      Name: LaserScan
+    - Class: rviz_default_plugins/Odometry
       Topic: /odom_rf2o
+      Enabled: true
+      Name: Odometry
       Shape: Arrow
       Color: 255; 25; 0
       Alpha: 1.0
       Shaft Length: 0.3
-      Shaft Radius: 0.05
       Head Length: 0.1
-      Head Radius: 0.1
-      Position Tolerance: 0.1
-      Keep: 100
-      Angle Tolerance: 0.1
+    - Alpha: 0.7
+      Class: rviz_default_plugins/Map
+      Topic: /map
+      Enabled: true
+      Name: Map
   Global Options:
     Fixed Frame: map
     Frame Rate: 30 

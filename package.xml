@@ -3,7 +3,7 @@
 <package format="3">
   <name>motor_controller</name>
   <version>0.0.1</version>
-  <description>Motor controller package with SLAM capabilities</description>
+  <description>Motor controller package with wall following capabilities</description>
   <maintainer email="your.email@example.com">Your Name</maintainer>
   <license>Apache License 2.0</license>
 
@@ -15,12 +15,9 @@
   <depend>nav_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>tf2_ros</depend>
-  <depend>slam_toolbox</depend>
   <depend>rplidar_ros</depend>
   <depend>numpy</depend>
   <depend>python3-numpy</depend>
-  <depend>nav2_map_server</depend>
-  <depend>nav2_lifecycle_manager</depend>
   <build_depend>rf2o_laser_odometry</build_depend>
   <exec_depend>rf2o_laser_odometry</exec_depend>
 
@@ -33,7 +30,5 @@
 
   <!-- Add TurtleBot4 dependencies -->
   <depend>turtlebot4_navigation</depend>
-  <depend>turtlebot4_viz</depend>
   <depend>nav2_bringup</depend>
-  <depend>rf2o_laser_odometry</depend>
 </package> 

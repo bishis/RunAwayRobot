@@ -51,7 +51,10 @@ def generate_launch_description():
                 'publish_tf': True,
                 'base_frame_id': 'base_footprint',
                 'odom_frame_id': 'odom',
-                'freq': 20.0
+                'freq': 20.0,
+                'verbose': True,
+                'init_pose_from_topic': '',
+                'laser_frame_id': 'laser'
             }]
         ),
 

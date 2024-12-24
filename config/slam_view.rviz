@@ -5,6 +5,7 @@ Panels:
       Expanded:
         - /Global Options1
         - /TF1/Frames1
+        - /Odometry1
       Splitter Ratio: 0.5
     Tree Height: 719
 Visualization Manager:
@@ -21,6 +22,18 @@ Visualization Manager:
     - Class: rviz_common/LaserScan
       Topic: /scan
       Style: Points
+    - Class: rviz_common/Odometry
+      Topic: /odom_rf2o
+      Shape: Arrow
+      Color: 255; 25; 0
+      Alpha: 1.0
+      Shaft Length: 0.3
+      Shaft Radius: 0.05
+      Head Length: 0.1
+      Head Radius: 0.1
+      Position Tolerance: 0.1
+      Keep: 100
+      Angle Tolerance: 0.1
   Global Options:
     Fixed Frame: map
     Frame Rate: 30 

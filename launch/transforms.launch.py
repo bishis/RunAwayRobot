@@ -11,19 +11,7 @@ def generate_launch_description():
             arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
         ),
 
-        # Then odom->base_link (this should come from RF2O)
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='odom_to_base_link',
-            arguments=['0', '0', '0', '0', '0', '0', 'odom', 'base_link']
-        ),
-
-        # Finally base_link->laser
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='base_link_to_laser',
-            arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
-        )
+        # Then odom->base_link is published by RF2O
+        
+        # Finally base_link->laser is published by the robot controller
     ]) 

@@ -18,7 +18,7 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='your_name',
+    maintainer='Ahmed Mazher',
     maintainer_email='your_email@example.com',
     description='Wall following robot with SLAM',
     license='TODO: License declaration',

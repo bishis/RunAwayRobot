@@ -155,17 +155,25 @@ class MobileRobotController(Node):
             odom.twist.twist.linear.x = float(self.state.linear_vel)
             odom.twist.twist.angular.z = float(self.state.angular_vel)
             
-            # Add covariance
-            pose_covariance = [0.001] * 36  # Small covariance for better SLAM
-            twist_covariance = [0.001] * 36
+            # Create proper positive semidefinite covariance matrices
+            pose_covariance = [0.0] * 36  # 6x6 matrix flattened
+            twist_covariance = [0.0] * 36  # 6x6 matrix flattened
             
-            # Set main diagonal elements
-            pose_covariance[0] = 0.001   # x
-            pose_covariance[7] = 0.001   # y
-            pose_covariance[14] = 0.001  # z
-            pose_covariance[21] = 0.001  # rotation about X axis
-            pose_covariance[28] = 0.001  # rotation about Y axis
-            pose_covariance[35] = 0.001  # rotation about Z axis
+            # Set diagonal elements for pose (make sure they're all positive)
+            pose_covariance[0] = 0.1   # x
+            pose_covariance[7] = 0.1   # y
+            pose_covariance[14] = 0.1  # z
+            pose_covariance[21] = 0.2  # rotation about X axis
+            pose_covariance[28] = 0.2  # rotation about Y axis
+            pose_covariance[35] = 0.2  # rotation about Z axis
+
+            # Set diagonal elements for twist
+            twist_covariance[0] = 0.1   # x velocity
+            twist_covariance[7] = 0.1   # y velocity
+            twist_covariance[14] = 0.1  # z velocity
+            twist_covariance[21] = 0.2  # angular velocity about X
+            twist_covariance[28] = 0.2  # angular velocity about Y
+            twist_covariance[35] = 0.2  # angular velocity about Z
             
             odom.pose.covariance = pose_covariance
             odom.twist.covariance = twist_covariance

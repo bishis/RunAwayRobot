@@ -51,6 +51,14 @@ def generate_launch_description():
             arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
         ),
 
+        # Add initial map->odom transform until SLAM takes over
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='map_to_odom_init',
+            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
+        ),
+
         # Launch SLAM Toolbox
         Node(
             package='slam_toolbox',
@@ -64,16 +72,29 @@ def generate_launch_description():
                 'map_frame': 'map',
                 'scan_topic': '/scan',
                 'mode': 'mapping',
+                'publish_map': True,
+                'map_publish_interval': 1.0,
                 'resolution': 0.05,
                 'max_laser_range': 12.0,
+                'minimum_time_interval': 0.1,
                 'transform_timeout': 0.2,
-                'map_update_interval': 2.0,
+                'map_update_interval': 1.0,
                 'publish_period': 1.0,
                 'max_update_rate': 10.0,
                 'enable_interactive_mode': False,
                 'debug_logging': True,
                 'throttle_scans': 1,
-                'publish_frame_transforms': True
+                'publish_frame_transforms': True,
+                'use_scan_matching': True,
+                'use_scan_barycenter': True,
+                'minimum_travel_distance': 0.1,
+                'minimum_travel_heading': 0.1,
+                'scan_buffer_size': 10,
+                'scan_buffer_maximum_scan_distance': 10.0,
+                'link_match_minimum_response_fine': 0.1,
+                'link_scan_maximum_distance': 1.5,
+                'loop_search_maximum_distance': 3.0,
+                'do_loop_closing': True
             }]
         ),
 

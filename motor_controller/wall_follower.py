@@ -38,9 +38,6 @@ class MobileRobotController(Node):
         
     def setup_ros_components(self):
         """Setup ROS2 publishers, subscribers, and transforms."""
-        # Remove odom publisher since we're using rf2o
-        # self.odom_pub = self.create_publisher(Odometry, 'odom', 10)
-        
         self.tf_broadcaster = TransformBroadcaster(self)
         
         # Create subscriptions
@@ -50,9 +47,6 @@ class MobileRobotController(Node):
         # Setup TF
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-        
-        # Remove odometry timer since we're using rf2o
-        # self.create_timer(0.01, self.publish_odom)
         
         self.last_time = self.get_clock().now()
 
@@ -101,6 +95,20 @@ class MobileRobotController(Node):
             self.get_logger().info("Moving forward")
             self.motors.set_speeds(1, 1)
             self.state.update_velocity(0.3, 0.0)
+
+        # Publish the transform from base_link to laser
+        try:
+            t = TransformStamped()
+            t.header.stamp = self.get_clock().now().to_msg()
+            t.header.frame_id = 'base_link'
+            t.child_frame_id = 'laser'
+            t.transform.translation.x = 0.0
+            t.transform.translation.y = 0.0
+            t.transform.translation.z = 0.18  # Height of the LIDAR from base
+            t.transform.rotation.w = 1.0
+            self.tf_broadcaster.sendTransform(t)
+        except Exception as e:
+            self.get_logger().error(f'Error publishing transform: {str(e)}')
 
     def map_callback(self, msg):
         """Process incoming map data."""

@@ -7,35 +7,16 @@ from launch_ros.actions import Node
 from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
-    use_sim_time = LaunchConfiguration('use_sim_time', default='false')
-    serial_port = LaunchConfiguration('serial_port', default='/dev/ttyUSB0')
-    
     # Get the launch directory
     pkg_dir = get_package_share_directory('motor_controller')
     rplidar_dir = get_package_share_directory('rplidar_ros')
     
     return LaunchDescription([
-        # Launch Arguments
-        DeclareLaunchArgument(
-            'use_sim_time',
-            default_value='false',
-            description='Use simulation time if true'
-        ),
-        
-        DeclareLaunchArgument(
-            'serial_port',
-            default_value='/dev/ttyUSB0',
-            description='Serial port for the LIDAR'
-        ),
-
         # 1. Launch RPLIDAR
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(rplidar_dir, 'launch', 'rplidar_a1_launch.py')
-            ),
-            launch_arguments={
-                'serial_port': serial_port
-            }.items()
+            )
         ),
 
         # 2. Launch RF2O Laser Odometry
@@ -45,27 +26,17 @@ def generate_launch_description():
             name='rf2o_laser_odometry',
             output='screen',
             parameters=[{
-                'use_sim_time': use_sim_time,
+                'use_sim_time': False,
                 'laser_scan_topic': '/scan',
                 'odom_topic': '/odom_rf2o',
                 'publish_tf': True,
-                'base_frame_id': 'base_footprint',
+                'base_frame_id': 'base_link',
                 'odom_frame_id': 'odom',
-                'freq': 20.0,
-                'verbose': True,
-                'init_pose_from_topic': '',
-                'laser_frame_id': 'laser'
+                'freq': 20.0
             }]
         ),
 
         # 3. Static Transforms
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='base_footprint_to_base_link',
-            arguments=['0', '0', '0.1', '0', '0', '0', 'base_footprint', 'base_link']
-        ),
-
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
@@ -76,7 +47,7 @@ def generate_launch_description():
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
-            name='map_to_odom_init',
+            name='map_to_odom',
             arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
         ),
 
@@ -87,8 +58,8 @@ def generate_launch_description():
             name='slam_toolbox',
             output='screen',
             parameters=[{
-                'use_sim_time': use_sim_time,
-                'base_frame': 'base_footprint',
+                'use_sim_time': False,
+                'base_frame': 'base_link',
                 'odom_frame': 'odom',
                 'map_frame': 'map',
                 'scan_topic': '/scan',
@@ -103,13 +74,7 @@ def generate_launch_description():
                 'use_scan_matching': True,
                 'use_scan_barycenter': True,
                 'minimum_travel_distance': 0.1,
-                'minimum_travel_heading': 0.1,
-                'scan_buffer_size': 10,
-                'scan_buffer_maximum_scan_distance': 10.0,
-                'link_match_minimum_response_fine': 0.1,
-                'link_scan_maximum_distance': 1.5,
-                'loop_search_maximum_distance': 3.0,
-                'do_loop_closing': True
+                'minimum_travel_heading': 0.1
             }]
         ),
 
@@ -120,19 +85,11 @@ def generate_launch_description():
             name='mobile_robot_controller',
             output='screen',
             parameters=[{
-                'use_sim_time': use_sim_time,
+                'use_sim_time': False,
                 'safety_radius': 0.3,
                 'detection_distance': 0.5,
                 'turn_speed': 1.0,
                 'linear_speed': 0.3,
             }]
-        ),
-
-        # 6. Launch RViz2 for visualization
-        Node(
-            package='rviz2',
-            executable='rviz2',
-            name='rviz2',
-            arguments=['-d', os.path.join(pkg_dir, 'config', 'slam_view.rviz')]
-        ),
+        )
     ])

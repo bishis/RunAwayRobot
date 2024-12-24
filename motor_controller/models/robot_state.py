@@ -9,7 +9,7 @@ class RobotState:
         self.angular_vel = 0.0
         
         # Frame names
-        self.base_frame = 'base_footprint'  # Changed to base_footprint
+        self.base_frame = 'base_link'  # Changed from base_footprint
         self.odom_frame = 'odom'
         self.map_frame = 'map'
         self.laser_frame = 'laser'

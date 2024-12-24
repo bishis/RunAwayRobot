@@ -27,11 +27,6 @@
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
-  <depend>cartographer</depend>
-  <depend>cartographer_ros</depend>
-  <depend>cartographer_ros_msgs</depend>
-  <depend>cartographer_rviz</depend>
-
   <export>
     <build_type>ament_python</build_type>
   </export>

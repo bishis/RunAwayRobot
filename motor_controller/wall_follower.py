@@ -91,20 +91,6 @@ class MobileRobotController(Node):
             self.get_logger().warn("Waiting for odometry data...")
             return
 
-        # Publish transform
-        try:
-            t = TransformStamped()
-            t.header.stamp = self.get_clock().now().to_msg()
-            t.header.frame_id = 'base_link'
-            t.child_frame_id = 'laser'
-            t.transform.translation.x = 0.0
-            t.transform.translation.y = 0.0
-            t.transform.translation.z = 0.18
-            t.transform.rotation.w = 1.0
-            self.tf_broadcaster.sendTransform(t)
-        except Exception as e:
-            self.get_logger().error(f'Error publishing transform: {str(e)}')
-
         # Debug output
         self.get_logger().info(
             f"State: {self.mapper_state.current_state}, "
@@ -112,7 +98,7 @@ class MobileRobotController(Node):
             f"Angle: {math.degrees(self.angle_turned):.2f}°"
         )
 
-        # Adjust speeds for better control
+        # State machine for mapping pattern
         if self.mapper_state.current_state == MappingState.FORWARD:
             if self.distance_traveled >= self.mapper_state.segment_length:
                 self.get_logger().info("Segment complete, turning...")
@@ -123,8 +109,10 @@ class MobileRobotController(Node):
                 else:
                     self.mapper_state.current_state = MappingState.TURN_LEFT
                 self.motors.stop()
+                time.sleep(0.5)  # Short pause before turning
             else:
-                self.motors.set_speeds(0.3, 0.3)  # Reduced speed for better control
+                # Forward motion with slightly different speeds for straight line
+                self.motors.set_speeds(0.7, 0.7)  # Increased speed
 
         elif self.mapper_state.current_state in [MappingState.TURN_LEFT, MappingState.TURN_RIGHT]:
             target_angle = math.radians(self.mapper_state.turn_angle)
@@ -135,11 +123,12 @@ class MobileRobotController(Node):
                 self.mapper_state.current_state = MappingState.FORWARD
                 self.mapper_state.direction *= -1
                 self.motors.stop()
+                time.sleep(0.5)  # Short pause after turning
             else:
                 if self.mapper_state.current_state == MappingState.TURN_LEFT:
-                    self.motors.set_speeds(-0.3, 0.3)  # Reduced turn speed
+                    self.motors.set_speeds(-0.6, 0.6)  # Increased turn speed
                 else:
-                    self.motors.set_speeds(0.3, -0.3)  # Reduced turn speed
+                    self.motors.set_speeds(0.6, -0.6)  # Increased turn speed
 
     def lidar_callback(self, msg):
         """Process LIDAR data for obstacle detection."""

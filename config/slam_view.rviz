@@ -1,0 +1,26 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+        - /TF1/Frames1
+      Splitter Ratio: 0.5
+    Tree Height: 719
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_common/TF
+      Enabled: true
+      Frame Timeout: 15
+      Frames:
+        All Enabled: true
+    - Class: rviz_common/Map
+      Topic: /map
+      Scheme: map
+    - Class: rviz_common/LaserScan
+      Topic: /scan
+      Style: Points
+  Global Options:
+    Fixed Frame: map
+    Frame Rate: 30 

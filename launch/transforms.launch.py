@@ -8,7 +8,8 @@ def generate_launch_description():
             package='tf2_ros',
             executable='static_transform_publisher',
             name='map_to_odom',
-            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
+            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
+            parameters=[{'use_sim_time': False}]
         ),
 
         # Then odom->base_link (this should come from RF2O)
@@ -16,7 +17,8 @@ def generate_launch_description():
             package='tf2_ros',
             executable='static_transform_publisher',
             name='odom_to_base_link',
-            arguments=['0', '0', '0', '0', '0', '0', 'odom', 'base_link']
+            arguments=['0', '0', '0', '0', '0', '0', 'odom', 'base_link'],
+            parameters=[{'use_sim_time': False}]
         ),
 
         # Finally base_link->laser
@@ -24,6 +26,7 @@ def generate_launch_description():
             package='tf2_ros',
             executable='static_transform_publisher',
             name='base_link_to_laser',
-            arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
+            arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser'],
+            parameters=[{'use_sim_time': False}]
         )
     ]) 

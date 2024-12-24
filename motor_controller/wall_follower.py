@@ -36,6 +36,9 @@ class MobileRobotController(Node):
         # Setup ROS components
         self.setup_ros_components()
         
+        # Add initial delay before starting
+        time.sleep(2.0)
+        
         # Create timer for mapping control
         self.create_timer(0.1, self.mapping_control_loop)
         

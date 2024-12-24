@@ -19,22 +19,6 @@ def generate_launch_description():
         # Launch Arguments
         use_sim_time_arg,
 
-        # Static Transform Publisher for base_footprint->base_link
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='base_footprint_to_base_broadcaster',
-            arguments=['0', '0', '0.1', '0', '0', '0', 'base_footprint', 'base_link']
-        ),
-
-        # Static Transform Publisher for base_link->laser_frame
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='base_to_laser_broadcaster',
-            arguments=['0', '0', '0.1', '0', '0', '0', 'base_link', 'laser_frame']
-        ),
-
         # Launch RPLIDAR Node
         Node(
             package='rplidar_ros',
@@ -43,10 +27,18 @@ def generate_launch_description():
             parameters=[{
                 'serial_port': '/dev/ttyUSB0',
                 'serial_baudrate': 115200,
-                'frame_id': 'laser_frame',
+                'frame_id': 'laser',
                 'inverted': False,
                 'angle_compensate': True,
             }]
+        ),
+
+        # TF Static Transform Publishers
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='base_link_to_laser',
+            arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
         ),
 
         # Launch SLAM Toolbox
@@ -57,7 +49,7 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'use_sim_time': use_sim_time,
-                'base_frame': 'base_footprint',
+                'base_frame': 'base_link',
                 'odom_frame': 'odom',
                 'map_frame': 'map',
                 'mode': 'mapping',

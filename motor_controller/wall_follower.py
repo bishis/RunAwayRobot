@@ -75,31 +75,53 @@ class MobileRobotController(Node):
         
     def execute_command(self, command):
         """Execute navigation command."""
+        WHEEL_BASE = 0.2  # Distance between wheels in meters
+        
         if command == 'stop':
             self.get_logger().warn("Emergency stop!")
             self.motors.stop()
+            self.state.update_velocity(0.0, 0.0)
             
         elif command == 'reverse':
             self.get_logger().info("Reversing")
-            self.motors.set_speeds(-0.7, -0.7)  # Reverse at reduced speed
+            self.motors.set_speeds(-0.7, -0.7)
+            self.state.update_velocity(-0.3, 0.0)  # Linear velocity only
             
         elif command == 'turn_left':
             self.get_logger().info("Turning left")
             self.motors.set_speeds(-1, 1)
+            self.state.update_velocity(0.0, 1.0)  # Angular velocity only
             
         elif command == 'turn_right':
             self.get_logger().info("Turning right")
             self.motors.set_speeds(1, -1)
+            self.state.update_velocity(0.0, -1.0)  # Angular velocity only
             
         elif command == 'forward':
             self.get_logger().info("Moving forward")
             self.motors.set_speeds(1, 1)
+            self.state.update_velocity(0.3, 0.0)  # Linear velocity only
 
     def publish_odom(self):
         """Publish odometry data."""
         try:
             current_time = self.get_clock().now()
-            
+            dt = (current_time - self.last_time).nanoseconds / 1e9
+
+            # Update robot's position based on velocities
+            if self.state.linear_vel != 0.0 or self.state.angular_vel != 0.0:
+                # Calculate distance traveled
+                delta_x = self.state.linear_vel * math.cos(self.state.theta) * dt
+                delta_y = self.state.linear_vel * math.sin(self.state.theta) * dt
+                delta_th = self.state.angular_vel * dt
+
+                # Update position
+                self.state.x += delta_x
+                self.state.y += delta_y
+                self.state.theta += delta_th
+                self.state.theta = math.atan2(math.sin(self.state.theta), 
+                                            math.cos(self.state.theta))
+
             # Create and publish transform
             t = TransformStamped()
             t.header.stamp = current_time.to_msg()
@@ -123,38 +145,34 @@ class MobileRobotController(Node):
             odom.header.frame_id = 'odom'
             odom.child_frame_id = 'base_link'
             
+            # Set position
             odom.pose.pose.position.x = float(self.state.x)
             odom.pose.pose.position.y = float(self.state.y)
             odom.pose.pose.position.z = 0.0
             odom.pose.pose.orientation = q
             
+            # Set velocity
             odom.twist.twist.linear.x = float(self.state.linear_vel)
             odom.twist.twist.angular.z = float(self.state.angular_vel)
             
-            # Create proper covariance matrices (6x6)
-            pose_covariance = [0.0] * 36  # 6x6 matrix flattened
-            twist_covariance = [0.0] * 36  # 6x6 matrix flattened
+            # Add covariance
+            pose_covariance = [0.001] * 36  # Small covariance for better SLAM
+            twist_covariance = [0.001] * 36
             
-            # Set diagonal elements for pose covariance
-            pose_covariance[0] = 0.01  # x
-            pose_covariance[7] = 0.01  # y
-            pose_covariance[14] = 0.01  # z
-            pose_covariance[21] = 0.01  # rotation about X axis
-            pose_covariance[28] = 0.01  # rotation about Y axis
-            pose_covariance[35] = 0.01  # rotation about Z axis
-            
-            # Set diagonal elements for twist covariance
-            twist_covariance[0] = 0.01  # x velocity
-            twist_covariance[7] = 0.01  # y velocity
-            twist_covariance[14] = 0.01  # z velocity
-            twist_covariance[21] = 0.01  # angular velocity about X axis
-            twist_covariance[28] = 0.01  # angular velocity about Y axis
-            twist_covariance[35] = 0.01  # angular velocity about Z axis
+            # Set main diagonal elements
+            pose_covariance[0] = 0.001   # x
+            pose_covariance[7] = 0.001   # y
+            pose_covariance[14] = 0.001  # z
+            pose_covariance[21] = 0.001  # rotation about X axis
+            pose_covariance[28] = 0.001  # rotation about Y axis
+            pose_covariance[35] = 0.001  # rotation about Z axis
             
             odom.pose.covariance = pose_covariance
             odom.twist.covariance = twist_covariance
             
             self.odom_pub.publish(odom)
+            
+            self.last_time = current_time
             
         except Exception as e:
             self.get_logger().error(f'Error publishing odometry: {str(e)}')

@@ -51,7 +51,7 @@ def generate_launch_description():
         # Launch SLAM Toolbox
         Node(
             package='slam_toolbox',
-            executable='async_slam_toolbox_node',
+            executable='sync_slam_toolbox_node',
             name='slam_toolbox',
             output='screen',
             parameters=[{
@@ -60,40 +60,16 @@ def generate_launch_description():
                 'odom_frame': 'odom',
                 'map_frame': 'map',
                 'mode': 'mapping',
-                'max_laser_range': 12.0,
                 'resolution': 0.05,
-                'minimum_time_interval': 0.1,
-                'transform_timeout': 0.5,
-                'map_update_interval': 0.5,
-                'publish_period': 0.5,
-                'use_scan_matching': True,
-                'use_scan_barycenter': True,
-                'minimum_travel_distance': 0.05,
-                'minimum_travel_heading': 0.05,
-                'scan_buffer_size': 10,
-                'scan_buffer_maximum_scan_distance': 10.0,
-                'link_match_minimum_response_fine': 0.1,
-                'link_scan_maximum_distance': 1.5,
-                'loop_search_maximum_distance': 3.0,
-                'do_loop_closing': True,
-                'loop_match_minimum_chain_size': 3,
-                'loop_match_maximum_variance_coarse': 3.0,
-                'loop_match_minimum_response_coarse': 0.35,
-                'loop_match_minimum_response_fine': 0.45,
-                
-                # Add these parameters for map publishing
-                'map_publish_interval': 1.0,
+                'map_update_interval': 5.0,
+                'max_laser_range': 12.0,
+                'max_update_rate': 10.0,
                 'enable_interactive_mode': False,
-                'enable_slam_toolbox_debug': True,
-                'debug_logging': True,
-                'throttle_scans': 1,
-                'transform_publish_period': 0.02,
-                'map_update_period': 1.0,
-                'resolution_closure_threshold': 0.05,
-                'minimum_angle_penalty': 0.9,
-                'minimum_distance_penalty': 0.5,
-                'optimize_after_n_scans': 1,
-                'publish_occupancy_map': True,  # Important!
+                'transform_timeout': 0.2,
+                'publish_period': 1.0,
+                'map_file_name': '',
+                'scan_topic': '/scan',
+                'odom_topic': '/odom'
             }]
         ),
 
@@ -109,6 +85,30 @@ def generate_launch_description():
                 'detection_distance': 0.5,
                 'turn_speed': 1.0,
                 'linear_speed': 0.3,
+            }]
+        ),
+
+        # Add Map Server
+        Node(
+            package='nav2_map_server',
+            executable='map_server',
+            name='map_server',
+            output='screen',
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'yaml_filename': ''
+            }]
+        ),
+
+        Node(
+            package='nav2_lifecycle_manager',
+            executable='lifecycle_manager',
+            name='lifecycle_manager_mapper',
+            output='screen',
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'autostart': True,
+                'node_names': ['map_server']
             }]
         ),
     ])

@@ -26,10 +26,10 @@ def generate_launch_description():
             arguments=['0', '0', '0', '0', '0', '0', 'base_link', 'laser']
         ),
 
-        # Minimal SLAM configuration
+        # SLAM Toolbox with online_async mode
         Node(
             package='slam_toolbox',
-            executable='sync_slam_toolbox_node',
+            executable='online_async_launch.py',
             name='slam_toolbox',
             output='screen',
             parameters=[{
@@ -38,28 +38,39 @@ def generate_launch_description():
                 'odom_frame': 'odom',
                 'map_frame': 'map',
                 'scan_topic': '/scan',
-                'mode': 'mapping',
+                'mode': 'localization',
                 
-                # Force map publishing
+                # Basic parameters
                 'publish_map': True,
-                'map_publish_interval': 1.0,
                 'resolution': 0.05,
+                'max_laser_range': 20.0,
                 
-                # Add these critical parameters
+                # Performance parameters
                 'map_update_interval': 1.0,
-                'transform_publish_period': 0.05,
-                'map_update_periodicity': 1.0,
-                'enable_interactive_mode': False,
+                'transform_timeout': 0.2,
+                'update_timing': True,
+                'enable_interactive_mode': True,
                 
-                # Add scan matching parameters
+                # Scan Matching Parameters
                 'use_scan_matching': True,
                 'use_scan_barycenter': True,
-                'minimum_time_interval': 0.1,
-                'transform_timeout': 0.5,
+                'minimum_travel_distance': 0.1,
+                'minimum_travel_heading': 0.1,
                 
-                # Debug parameters
-                'debug_logging': True,
-                'throttle_scans': 1
+                # Debug
+                'debug_logging': True
             }]
+        ),
+
+        # Add RViz2 for visualization
+        Node(
+            package='rviz2',
+            executable='rviz2',
+            name='rviz2',
+            arguments=['-d', os.path.join(
+                get_package_share_directory('motor_controller'),
+                'config',
+                'slam_view.rviz'
+            )]
         )
     ]) 

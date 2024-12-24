@@ -54,7 +54,15 @@ def generate_launch_description():
             arguments=['0', '0', '0', '0', '0', '0', 'base_link', 'odom']
         ),
 
-        # 4. Launch SLAM Toolbox (similar to turtlebot4_navigation slam.launch.py)
+        # Add map to odom transform
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='map_to_odom',
+            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
+        ),
+
+        # 4. Launch SLAM Toolbox
         Node(
             package='slam_toolbox',
             executable='async_slam_toolbox_node',
@@ -62,7 +70,7 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'use_sim_time': use_sim_time,
-                'base_frame': 'base_link',  # Changed to base_link
+                'base_frame': 'base_link',
                 'odom_frame': 'odom',
                 'map_frame': 'map',
                 'scan_topic': '/scan',
@@ -71,7 +79,7 @@ def generate_launch_description():
                 'map_publish_interval': 1.0,
                 'resolution': 0.05,
                 'max_laser_range': 12.0,
-                'transform_timeout': 0.2,
+                'transform_timeout': 0.5,
                 'map_update_interval': 1.0,
                 'publish_period': 1.0,
                 'use_scan_matching': True,
@@ -83,7 +91,8 @@ def generate_launch_description():
                 'link_match_minimum_response_fine': 0.1,
                 'link_scan_maximum_distance': 1.5,
                 'loop_search_maximum_distance': 3.0,
-                'do_loop_closing': True
+                'do_loop_closing': True,
+                'publish_frame_transforms': True
             }]
         ),
 

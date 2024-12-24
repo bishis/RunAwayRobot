@@ -1,4 +1,5 @@
 import os
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node
 
@@ -29,7 +30,7 @@ def generate_launch_description():
         # SLAM Toolbox with online_async mode
         Node(
             package='slam_toolbox',
-            executable='online_async_launch.py',
+            executable='async_slam_toolbox_node',
             name='slam_toolbox',
             output='screen',
             parameters=[{
@@ -38,7 +39,7 @@ def generate_launch_description():
                 'odom_frame': 'odom',
                 'map_frame': 'map',
                 'scan_topic': '/scan',
-                'mode': 'localization',
+                'mode': 'mapping',
                 
                 # Basic parameters
                 'publish_map': True,

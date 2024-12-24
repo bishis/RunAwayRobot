@@ -8,6 +8,7 @@ from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
+    serial_port = LaunchConfiguration('serial_port', default='/dev/ttyUSB0')
     
     # Get the launch directory
     pkg_dir = get_package_share_directory('motor_controller')
@@ -20,12 +21,21 @@ def generate_launch_description():
             default_value='false',
             description='Use simulation time if true'
         ),
+        
+        DeclareLaunchArgument(
+            'serial_port',
+            default_value='/dev/ttyUSB0',
+            description='Serial port for the LIDAR'
+        ),
 
         # 1. Launch RPLIDAR A1
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(rplidar_dir, 'launch', 'sllidar_a1_launch.py')
-            )
+            ),
+            launch_arguments={
+                'serial_port': serial_port
+            }.items()
         ),
 
         # 2. Static Transforms

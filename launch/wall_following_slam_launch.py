@@ -12,7 +12,7 @@ def generate_launch_description():
     
     # Get the launch directory
     pkg_dir = get_package_share_directory('motor_controller')
-    rplidar_dir = get_package_share_directory('sllidar_ros2')
+    rplidar_dir = get_package_share_directory('rplidar_ros')
     
     return LaunchDescription([
         # Launch Arguments
@@ -28,10 +28,10 @@ def generate_launch_description():
             description='Serial port for the LIDAR'
         ),
 
-        # 1. Launch RPLIDAR A1
+        # 1. Launch RPLIDAR
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
-                os.path.join(rplidar_dir, 'launch', 'sllidar_a1_launch.py')
+                os.path.join(rplidar_dir, 'launch', 'rplidar.launch.py')
             ),
             launch_arguments={
                 'serial_port': serial_port

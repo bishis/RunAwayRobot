@@ -18,7 +18,7 @@ def generate_launch_description():
         # 1. Launch RPLIDAR (wait 2 seconds)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
-                os.path.join(rplidar_dir, 'launch', 'rplidar.launch.py')
+                os.path.join(rplidar_dir, 'launch', 'rplidar_a1_launch.py')
             )
         ),
 

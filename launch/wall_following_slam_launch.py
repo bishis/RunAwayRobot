@@ -40,8 +40,8 @@ def generate_launch_description():
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
-            name='map_to_odom_init',
-            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
+            name='base_footprint_to_base_link',
+            arguments=['0', '0', '0.1', '0', '0', '0', 'base_footprint', 'base_link']
         ),
 
         Node(
@@ -51,7 +51,7 @@ def generate_launch_description():
             arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
         ),
 
-        # Launch SLAM Toolbox with explicit parameters
+        # Launch SLAM Toolbox
         Node(
             package='slam_toolbox',
             executable='async_slam_toolbox_node',
@@ -59,7 +59,7 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'use_sim_time': use_sim_time,
-                'base_frame': 'base_link',
+                'base_frame': 'base_footprint',
                 'odom_frame': 'odom',
                 'map_frame': 'map',
                 'scan_topic': '/scan',

@@ -23,4 +23,16 @@ slam_toolbox:
     # Map management
     enable_interactive_mode: false
     map_file_name: ""
-    map_start_pose: [0.0, 0.0, 0.0] 
+    map_start_pose: [0.0, 0.0, 0.0]
+
+    # Transform publishing
+    publish_frame_transforms: true
+    use_pose_graph_backend: true
+    use_scan_matching: true
+    use_scan_barycenter: true
+    minimum_travel_distance: 0.1
+    minimum_travel_heading: 0.1
+    scan_buffer_size: 10
+    link_match_minimum_response_fine: 0.1
+    loop_search_maximum_distance: 3.0
+    do_loop_closing: true 

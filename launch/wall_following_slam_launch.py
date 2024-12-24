@@ -6,6 +6,10 @@ from launch_ros.actions import Node
 from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
+    # Get the path to config files
+    pkg_dir = get_package_share_directory('motor_controller')
+    slam_config = os.path.join(pkg_dir, 'config', 'slam_config.yaml')
+    
     # Launch Arguments
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
@@ -16,7 +20,6 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     
     return LaunchDescription([
-        # Launch Arguments
         use_sim_time_arg,
 
         # Launch RPLIDAR Node
@@ -37,13 +40,6 @@ def generate_launch_description():
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
-            name='map_to_odom',
-            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
-        ),
-
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
             name='base_link_to_laser',
             arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
         ),
@@ -51,26 +47,10 @@ def generate_launch_description():
         # Launch SLAM Toolbox
         Node(
             package='slam_toolbox',
-            executable='sync_slam_toolbox_node',
+            executable='async_slam_toolbox_node',
             name='slam_toolbox',
             output='screen',
-            parameters=[{
-                'use_sim_time': use_sim_time,
-                'base_frame': 'base_link',
-                'odom_frame': 'odom',
-                'map_frame': 'map',
-                'mode': 'mapping',
-                'resolution': 0.05,
-                'map_update_interval': 5.0,
-                'max_laser_range': 12.0,
-                'max_update_rate': 10.0,
-                'enable_interactive_mode': False,
-                'transform_timeout': 0.2,
-                'publish_period': 1.0,
-                'map_file_name': '',
-                'scan_topic': '/scan',
-                'odom_topic': '/odom'
-            }]
+            parameters=[slam_config]
         ),
 
         # Launch Mobile Robot Controller Node
@@ -85,30 +65,6 @@ def generate_launch_description():
                 'detection_distance': 0.5,
                 'turn_speed': 1.0,
                 'linear_speed': 0.3,
-            }]
-        ),
-
-        # Add Map Server
-        Node(
-            package='nav2_map_server',
-            executable='map_server',
-            name='map_server',
-            output='screen',
-            parameters=[{
-                'use_sim_time': use_sim_time,
-                'yaml_filename': ''
-            }]
-        ),
-
-        Node(
-            package='nav2_lifecycle_manager',
-            executable='lifecycle_manager',
-            name='lifecycle_manager_mapper',
-            output='screen',
-            parameters=[{
-                'use_sim_time': use_sim_time,
-                'autostart': True,
-                'node_names': ['map_server']
             }]
         ),
     ])

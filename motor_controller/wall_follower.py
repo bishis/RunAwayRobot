@@ -10,10 +10,16 @@ from tf2_ros import TransformBroadcaster
 import math
 import time
 import numpy as np
+from enum import Enum
 
 from .controllers.motor_controller import MotorController
 from .processors.lidar_processor import LidarProcessor
 from .processors.frontier_processor import FrontierProcessor
+
+class RobotState(Enum):
+    EXPLORING = 1    # Moving to frontier
+    WALL_FOLLOWING = 2  # Following wall to get around obstacle
+    ROTATING = 3     # Turning to new direction
 
 class MobileRobotController(Node):
     def __init__(self):
@@ -26,13 +32,17 @@ class MobileRobotController(Node):
         )
         self.lidar = LidarProcessor()
         
-        # Movement state
-        self.state = 'FORWARD'  # States: FORWARD, TURNING
-        self.turn_direction = 'RIGHT'  # Alternates between LEFT and RIGHT
-        self.turn_start_time = None
-        self.forward_start_time = None
-        self.turn_duration = 2.0  # Time to turn (seconds)
-        self.forward_duration = 3.0  # Time to move forward (seconds)
+        # Navigation state
+        self.robot_state = RobotState.EXPLORING
+        self.current_target = None
+        self.wall_follow_direction = 'RIGHT'  # Direction to follow wall
+        self.start_point = None  # Starting point when hitting obstacle
+        self.min_dist_to_target = float('inf')  # For leave point calculation
+        
+        # Movement parameters
+        self.rotation_threshold = 0.1  # radians
+        self.distance_threshold = 0.3  # meters
+        self.wall_follow_distance = 0.3  # meters
         
         # Safety parameters
         self.safety_distance = 0.2  # 50cm safety distance
@@ -57,7 +67,6 @@ class MobileRobotController(Node):
         
         # Add frontier exploration
         self.frontier_processor = FrontierProcessor()
-        self.current_target = None
         self.map_update_timer = self.create_timer(5.0, self.check_frontiers)
         
         # Add map subscription
@@ -107,41 +116,110 @@ class MobileRobotController(Node):
         return min(valid_ranges) if valid_ranges else float('inf')
         
     def move_robot(self):
-        """Control robot movement pattern with frontier exploration."""
-        if self.current_target is None:
-            # No frontier target, use default exploration
-            super().move_robot()
+        """Main navigation loop using Bug2 algorithm."""
+        if self.last_odom is None or self.current_target is None:
+            self.motors.stop()
             return
-            
-        if self.last_odom is None:
-            return
-            
-        # Calculate angle to target
-        dx = self.current_target[0] - self.last_odom.pose.pose.position.x
-        dy = self.current_target[1] - self.last_odom.pose.pose.position.y
-        target_angle = np.arctan2(dy, dx)
-        
-        # Get current robot angle
+
+        current_pos = self.last_odom.pose.pose.position
         current_angle = self.get_yaw_from_quaternion(self.last_odom.pose.pose.orientation)
         
-        # Calculate angle difference
-        angle_diff = target_angle - current_angle
-        if angle_diff > np.pi:
-            angle_diff -= 2 * np.pi
-        elif angle_diff < -np.pi:
-            angle_diff += 2 * np.pi
-            
-        # Calculate distance to target
-        distance = np.sqrt(dx*dx + dy*dy)
+        # Calculate distance and angle to target
+        dx = self.current_target[0] - current_pos.x
+        dy = self.current_target[1] - current_pos.y
+        distance_to_target = np.sqrt(dx*dx + dy*dy)
+        angle_to_target = np.arctan2(dy, dx)
         
-        if distance < 0.5:  # Close enough to target
+        # Debug info
+        self.get_logger().info(
+            f"State: {self.robot_state}, "
+            f"Distance: {distance_to_target:.2f}m, "
+            f"Angle diff: {abs(angle_to_target - current_angle):.2f}rad"
+        )
+
+        if distance_to_target < self.distance_threshold:
+            # Reached target
+            self.get_logger().info("Reached target!")
             self.current_target = None
-            self.start_turning()  # Look around for new frontiers
-        elif abs(angle_diff) > 0.5:  # Need to turn
-            turn_speed = 0.5 if angle_diff > 0 else -0.5
+            self.robot_state = RobotState.EXPLORING
+            return
+
+        if self.robot_state == RobotState.EXPLORING:
+            # Check if path is clear
+            if self.is_path_clear():
+                # Move towards target
+                self.move_to_target(current_angle, angle_to_target)
+            else:
+                # Hit obstacle, start wall following
+                self.get_logger().info("Obstacle detected, starting wall following")
+                self.robot_state = RobotState.WALL_FOLLOWING
+                self.start_point = (current_pos.x, current_pos.y)
+                self.min_dist_to_target = distance_to_target
+                self.wall_follow_direction = 'RIGHT' if self.get_closest_wall_side() == 'RIGHT' else 'LEFT'
+
+        elif self.robot_state == RobotState.WALL_FOLLOWING:
+            # Follow wall while checking if we can move to target
+            if self.is_path_clear() and distance_to_target < self.min_dist_to_target:
+                # Found better path to target
+                self.robot_state = RobotState.EXPLORING
+                return
+
+            # Update minimum distance to target
+            self.min_dist_to_target = min(self.min_dist_to_target, distance_to_target)
+            
+            # Follow wall
+            self.follow_wall()
+
+    def is_path_clear(self):
+        """Check if path to target is clear."""
+        if not hasattr(self, 'scan_sectors'):
+            return True
+            
+        return self.scan_sectors['front']['min_dist'] > self.wall_follow_distance
+
+    def get_closest_wall_side(self):
+        """Determine which side is closer to wall."""
+        left_dist = self.scan_sectors['front_left']['min_dist']
+        right_dist = self.scan_sectors['front_right']['min_dist']
+        return 'LEFT' if left_dist < right_dist else 'RIGHT'
+
+    def follow_wall(self):
+        """Follow wall at set distance."""
+        if self.wall_follow_direction == 'RIGHT':
+            right_dist = self.scan_sectors['front_right']['min_dist']
+            if right_dist > self.wall_follow_distance * 1.5:
+                # Too far from wall, turn right
+                self.motors.set_speeds(0.5, -0.2)
+            elif right_dist < self.wall_follow_distance * 0.5:
+                # Too close to wall, turn left
+                self.motors.set_speeds(-0.2, 0.5)
+            else:
+                # Good distance, move forward
+                self.motors.set_speeds(0.5, 0.5)
+        else:
+            # Mirror logic for left wall following
+            left_dist = self.scan_sectors['front_left']['min_dist']
+            if left_dist > self.wall_follow_distance * 1.5:
+                self.motors.set_speeds(-0.2, 0.5)
+            elif left_dist < self.wall_follow_distance * 0.5:
+                self.motors.set_speeds(0.5, -0.2)
+            else:
+                self.motors.set_speeds(0.5, 0.5)
+
+    def move_to_target(self, current_angle, target_angle):
+        """Move towards target position."""
+        angle_diff = target_angle - current_angle
+        # Normalize angle
+        while angle_diff > np.pi: angle_diff -= 2 * np.pi
+        while angle_diff < -np.pi: angle_diff += 2 * np.pi
+        
+        if abs(angle_diff) > self.rotation_threshold:
+            # Need to rotate
+            turn_speed = 0.3 if angle_diff > 0 else -0.3
             self.motors.set_speeds(-turn_speed, turn_speed)
-        else:  # Move towards target
-            self.motors.set_speeds(1.0, 1.0)
+        else:
+            # Correct heading, move forward
+            self.motors.set_speeds(0.5, 0.5)
 
     def lidar_callback(self, msg):
         """Process LIDAR data for obstacle detection."""
@@ -149,39 +227,11 @@ class MobileRobotController(Node):
         for sector in self.scan_sectors.values():
             sector['min_dist'] = self.check_sector(msg.ranges, sector['start'], sector['end'])
         
-        # Log distances for debugging
-        self.get_logger().debug(
-            f"Distances - Front: {self.scan_sectors['front']['min_dist']:.2f}m, "
-            f"Left: {self.scan_sectors['front_left']['min_dist']:.2f}m, "
-            f"Right: {self.scan_sectors['front_right']['min_dist']:.2f}m"
-        )
-        
-        # Check for obstacles and decide action
+        # Emergency stop if too close
         front_dist = self.scan_sectors['front']['min_dist']
-        left_dist = self.scan_sectors['front_left']['min_dist']
-        right_dist = self.scan_sectors['front_right']['min_dist']
-        
         if front_dist < self.critical_distance:
-            # Emergency stop and turn
-            self.get_logger().warn(f"Obstacle too close! Distance: {front_dist:.2f}m")
             self.motors.stop()
-            time.sleep(0.1)
-            
-            # Choose turn direction based on side distances
-            if left_dist > right_dist:
-                self.start_turning('LEFT')
-            else:
-                self.start_turning('RIGHT')
-                
-        elif front_dist < self.safety_distance:
-            # Slow down and prepare to turn
-            self.get_logger().info(f"Obstacle ahead! Distance: {front_dist:.2f}m")
-            if self.state == 'FORWARD':
-                # Choose turn direction based on side distances
-                if left_dist > right_dist:
-                    self.start_turning('LEFT')
-                else:
-                    self.start_turning('RIGHT')
+            self.get_logger().warn(f"Emergency stop! Distance: {front_dist:.2f}m")
 
     def map_callback(self, msg):
         """Process map updates."""

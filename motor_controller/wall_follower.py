@@ -24,6 +24,14 @@ class MobileRobotController(Node):
         )
         self.lidar = LidarProcessor()
         
+        # Movement state
+        self.state = 'FORWARD'  # States: FORWARD, TURNING
+        self.turn_direction = 'RIGHT'  # Alternates between LEFT and RIGHT
+        self.turn_start_time = None
+        self.forward_start_time = None
+        self.turn_duration = 2.0  # Time to turn (seconds)
+        self.forward_duration = 3.0  # Time to move forward (seconds)
+        
         # Create subscriptions
         self.create_subscription(LaserScan, '/scan', self.lidar_callback, 10)
         
@@ -33,20 +41,44 @@ class MobileRobotController(Node):
         # Create timer for movement control
         self.create_timer(0.1, self.move_robot)
         
-        # Movement state
-        self.is_turning = False
-        self.turn_start_time = None
+        # Start moving forward
+        self.start_forward()
+        
+    def start_forward(self):
+        """Start moving forward."""
+        self.state = 'FORWARD'
+        self.forward_start_time = time.time()
+        self.motors.set_speeds(0.4, 0.4)  # Move forward at 40% speed
+        self.get_logger().info('Moving forward')
+        
+    def start_turning(self):
+        """Start turning."""
+        self.state = 'TURNING'
+        self.turn_start_time = time.time()
+        
+        # Set turn direction and speeds
+        if self.turn_direction == 'RIGHT':
+            self.motors.set_speeds(0.4, -0.4)  # Turn right
+            self.turn_direction = 'LEFT'  # Next time turn left
+        else:
+            self.motors.set_speeds(-0.4, 0.4)  # Turn left
+            self.turn_direction = 'RIGHT'  # Next time turn right
+            
+        self.get_logger().info(f'Turning {self.turn_direction}')
         
     def move_robot(self):
-        """Simple movement pattern: move forward until obstacle, then turn."""
-        if self.is_turning:
-            if time.time() - self.turn_start_time > 1.0:  # Turn for 1 second
-                self.is_turning = False
-                self.motors.set_speeds(0.7, 0.7)  # Go forward
-            return
-
-        # Default behavior: move forward
-        self.motors.set_speeds(0.7, 0.7)
+        """Control robot movement pattern."""
+        current_time = time.time()
+        
+        if self.state == 'FORWARD':
+            # Check if we've been moving forward long enough
+            if current_time - self.forward_start_time >= self.forward_duration:
+                self.start_turning()
+                
+        elif self.state == 'TURNING':
+            # Check if we've been turning long enough
+            if current_time - self.turn_start_time >= self.turn_duration:
+                self.start_forward()
 
     def lidar_callback(self, msg):
         """Process LIDAR data for obstacle detection."""
@@ -54,13 +86,11 @@ class MobileRobotController(Node):
         front_ranges = msg.ranges[350:10]  # Front sector
         min_distance = min([r for r in front_ranges if r > 0.1], default=100)
         
-        if min_distance < 0.5:  # If obstacle closer than 50cm
+        if min_distance < 0.3:  # If obstacle closer than 30cm
             # Stop and start turning
             self.motors.stop()
             time.sleep(0.1)
-            self.motors.set_speeds(0.6, -0.6)  # Turn right
-            self.is_turning = True
-            self.turn_start_time = time.time()
+            self.start_turning()
 
 def main(args=None):
     rclpy.init(args=args)

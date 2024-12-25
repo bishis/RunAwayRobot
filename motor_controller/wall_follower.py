@@ -9,9 +9,11 @@ import tf2_ros
 from tf2_ros import TransformBroadcaster
 import math
 import time
+import numpy as np
 
 from .controllers.motor_controller import MotorController
 from .processors.lidar_processor import LidarProcessor
+from .processors.frontier_processor import FrontierProcessor
 
 class MobileRobotController(Node):
     def __init__(self):
@@ -53,6 +55,19 @@ class MobileRobotController(Node):
         # Start moving forward
         self.start_forward()
         
+        # Add frontier exploration
+        self.frontier_processor = FrontierProcessor()
+        self.current_target = None
+        self.map_update_timer = self.create_timer(5.0, self.check_frontiers)
+        
+        # Add map subscription
+        self.create_subscription(
+            OccupancyGrid,
+            '/map',
+            self.map_callback,
+            10
+        )
+        
     def start_forward(self):
         """Start moving forward."""
         self.state = 'FORWARD'
@@ -92,18 +107,41 @@ class MobileRobotController(Node):
         return min(valid_ranges) if valid_ranges else float('inf')
         
     def move_robot(self):
-        """Control robot movement pattern."""
-        current_time = time.time()
+        """Control robot movement pattern with frontier exploration."""
+        if self.current_target is None:
+            # No frontier target, use default exploration
+            super().move_robot()
+            return
+            
+        if self.last_odom is None:
+            return
+            
+        # Calculate angle to target
+        dx = self.current_target[0] - self.last_odom.pose.pose.position.x
+        dy = self.current_target[1] - self.last_odom.pose.pose.position.y
+        target_angle = np.arctan2(dy, dx)
         
-        if self.state == 'FORWARD':
-            # Check if we've been moving forward long enough
-            if current_time - self.forward_start_time >= self.forward_duration:
-                self.start_turning()
-                
-        elif self.state == 'TURNING':
-            # Check if we've been turning long enough
-            if current_time - self.turn_start_time >= self.turn_duration:
-                self.start_forward()
+        # Get current robot angle
+        current_angle = self.get_yaw_from_quaternion(self.last_odom.pose.pose.orientation)
+        
+        # Calculate angle difference
+        angle_diff = target_angle - current_angle
+        if angle_diff > np.pi:
+            angle_diff -= 2 * np.pi
+        elif angle_diff < -np.pi:
+            angle_diff += 2 * np.pi
+            
+        # Calculate distance to target
+        distance = np.sqrt(dx*dx + dy*dy)
+        
+        if distance < 0.5:  # Close enough to target
+            self.current_target = None
+            self.start_turning()  # Look around for new frontiers
+        elif abs(angle_diff) > 0.5:  # Need to turn
+            turn_speed = 0.5 if angle_diff > 0 else -0.5
+            self.motors.set_speeds(-turn_speed, turn_speed)
+        else:  # Move towards target
+            self.motors.set_speeds(1.0, 1.0)
 
     def lidar_callback(self, msg):
         """Process LIDAR data for obstacle detection."""
@@ -145,6 +183,27 @@ class MobileRobotController(Node):
                 else:
                     self.start_turning('RIGHT')
 
+    def map_callback(self, msg):
+        """Process map updates."""
+        self.frontier_processor.update_map(msg)
+        
+    def check_frontiers(self):
+        """Check for new frontiers to explore."""
+        if self.last_odom is None:
+            return
+            
+        # Update robot position
+        self.frontier_processor.update_robot_position(
+            self.last_odom.pose.pose.position.x,
+            self.last_odom.pose.pose.position.y
+        )
+        
+        # Get new frontier target
+        target = self.frontier_processor.get_best_frontier()
+        if target:
+            self.current_target = target
+            self.get_logger().info(f'New exploration target: {target}')
+            
 def main(args=None):
     rclpy.init(args=args)
     robot = MobileRobotController()

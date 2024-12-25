@@ -45,16 +45,16 @@ class MobileRobotController(Node):
         # Movement parameters
         self.rotation_threshold = 0.1  # radians
         self.distance_threshold = 0.3  # meters
-        self.wall_follow_distance = 0.3  # meters
-        self.stuck_threshold = 0.15  # Distance to consider robot stuck
+        self.wall_follow_distance = 0.4  # meters
+        self.stuck_threshold = 0.3    # Distance to consider robot stuck
         
         # Safety parameters
-        self.safety_distance = 0.2  # 50cm safety distance
-        self.critical_distance = 0.1  # 30cm critical distance
+        self.safety_distance = 0.4    # Increased from 0.2 to 0.4 meters
+        self.critical_distance = 0.25  # Increased from 0.1 to 0.25 meters
         self.scan_sectors = {
-            'front': {'start': 350, 'end': 10, 'min_dist': float('inf')},
-            'front_left': {'start': 10, 'end': 30, 'min_dist': float('inf')},
-            'front_right': {'start': 330, 'end': 350, 'min_dist': float('inf')}
+            'front': {'start': 330, 'end': 30, 'min_dist': float('inf')},      # Wider front sector
+            'front_left': {'start': 30, 'end': 90, 'min_dist': float('inf')},  # Larger left sector
+            'front_right': {'start': 270, 'end': 330, 'min_dist': float('inf')} # Larger right sector
         }
         
         # Create subscriptions
@@ -121,8 +121,14 @@ class MobileRobotController(Node):
         
     def move_robot(self):
         """Main navigation loop using Bug2 algorithm."""
-        if self.last_odom is None or self.current_target is None:
-            self.motors.stop()
+        if self.last_odom is None:
+            return
+
+        # Always check obstacles first
+        front_dist = self.scan_sectors['front']['min_dist']
+        if front_dist < self.critical_distance:
+            self.get_logger().warn(f"Obstacle detected at {front_dist:.2f}m!")
+            self.start_reversing()
             return
 
         current_pos = self.last_odom.pose.pose.position
@@ -197,40 +203,37 @@ class MobileRobotController(Node):
 
     def follow_wall(self):
         """Follow wall at set distance."""
+        front_dist = self.scan_sectors['front']['min_dist']
+        
+        # Always check front distance first
+        if front_dist < self.critical_distance:
+            self.start_reversing()
+            return
+            
         if self.wall_follow_direction == 'RIGHT':
             right_dist = self.scan_sectors['front_right']['min_dist']
-            front_dist = self.scan_sectors['front']['min_dist']
             
-            # Check if we need to reverse
-            if front_dist < self.stuck_threshold:
-                self.start_reversing()
-                return
-                
             if right_dist > self.wall_follow_distance * 1.5:
-                # Too far from wall, turn right
-                self.motors.set_speeds(1.0, -0.4)
+                # Too far from wall, turn right sharply
+                self.motors.set_speeds(0.7, -0.7)
             elif right_dist < self.wall_follow_distance * 0.5:
-                # Too close to wall, turn left
-                self.motors.set_speeds(-0.4, 1.0)
+                # Too close to wall, turn left sharply
+                self.motors.set_speeds(-0.7, 0.7)
             else:
-                # Good distance, move forward
-                self.motors.set_speeds(1.0, 1.0)
+                # Good distance, move forward with slight turn
+                self.motors.set_speeds(1.0, 0.8)  # Slight right bias
         else:
-            # Mirror logic for left wall following
             left_dist = self.scan_sectors['front_left']['min_dist']
-            front_dist = self.scan_sectors['front']['min_dist']
             
-            # Check if we need to reverse
-            if front_dist < self.stuck_threshold:
-                self.start_reversing()
-                return
-                
             if left_dist > self.wall_follow_distance * 1.5:
-                self.motors.set_speeds(-0.4, 1.0)
+                # Too far from wall, turn left sharply
+                self.motors.set_speeds(-0.7, 0.7)
             elif left_dist < self.wall_follow_distance * 0.5:
-                self.motors.set_speeds(1.0, -0.4)
+                # Too close to wall, turn right sharply
+                self.motors.set_speeds(0.7, -0.7)
             else:
-                self.motors.set_speeds(1.0, 1.0)
+                # Good distance, move forward with slight turn
+                self.motors.set_speeds(0.8, 1.0)  # Slight left bias
 
     def move_to_target(self, current_angle, target_angle):
         """Move towards target position."""
@@ -249,27 +252,38 @@ class MobileRobotController(Node):
 
     def lidar_callback(self, msg):
         """Process LIDAR data for obstacle detection."""
-        # Update sector distances
+        # Update sector distances with filtering for noise
         for sector in self.scan_sectors.values():
-            sector['min_dist'] = self.check_sector(msg.ranges, sector['start'], sector['end'])
-        
-        # Check for stuck condition
+            distances = []
+            if sector['start'] > sector['end']:  # Wrapping around 360
+                ranges = msg.ranges[sector['start']:] + msg.ranges[:sector['end']]
+            else:
+                ranges = msg.ranges[sector['start']:sector['end']]
+            
+            # Filter out invalid readings and take minimum
+            valid_ranges = [r for r in ranges if r > 0.1 and r < 5.0]  # Ignore very large readings
+            sector['min_dist'] = min(valid_ranges) if valid_ranges else float('inf')
+
+        # Immediate reaction to close obstacles
         front_dist = self.scan_sectors['front']['min_dist']
         left_dist = self.scan_sectors['front_left']['min_dist']
         right_dist = self.scan_sectors['front_right']['min_dist']
-        
-        # If too close to obstacles on multiple sides, reverse
-        if (front_dist < self.stuck_threshold and 
-            (left_dist < self.stuck_threshold or right_dist < self.stuck_threshold)):
-            self.get_logger().warn(f"Stuck! Front: {front_dist:.2f}m, Left: {left_dist:.2f}m, Right: {right_dist:.2f}m")
+
+        # Log distances for debugging
+        self.get_logger().info(
+            f"Distances - Front: {front_dist:.2f}m, "
+            f"Left: {left_dist:.2f}m, "
+            f"Right: {right_dist:.2f}m"
+        )
+
+        # Emergency stop and reverse if too close on any side
+        if front_dist < self.critical_distance or (
+            front_dist < self.safety_distance and 
+            (left_dist < self.safety_distance or right_dist < self.safety_distance)
+        ):
+            self.get_logger().warn("Obstacle too close! Reversing!")
             self.start_reversing()
             return
-            
-        # Emergency stop if too close
-        if front_dist < self.critical_distance and self.robot_state != RobotState.REVERSING:
-            self.motors.stop()
-            self.get_logger().warn(f"Emergency stop! Distance: {front_dist:.2f}m")
-            self.start_reversing()
 
     def map_callback(self, msg):
         """Process map updates."""
@@ -301,6 +315,7 @@ class MobileRobotController(Node):
         self.get_logger().info("Starting to reverse")
         self.robot_state = RobotState.REVERSING
         self.reverse_start_time = time.time()
+        self.reverse_duration = 1.5  # Increased from 1.0 to 1.5 seconds
         self.motors.set_speeds(-1.0, -1.0)
 
 def main(args=None):

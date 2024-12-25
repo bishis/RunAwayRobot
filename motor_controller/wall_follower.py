@@ -62,63 +62,70 @@ class MobileRobotController(Node):
         self.robot_state = RobotState.EXPLORING
         self.motors.set_speeds(1.0, 1.0)
         
+        # Add LIDAR subscription back
+        self.create_subscription(
+            LaserScan,
+            '/scan',
+            self.lidar_callback,
+            10
+        )
+        
+        # Add map subscription
+        self.create_subscription(
+            OccupancyGrid,
+            '/map',
+            self.map_callback,
+            10
+        )
+        
+        # Add variables for scan data
+        self.latest_scan = None
+        self.scan_time = None
+        self.scan_timeout = 0.5  # seconds
+
     def move_robot(self):
         """Main control loop with priority on obstacle avoidance."""
+        # Check if we have recent scan data
+        if self.latest_scan is None or (time.time() - self.scan_time) > self.scan_timeout:
+            self.get_logger().warn("No recent LIDAR data - stopping!")
+            self.motors.stop()
+            return
+
         # Get all distances
-        front_dist = min(self.scan_sectors['front']['min_dist'], 5.0)  # Cap at 5m
+        front_dist = min(self.scan_sectors['front']['min_dist'], 5.0)
         left_dist = min(self.scan_sectors['front_left']['min_dist'], 5.0)
         right_dist = min(self.scan_sectors['front_right']['min_dist'], 5.0)
         far_left = min(self.scan_sectors['far_left']['min_dist'], 5.0)
         far_right = min(self.scan_sectors['far_right']['min_dist'], 5.0)
-        
-        # Log distances for debugging
+
+        # Double check front distance with raw scan data
+        front_ranges = self.latest_scan.ranges[350:10]  # Direct front view
+        valid_ranges = [r for r in front_ranges if 0.1 < r < 5.0]
+        if valid_ranges:
+            direct_front = min(valid_ranges)
+            front_dist = min(front_dist, direct_front)  # Use the smaller value
+
+        # Log distances and state
         self.get_logger().info(
             f"State: {self.robot_state.name}, "
             f"F: {front_dist:.2f}m, "
             f"L: {left_dist:.2f}m, "
-            f"R: {right_dist:.2f}m"
+            f"R: {right_dist:.2f}m, "
+            f"Direct Front: {direct_front:.2f}m"
         )
-        
-        # Handle different states
-        if self.robot_state == RobotState.REVERSING:
-            if time.time() - self.reverse_start_time >= self.reverse_duration:
-                self.start_rotating()
-            return
-            
-        elif self.robot_state == RobotState.ROTATING:
-            if time.time() - self.rotation_start_time >= self.rotation_duration:
-                # Smart direction choice based on all sensors
-                left_space = min(left_dist, far_left)
-                right_space = min(right_dist, far_right)
-                
-                if left_space > right_space + 0.2:  # Prefer left if significantly more space
-                    self.turn_direction = 'LEFT'
-                elif right_space > left_space + 0.2:  # Prefer right if significantly more space
-                    self.turn_direction = 'RIGHT'
-                else:  # If space is similar, alternate
-                    self.turn_direction = 'LEFT' if self.turn_direction == 'RIGHT' else 'RIGHT'
-                
-                self.robot_state = RobotState.EXPLORING
-                self.motors.set_speeds(1.0, 1.0)
-            return
-            
-        # Enhanced obstacle detection and avoidance
-        if front_dist < self.critical_distance or (
-            front_dist < self.safety_distance and (left_dist < 0.3 or right_dist < 0.3)
-        ):
-            # Emergency stop and reverse
-            self.get_logger().warn(f"Obstacle too close! F:{front_dist:.2f}m L:{left_dist:.2f}m R:{right_dist:.2f}m")
+
+        # More aggressive obstacle detection
+        if front_dist < self.critical_distance or direct_front < self.critical_distance:
+            self.get_logger().warn(f"CRITICAL - Obstacle very close! Front: {front_dist:.2f}m")
+            self.motors.stop()
             self.start_reversing()
             return
             
-        elif front_dist < self.safety_distance:
-            # Need to turn - choose direction based on available space
-            self.get_logger().info("Obstacle ahead, turning")
-            # Pre-select turn direction for next rotation
-            self.turn_direction = 'LEFT' if left_dist > right_dist else 'RIGHT'
+        elif front_dist < self.safety_distance or direct_front < self.safety_distance:
+            self.get_logger().warn(f"WARNING - Obstacle ahead! Front: {front_dist:.2f}m")
             self.start_rotating()
             return
-            
+
         # If no obstacles, continue forward with slight adjustments
         if self.robot_state == RobotState.EXPLORING:
             # Adjust trajectory based on side distances
@@ -151,6 +158,9 @@ class MobileRobotController(Node):
 
     def lidar_callback(self, msg):
         """Process LIDAR data for obstacle detection."""
+        self.latest_scan = msg
+        self.scan_time = time.time()
+        
         # Update sector distances with improved filtering
         for sector in self.scan_sectors.values():
             if sector['start'] > sector['end']:  # Wrapping around 360
@@ -158,18 +168,27 @@ class MobileRobotController(Node):
             else:
                 ranges = msg.ranges[sector['start']:sector['end']]
             
-            # Enhanced filtering
-            valid_ranges = [r for r in ranges if 0.1 < r < 5.0]  # Ignore very short and long readings
+            # Enhanced filtering - use minimum of valid readings
+            valid_ranges = [r for r in ranges if 0.1 < r < 5.0]
             if valid_ranges:
-                # Use average of 3 smallest readings for more stable measurements
-                sorted_ranges = sorted(valid_ranges)
-                sector['min_dist'] = sum(sorted_ranges[:3]) / min(3, len(sorted_ranges))
+                # Take minimum of valid readings for safety
+                sector['min_dist'] = min(valid_ranges)
             else:
                 sector['min_dist'] = float('inf')
 
+        # Emergency check - if any reading in front is too close, stop immediately
+        front_readings = msg.ranges[350:] + msg.ranges[:10]
+        critical_readings = [r for r in front_readings if 0.1 < r < self.critical_distance]
+        if critical_readings:
+            self.get_logger().error(f"Emergency - Obstacle detected at {min(critical_readings):.2f}m!")
+            self.motors.stop()
+            self.start_reversing()
+
     def map_callback(self, msg):
         """Process map updates."""
-        pass  # We're not using the map for basic exploration
+        # Store map data for obstacle checking
+        self.map_data = msg.data
+        self.map_info = msg.info
 
 def main(args=None):
     rclpy.init(args=args)

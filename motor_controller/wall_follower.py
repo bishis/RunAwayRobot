@@ -37,31 +37,26 @@ class MobileRobotController(Node):
         self.robot_state = RobotState.EXPLORING
         self.current_target = None
         self.reverse_start_time = None
-        self.reverse_duration = 1.5  # seconds
+        self.reverse_duration = 0.75  # Reduced from 1.5 to 0.75 seconds for faster response
         self.rotation_start_time = None
-        self.rotation_duration = 1.0  # seconds
-        self.turn_direction = 'RIGHT'  # Alternates between LEFT and RIGHT
+        self.rotation_duration = 0.5  # Reduced from 1.0 to 0.5 seconds for quicker turns
+        self.turn_direction = 'RIGHT'
         
-        # Safety parameters
-        self.safety_distance = 0.4    # 40cm safety distance
-        self.critical_distance = 0.25  # 25cm critical distance
+        # Safety parameters - adjusted for faster reaction
+        self.safety_distance = 0.5    # Increased from 0.4 to 0.5m to detect obstacles earlier
+        self.critical_distance = 0.3  # Increased from 0.25 to 0.3m for earlier stopping
+        
+        # Expanded scan sectors for better detection
         self.scan_sectors = {
-            'front': {'start': 330, 'end': 30, 'min_dist': float('inf')},
-            'front_left': {'start': 30, 'end': 90, 'min_dist': float('inf')},
-            'front_right': {'start': 270, 'end': 330, 'min_dist': float('inf')}
+            'front': {'start': 320, 'end': 40, 'min_dist': float('inf')},      # Wider front view
+            'front_left': {'start': 20, 'end': 100, 'min_dist': float('inf')}, # Wider left view
+            'front_right': {'start': 260, 'end': 340, 'min_dist': float('inf')}, # Wider right view
+            'far_left': {'start': 80, 'end': 100, 'min_dist': float('inf')},   # Additional sectors
+            'far_right': {'start': 260, 'end': 280, 'min_dist': float('inf')}
         }
         
-        # Setup ROS components
-        self.create_subscription(LaserScan, '/scan', self.lidar_callback, 10)
-        self.create_subscription(
-            OccupancyGrid,
-            '/map',
-            self.map_callback,
-            10
-        )
-        
-        # Create timer for movement control
-        self.create_timer(0.1, self.move_robot)
+        # Create timer for faster updates
+        self.create_timer(0.05, self.move_robot)  # Increased from 0.1 to 0.05 for faster updates
         
         # Start moving forward
         self.robot_state = RobotState.EXPLORING
@@ -69,17 +64,19 @@ class MobileRobotController(Node):
         
     def move_robot(self):
         """Main control loop with priority on obstacle avoidance."""
-        # Always check obstacles first
-        front_dist = self.scan_sectors['front']['min_dist']
-        left_dist = self.scan_sectors['front_left']['min_dist']
-        right_dist = self.scan_sectors['front_right']['min_dist']
+        # Get all distances
+        front_dist = min(self.scan_sectors['front']['min_dist'], 5.0)  # Cap at 5m
+        left_dist = min(self.scan_sectors['front_left']['min_dist'], 5.0)
+        right_dist = min(self.scan_sectors['front_right']['min_dist'], 5.0)
+        far_left = min(self.scan_sectors['far_left']['min_dist'], 5.0)
+        far_right = min(self.scan_sectors['far_right']['min_dist'], 5.0)
         
         # Log distances for debugging
         self.get_logger().info(
             f"State: {self.robot_state.name}, "
-            f"Distances - Front: {front_dist:.2f}m, "
-            f"Left: {left_dist:.2f}m, "
-            f"Right: {right_dist:.2f}m"
+            f"F: {front_dist:.2f}m, "
+            f"L: {left_dist:.2f}m, "
+            f"R: {right_dist:.2f}m"
         )
         
         # Handle different states
@@ -90,31 +87,47 @@ class MobileRobotController(Node):
             
         elif self.robot_state == RobotState.ROTATING:
             if time.time() - self.rotation_start_time >= self.rotation_duration:
-                # Choose direction with most space
-                if left_dist > right_dist:
+                # Smart direction choice based on all sensors
+                left_space = min(left_dist, far_left)
+                right_space = min(right_dist, far_right)
+                
+                if left_space > right_space + 0.2:  # Prefer left if significantly more space
                     self.turn_direction = 'LEFT'
-                else:
+                elif right_space > left_space + 0.2:  # Prefer right if significantly more space
                     self.turn_direction = 'RIGHT'
+                else:  # If space is similar, alternate
+                    self.turn_direction = 'LEFT' if self.turn_direction == 'RIGHT' else 'RIGHT'
+                
                 self.robot_state = RobotState.EXPLORING
-                self.motors.set_speeds(1.0, 1.0)  # Move forward
+                self.motors.set_speeds(1.0, 1.0)
             return
             
-        # Check for obstacles and take appropriate action
-        if front_dist < self.critical_distance:
+        # Enhanced obstacle detection and avoidance
+        if front_dist < self.critical_distance or (
+            front_dist < self.safety_distance and (left_dist < 0.3 or right_dist < 0.3)
+        ):
             # Emergency stop and reverse
-            self.get_logger().warn(f"Obstacle too close! Distance: {front_dist:.2f}m")
+            self.get_logger().warn(f"Obstacle too close! F:{front_dist:.2f}m L:{left_dist:.2f}m R:{right_dist:.2f}m")
             self.start_reversing()
             return
             
         elif front_dist < self.safety_distance:
-            # Need to turn
+            # Need to turn - choose direction based on available space
             self.get_logger().info("Obstacle ahead, turning")
+            # Pre-select turn direction for next rotation
+            self.turn_direction = 'LEFT' if left_dist > right_dist else 'RIGHT'
             self.start_rotating()
             return
             
-        # If no obstacles, continue forward
+        # If no obstacles, continue forward with slight adjustments
         if self.robot_state == RobotState.EXPLORING:
-            self.motors.set_speeds(1.0, 1.0)
+            # Adjust trajectory based on side distances
+            if left_dist < 0.4:  # Too close to left
+                self.motors.set_speeds(1.0, 0.8)  # Slight right turn
+            elif right_dist < 0.4:  # Too close to right
+                self.motors.set_speeds(0.8, 1.0)  # Slight left turn
+            else:
+                self.motors.set_speeds(1.0, 1.0)  # Full speed ahead
 
     def start_reversing(self):
         """Start reversing away from obstacle."""
@@ -138,16 +151,21 @@ class MobileRobotController(Node):
 
     def lidar_callback(self, msg):
         """Process LIDAR data for obstacle detection."""
-        # Update sector distances with filtering for noise
+        # Update sector distances with improved filtering
         for sector in self.scan_sectors.values():
             if sector['start'] > sector['end']:  # Wrapping around 360
                 ranges = msg.ranges[sector['start']:] + msg.ranges[:sector['end']]
             else:
                 ranges = msg.ranges[sector['start']:sector['end']]
             
-            # Filter out invalid readings and take minimum
-            valid_ranges = [r for r in ranges if r > 0.1 and r < 5.0]
-            sector['min_dist'] = min(valid_ranges) if valid_ranges else float('inf')
+            # Enhanced filtering
+            valid_ranges = [r for r in ranges if 0.1 < r < 5.0]  # Ignore very short and long readings
+            if valid_ranges:
+                # Use average of 3 smallest readings for more stable measurements
+                sorted_ranges = sorted(valid_ranges)
+                sector['min_dist'] = sum(sorted_ranges[:3]) / min(3, len(sorted_ranges))
+            else:
+                sector['min_dist'] = float('inf')
 
     def map_callback(self, msg):
         """Process map updates."""

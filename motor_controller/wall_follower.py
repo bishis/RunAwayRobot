@@ -20,6 +20,7 @@ class RobotState(Enum):
     EXPLORING = 1    # Moving to frontier
     WALL_FOLLOWING = 2  # Following wall to get around obstacle
     ROTATING = 3     # Turning to new direction
+    REVERSING = 4    # Backing away from obstacle
 
 class MobileRobotController(Node):
     def __init__(self):
@@ -38,11 +39,14 @@ class MobileRobotController(Node):
         self.wall_follow_direction = 'RIGHT'  # Direction to follow wall
         self.start_point = None  # Starting point when hitting obstacle
         self.min_dist_to_target = float('inf')  # For leave point calculation
+        self.reverse_start_time = None
+        self.reverse_duration = 1.0  # seconds to reverse
         
         # Movement parameters
         self.rotation_threshold = 0.1  # radians
         self.distance_threshold = 0.3  # meters
         self.wall_follow_distance = 0.3  # meters
+        self.stuck_threshold = 0.15  # Distance to consider robot stuck
         
         # Safety parameters
         self.safety_distance = 0.2  # 50cm safety distance
@@ -124,6 +128,14 @@ class MobileRobotController(Node):
         current_pos = self.last_odom.pose.pose.position
         current_angle = self.get_yaw_from_quaternion(self.last_odom.pose.pose.orientation)
         
+        # Handle reversing state
+        if self.robot_state == RobotState.REVERSING:
+            if time.time() - self.reverse_start_time >= self.reverse_duration:
+                self.get_logger().info("Finished reversing, starting turn")
+                self.robot_state = RobotState.ROTATING
+                self.start_rotating()
+            return
+
         # Calculate distance and angle to target
         dx = self.current_target[0] - current_pos.x
         dy = self.current_target[1] - current_pos.y
@@ -187,24 +199,38 @@ class MobileRobotController(Node):
         """Follow wall at set distance."""
         if self.wall_follow_direction == 'RIGHT':
             right_dist = self.scan_sectors['front_right']['min_dist']
+            front_dist = self.scan_sectors['front']['min_dist']
+            
+            # Check if we need to reverse
+            if front_dist < self.stuck_threshold:
+                self.start_reversing()
+                return
+                
             if right_dist > self.wall_follow_distance * 1.5:
                 # Too far from wall, turn right
-                self.motors.set_speeds(0.5, -0.2)
+                self.motors.set_speeds(1.0, -0.4)
             elif right_dist < self.wall_follow_distance * 0.5:
                 # Too close to wall, turn left
-                self.motors.set_speeds(-0.2, 0.5)
+                self.motors.set_speeds(-0.4, 1.0)
             else:
                 # Good distance, move forward
-                self.motors.set_speeds(0.5, 0.5)
+                self.motors.set_speeds(1.0, 1.0)
         else:
             # Mirror logic for left wall following
             left_dist = self.scan_sectors['front_left']['min_dist']
+            front_dist = self.scan_sectors['front']['min_dist']
+            
+            # Check if we need to reverse
+            if front_dist < self.stuck_threshold:
+                self.start_reversing()
+                return
+                
             if left_dist > self.wall_follow_distance * 1.5:
-                self.motors.set_speeds(-0.2, 0.5)
+                self.motors.set_speeds(-0.4, 1.0)
             elif left_dist < self.wall_follow_distance * 0.5:
-                self.motors.set_speeds(0.5, -0.2)
+                self.motors.set_speeds(1.0, -0.4)
             else:
-                self.motors.set_speeds(0.5, 0.5)
+                self.motors.set_speeds(1.0, 1.0)
 
     def move_to_target(self, current_angle, target_angle):
         """Move towards target position."""
@@ -215,11 +241,11 @@ class MobileRobotController(Node):
         
         if abs(angle_diff) > self.rotation_threshold:
             # Need to rotate
-            turn_speed = 0.3 if angle_diff > 0 else -0.3
+            turn_speed = 1.0 if angle_diff > 0 else -1.0
             self.motors.set_speeds(-turn_speed, turn_speed)
         else:
             # Correct heading, move forward
-            self.motors.set_speeds(0.5, 0.5)
+            self.motors.set_speeds(1.0, 1.0)
 
     def lidar_callback(self, msg):
         """Process LIDAR data for obstacle detection."""
@@ -227,11 +253,23 @@ class MobileRobotController(Node):
         for sector in self.scan_sectors.values():
             sector['min_dist'] = self.check_sector(msg.ranges, sector['start'], sector['end'])
         
-        # Emergency stop if too close
+        # Check for stuck condition
         front_dist = self.scan_sectors['front']['min_dist']
-        if front_dist < self.critical_distance:
+        left_dist = self.scan_sectors['front_left']['min_dist']
+        right_dist = self.scan_sectors['front_right']['min_dist']
+        
+        # If too close to obstacles on multiple sides, reverse
+        if (front_dist < self.stuck_threshold and 
+            (left_dist < self.stuck_threshold or right_dist < self.stuck_threshold)):
+            self.get_logger().warn(f"Stuck! Front: {front_dist:.2f}m, Left: {left_dist:.2f}m, Right: {right_dist:.2f}m")
+            self.start_reversing()
+            return
+            
+        # Emergency stop if too close
+        if front_dist < self.critical_distance and self.robot_state != RobotState.REVERSING:
             self.motors.stop()
             self.get_logger().warn(f"Emergency stop! Distance: {front_dist:.2f}m")
+            self.start_reversing()
 
     def map_callback(self, msg):
         """Process map updates."""
@@ -254,6 +292,17 @@ class MobileRobotController(Node):
             self.current_target = target
             self.get_logger().info(f'New exploration target: {target}')
             
+    def start_rotating(self):
+        """Start rotating to find clear path."""
+        self.motors.set_speeds(-1.0, 1.0)
+        
+    def start_reversing(self):
+        """Start reversing away from obstacle."""
+        self.get_logger().info("Starting to reverse")
+        self.robot_state = RobotState.REVERSING
+        self.reverse_start_time = time.time()
+        self.motors.set_speeds(-1.0, -1.0)
+
 def main(args=None):
     rclpy.init(args=args)
     robot = MobileRobotController()

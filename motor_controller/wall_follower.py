@@ -32,6 +32,15 @@ class MobileRobotController(Node):
         self.turn_duration = 2.0  # Time to turn (seconds)
         self.forward_duration = 3.0  # Time to move forward (seconds)
         
+        # Safety parameters
+        self.safety_distance = 0.2  # 50cm safety distance
+        self.critical_distance = 0.1  # 30cm critical distance
+        self.scan_sectors = {
+            'front': {'start': 350, 'end': 10, 'min_dist': float('inf')},
+            'front_left': {'start': 10, 'end': 30, 'min_dist': float('inf')},
+            'front_right': {'start': 330, 'end': 350, 'min_dist': float('inf')}
+        }
+        
         # Create subscriptions
         self.create_subscription(LaserScan, '/scan', self.lidar_callback, 10)
         
@@ -48,23 +57,39 @@ class MobileRobotController(Node):
         """Start moving forward."""
         self.state = 'FORWARD'
         self.forward_start_time = time.time()
-        self.motors.set_speeds(0.4, 0.4)  # Move forward at 40% speed
+        self.motors.set_speeds(1, 1)  # Move forward at 100% speed
         self.get_logger().info('Moving forward')
         
-    def start_turning(self):
-        """Start turning."""
+    def start_turning(self, direction=None):
+        """Start turning in specified direction or use default pattern."""
         self.state = 'TURNING'
         self.turn_start_time = time.time()
         
-        # Set turn direction and speeds
-        if self.turn_direction == 'RIGHT':
-            self.motors.set_speeds(0.4, -0.4)  # Turn right
-            self.turn_direction = 'LEFT'  # Next time turn left
+        # If direction is specified, use it; otherwise use alternating pattern
+        if direction:
+            turn_direction = direction
         else:
-            self.motors.set_speeds(-0.4, 0.4)  # Turn left
-            self.turn_direction = 'RIGHT'  # Next time turn right
+            turn_direction = self.turn_direction
+            self.turn_direction = 'LEFT' if turn_direction == 'RIGHT' else 'RIGHT'
+        
+        # Set turn speeds
+        if turn_direction == 'RIGHT':
+            self.motors.set_speeds(1, -1)
+        else:
+            self.motors.set_speeds(-1, 1)
             
-        self.get_logger().info(f'Turning {self.turn_direction}')
+        self.get_logger().info(f'Turning {turn_direction}')
+        
+    def check_sector(self, ranges, start_idx, end_idx):
+        """Check minimum distance in a sector of the laser scan."""
+        if start_idx > end_idx:  # Wrap around case (e.g., 350 to 10)
+            sector_ranges = ranges[start_idx:] + ranges[:end_idx]
+        else:
+            sector_ranges = ranges[start_idx:end_idx]
+            
+        # Filter out invalid readings (zeros or very small values)
+        valid_ranges = [r for r in sector_ranges if r > 0.1]
+        return min(valid_ranges) if valid_ranges else float('inf')
         
     def move_robot(self):
         """Control robot movement pattern."""
@@ -82,15 +107,43 @@ class MobileRobotController(Node):
 
     def lidar_callback(self, msg):
         """Process LIDAR data for obstacle detection."""
-        # Get minimum distance in front sector
-        front_ranges = msg.ranges[350:10]  # Front sector
-        min_distance = min([r for r in front_ranges if r > 0.1], default=100)
+        # Update sector distances
+        for sector in self.scan_sectors.values():
+            sector['min_dist'] = self.check_sector(msg.ranges, sector['start'], sector['end'])
         
-        if min_distance < 0.3:  # If obstacle closer than 30cm
-            # Stop and start turning
+        # Log distances for debugging
+        self.get_logger().debug(
+            f"Distances - Front: {self.scan_sectors['front']['min_dist']:.2f}m, "
+            f"Left: {self.scan_sectors['front_left']['min_dist']:.2f}m, "
+            f"Right: {self.scan_sectors['front_right']['min_dist']:.2f}m"
+        )
+        
+        # Check for obstacles and decide action
+        front_dist = self.scan_sectors['front']['min_dist']
+        left_dist = self.scan_sectors['front_left']['min_dist']
+        right_dist = self.scan_sectors['front_right']['min_dist']
+        
+        if front_dist < self.critical_distance:
+            # Emergency stop and turn
+            self.get_logger().warn(f"Obstacle too close! Distance: {front_dist:.2f}m")
             self.motors.stop()
             time.sleep(0.1)
-            self.start_turning()
+            
+            # Choose turn direction based on side distances
+            if left_dist > right_dist:
+                self.start_turning('LEFT')
+            else:
+                self.start_turning('RIGHT')
+                
+        elif front_dist < self.safety_distance:
+            # Slow down and prepare to turn
+            self.get_logger().info(f"Obstacle ahead! Distance: {front_dist:.2f}m")
+            if self.state == 'FORWARD':
+                # Choose turn direction based on side distances
+                if left_dist > right_dist:
+                    self.start_turning('LEFT')
+                else:
+                    self.start_turning('RIGHT')
 
 def main(args=None):
     rclpy.init(args=args)

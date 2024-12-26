@@ -7,43 +7,73 @@ class LidarProcessor:
         self.SAFETY_RADIUS = safety_radius
         self.DETECTION_DISTANCE = detection_distance
         
-        # Define sectors for RPLIDAR A1 (mounted backwards)
+        # Define sectors for RPLIDAR A1 (0 degrees is front)
         self.sectors = {
-            'front': (150, 210),     # 60 degree front sector
-            'front_left': (210, 270), 
-            'front_right': (90, 150),
-            'left': (270, 330),
-            'right': (30, 90)
+            'front': (350, 10),     # Front sector ±10 degrees
+            'front_left': (10, 45),  # Front-left sector
+            'front_right': (315, 350),  # Front-right sector
+            'left': (45, 135),      # Left sector
+            'right': (225, 315)     # Right sector
         }
+    
+    def process_scan(self, ranges):
+        """Process full 360° LIDAR scan and return processed data."""
+        if not ranges:
+            return None
+            
+        num_readings = len(ranges)
+        angles = np.linspace(0, 360, num_readings, endpoint=False)
         
+        # Convert ranges to numpy array for efficient processing
+        ranges_array = np.array(ranges)
+        
+        # Filter out invalid readings and zeros
+        valid_mask = (np.isfinite(ranges_array)) & (ranges_array > 0.1)
+        valid_ranges = ranges_array[valid_mask]
+        valid_angles = angles[valid_mask]
+        
+        sector_data = {}
+        for sector_name, (start, end) in self.sectors.items():
+            # Handle wraparound for front sector
+            if start > end:  # For sectors that cross 0°
+                mask = (valid_angles >= start) | (valid_angles <= end)
+            else:
+                mask = (valid_angles >= start) & (valid_angles <= end)
+            
+            sector_ranges = valid_ranges[mask]
+            
+            if len(sector_ranges) > 0:
+                sector_data[sector_name] = {
+                    'min_distance': float(np.min(sector_ranges)),
+                    'mean_distance': float(np.mean(sector_ranges)),
+                    'readings': len(sector_ranges)
+                }
+            else:
+                sector_data[sector_name] = {
+                    'min_distance': float('inf'),
+                    'mean_distance': float('inf'),
+                    'readings': 0
+                }
+        
+        return sector_data
+
     def get_navigation_command(self, sector_data):
-        """Determine navigation command based on LIDAR data."""
+        """Determine if path is clear for movement."""
         if not sector_data:
             return 'stop'
             
-        # Get distances for all sectors
         front_dist = sector_data['front']['min_distance']
         front_left_dist = sector_data['front_left']['min_distance']
         front_right_dist = sector_data['front_right']['min_distance']
-        left_dist = sector_data['left']['min_distance']
-        right_dist = sector_data['right']['min_distance']
         
-        # Emergency stop and reverse if too close to anything in front
+        # Emergency stop if too close to obstacles
         if front_dist < self.SAFETY_RADIUS or \
            front_left_dist < self.SAFETY_RADIUS or \
            front_right_dist < self.SAFETY_RADIUS:
-            return 'reverse'
-        
-        # Obstacle avoidance - check front area
+            return False
+            
+        # Check if path is clear
         if front_dist < self.DETECTION_DISTANCE:
-            # Find the best direction to turn based on available space
-            if front_left_dist > front_right_dist and front_left_dist > self.DETECTION_DISTANCE:
-                return 'turn_left'
-            elif front_right_dist > self.DETECTION_DISTANCE:
-                return 'turn_right'
-            else:
-                # If both sides are blocked, make a sharp turn to the side with more space
-                return 'turn_left' if left_dist > right_dist else 'turn_right'
-        
-        # If no obstacles, keep moving forward
-        return 'forward' 
+            return False
+            
+        return True 

@@ -6,19 +6,12 @@ from launch.actions import DeclareLaunchArgument
 
 def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
-    verbose = LaunchConfiguration('verbose', default='false')
     
     return LaunchDescription([
         DeclareLaunchArgument(
             'use_sim_time',
             default_value='false',
             description='Use simulation time'
-        ),
-        
-        DeclareLaunchArgument(
-            'verbose',
-            default_value='false',
-            description='Enable verbose logging'
         ),
 
         Node(
@@ -31,11 +24,10 @@ def generate_launch_description():
                 'laser_scan_topic': '/scan',
                 'odom_topic': '/odom_rf2o',
                 'publish_tf': True,
-                'base_frame_id': 'base_link',
+                'base_frame_id': 'base_footprint',
                 'odom_frame_id': 'odom',
                 'init_pose_from_topic': '',
-                'freq': 20.0,
-                'verbose': verbose
+                'freq': 20.0
             }]
         ),
     ]) 

@@ -27,172 +27,88 @@ class MobileRobotController(Node):
         
         # Initialize controllers
         self.motors = MotorController(left_pin=18, right_pin=12)
-        self.navigator = NavigationController()
+        self.lidar_processor = LidarProcessor()
         
-        # Robot state
-        self.state = RobotState.EXPLORING
+        # Navigation parameters
         self.current_pose = None
         self.last_scan = None
-        self.current_target = None
-        self.scan_start_time = None
-        self.scan_duration = 2.0  # seconds to scan area
-        
-        # Motion parameters
-        self.rotation_speed = 0.8  # Reduced rotation speed
-        self.forward_speed = 1.0
-        self.min_turn_angle = math.pi/6  # 30 degrees threshold for turning
-        
-        # Safety parameters
-        self.safety_distance = 0.5    # Increased from 0.4
-        self.critical_distance = 0.3   # Increased from 0.25
-        self.side_safety_distance = 0.4  # For side obstacle checking
+        self.target_yaw = 0  # Current target orientation (0 = forward)
+        self.leg_length = 2.0  # Length of each straight segment in meters
+        self.current_leg = 0  # Track current segment
+        self.start_position = None
+        self.is_turning = False
         
         # Setup ROS subscriptions
-        self.create_subscription(
-            LaserScan,
-            '/scan',
-            self.lidar_callback,
-            10
-        )
-        self.create_subscription(
-            OccupancyGrid,
-            '/map',
-            self.map_callback,
-            10
-        )
-        self.create_subscription(
-            Odometry,
-            '/odom_rf2o',
-            self.odom_callback,
-            10
-        )
+        self.create_subscription(LaserScan, '/scan', self.lidar_callback, 10)
+        self.create_subscription(Odometry, '/odom_rf2o', self.odom_callback, 10)
         
         # Create control timer
         self.create_timer(0.05, self.control_loop)
-        
-        # Initialize LidarProcessor
-        self.lidar_processor = LidarProcessor()
-        
+    
     def control_loop(self):
-        """Main control loop for exploration."""
+        """Main control loop for square wave pattern movement."""
         if self.current_pose is None or self.last_scan is None:
             return
 
+        # Get current position and orientation
+        current_x = self.current_pose.position.x
+        current_y = self.current_pose.position.y
+        current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
+
+        # Initialize start position if not set
+        if self.start_position is None:
+            self.start_position = (current_x, current_y)
+            
         # Process LIDAR data
         sector_data = self.lidar_processor.process_scan(self.last_scan.ranges)
         if not sector_data:
             self.motors.stop()
             return
 
-        # Get navigation command
-        command = self.lidar_processor.get_navigation_command(sector_data)
-        
-        # Execute command
-        if command == 'forward':
-            self.motors.forward(speed=0.8)
-        elif command == 'reverse':
-            self.motors.backward()
-            time.sleep(0.3)  # Brief reverse
-            # Turn randomly after reversing
-            if np.random.choice([True, False]):
-                self.motors.turn_left()
-            else:
-                self.motors.turn_right()
-            time.sleep(0.3)
-        elif command == 'turn_left':
-            self.motors.turn_left()
-        elif command == 'turn_right':
-            self.motors.turn_right()
-        elif command == 'stop':
+        # Check if path is clear
+        path_clear = self.lidar_processor.get_navigation_command(sector_data)
+        if not path_clear:
             self.motors.stop()
+            return
 
-        # Small delay for stability
-        time.sleep(0.02)
+        # Calculate distance traveled in current leg
+        if self.current_leg % 2 == 0:  # Even legs (forward)
+            distance = abs(current_y - self.start_position[1])
+        else:  # Odd legs (sideways)
+            distance = abs(current_x - self.start_position[0])
 
-    def check_obstacles(self):
-        """Check for obstacles and handle avoidance."""
-        if self.last_scan is None:
-            return False
-
-        # Get distances in each direction
-        front_ranges = self.last_scan.ranges[350:] + self.last_scan.ranges[:10]
-        left_ranges = self.last_scan.ranges[20:60]
-        right_ranges = self.last_scan.ranges[300:340]
-        
-        # Get minimum valid distances
-        front_dist = min([r for r in front_ranges if 0.1 < r < 5.0], default=5.0)
-        left_dist = min([r for r in left_ranges if 0.1 < r < 5.0], default=5.0)
-        right_dist = min([r for r in right_ranges if 0.1 < r < 5.0], default=5.0)
-
-        # Handle obstacles
-        if front_dist < self.critical_distance:
-            self.get_logger().warn(f"Obstacle ahead: {front_dist:.2f}m")
-            self.motors.stop()
-            self.motors.backward()
-            time.sleep(1.0)  # Back up for 1 second
+        # Check if we need to turn
+        if distance >= self.leg_length:
+            if not self.is_turning:
+                self.is_turning = True
+                self.target_yaw = (self.current_leg + 1) * 90  # Turn 90 degrees
+                if self.target_yaw >= 360:
+                    self.target_yaw -= 360
             
-            # Turn away from closest obstacle
-            if left_dist > right_dist:
-                self.motors.turn_left()
+            # Handle turning
+            angle_diff = self.target_yaw - math.degrees(current_yaw)
+            if abs(angle_diff) > 5:  # Allow 5 degrees of error
+                self.motors.turn_left() if angle_diff > 0 else self.motors.turn_right()
             else:
-                self.motors.turn_right()
-            time.sleep(0.5)  # Turn for 0.5 seconds
-            return True
-            
-        elif front_dist < self.safety_distance:
-            # Turn away from closest obstacle
-            if left_dist > right_dist:
-                self.motors.turn_left()
-            else:
-                self.motors.turn_right()
-            return True
-            
-        return False
-
-    def handle_obstacle(self):
-        """Handle immediate obstacle."""
-        self.motors.stop()
-        self.motors.backward()
-        time.sleep(1.0)
-        
-        # Get latest distances
-        left_ranges = self.last_scan.ranges[20:60]
-        right_ranges = self.last_scan.ranges[300:340]
-        left_dist = min([r for r in left_ranges if 0.1 < r < 5.0], default=5.0)
-        right_dist = min([r for r in right_ranges if 0.1 < r < 5.0], default=5.0)
-        
-        # Turn in direction with more space
-        if left_dist > right_dist:
-            self.motors.turn_left()
+                self.is_turning = False
+                self.current_leg += 1
+                self.start_position = (current_x, current_y)
         else:
-            self.motors.turn_right()
-        time.sleep(0.5)
+            # Move forward if path is clear
+            self.motors.forward(speed=0.8)
 
-    def find_next_target(self):
-        """Find next exploration target."""
-        target = self.navigator.find_best_frontier()
-        if target:
-            self.current_target = target
-            self.get_logger().info(f"New target: {target}")
-            self.state = RobotState.EXPLORING
+        # Log current state
+        self.get_logger().info(
+            f"Leg: {self.current_leg}, Distance: {distance:.2f}m, "
+            f"Yaw: {math.degrees(current_yaw):.1f}°, Target: {self.target_yaw}°"
+        )
 
-    def lidar_callback(self, msg):
-        """Process LIDAR data."""
-        self.last_scan = msg
-
-    def map_callback(self, msg):
-        """Process map updates."""
-        self.navigator.update_map(msg)
-
-    def odom_callback(self, msg):
-        """Process odometry data."""
-        self.current_pose = msg.pose.pose
-        self.navigator.update_pose(msg.pose.pose)
-
-    def get_yaw_from_quaternion(self, q: Quaternion) -> float:
+    def get_yaw_from_quaternion(self, q):
         """Extract yaw from quaternion."""
-        return math.atan2(2.0 * (q.w * q.z + q.x * q.y),
-                         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        # Convert quaternion to Euler angles
+        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny_cosp, cosy_cosp)
 
 def main(args=None):
     rclpy.init(args=args)

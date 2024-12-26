@@ -7,14 +7,15 @@ class LidarProcessor:
         self.SAFETY_RADIUS = safety_radius
         self.DETECTION_DISTANCE = detection_distance
         
-        # Define sectors for different directions (RPLIDAR A1 mounted backwards)
-        self.SECTOR_SIZE = 30  # degrees
+        # Redefine sectors for better coverage
+        self.SECTOR_SIZE = 45  # Increased from 30
         self.sectors = {
-            'front': (180, 210),    # 180° to 210° is now front
-            'front_left': (210, 240),
-            'left': (260, 280),     # ~270° is now left
-            'rear': (0, 20),        # 0° is now rear
-            'right': (80, 100)      # ~90° is now right
+            'front': (165, 195),      # 180° ± 15°
+            'front_left': (195, 240),  # Wider front-left sector
+            'left': (240, 300),       # Wider left sector
+            'rear': (345, 15),        # Rear sector
+            'right': (60, 120),       # Wider right sector
+            'front_right': (120, 165)  # Added front-right sector
         }
         
     def process_scan(self, ranges):
@@ -59,40 +60,38 @@ class LidarProcessor:
             return 'stop'
             
         front_dist = sector_data['front']['min_distance']
+        front_left_dist = sector_data['front_left']['min_distance']
+        front_right_dist = sector_data['front_right']['min_distance']
         left_dist = sector_data['left']['min_distance']
         right_dist = sector_data['right']['min_distance']
         
-        # If extremely close to front wall, reverse
+        # Emergency stop if too close
         if front_dist < self.SAFETY_RADIUS:
             return 'reverse'
             
-        # If approaching wall, decide which way to turn
+        # Wall following parameters
+        target_wall_distance = 0.4  # Slightly reduced
+        wall_follow_threshold = 0.1  # Added threshold for smoother following
+        
+        # If approaching obstacle, make smoother turns
         if front_dist < self.DETECTION_DISTANCE:
-            # Turn towards the side with more space
-            if left_dist > right_dist:
-                return 'turn_left'
+            if front_left_dist > front_right_dist:
+                return 'turn_left_gentle'
             else:
-                return 'turn_right'
+                return 'turn_right_gentle'
         
         # Wall following behavior
-        target_wall_distance = 0.5  # Desired distance from wall
-        
-        # If we're too far from both walls, move forward
-        if left_dist > target_wall_distance and right_dist > target_wall_distance:
-            return 'forward'
-            
-        # Follow the nearest wall
-        if left_dist <= right_dist:
-            # Following left wall
-            if left_dist < target_wall_distance * 0.8:  # Too close to left wall
-                return 'turn_right'
-            elif left_dist > target_wall_distance * 1.2:  # Too far from left wall
-                return 'turn_left'
-        else:
-            # Following right wall
-            if right_dist < target_wall_distance * 0.8:  # Too close to right wall
-                return 'turn_left'
-            elif right_dist > target_wall_distance * 1.2:  # Too far from right wall
-                return 'turn_right'
+        if min(left_dist, right_dist) < target_wall_distance + wall_follow_threshold:
+            # Following closest wall
+            if left_dist <= right_dist:
+                if left_dist < target_wall_distance - wall_follow_threshold:
+                    return 'turn_right_gentle'
+                elif left_dist > target_wall_distance + wall_follow_threshold:
+                    return 'turn_left_gentle'
+            else:
+                if right_dist < target_wall_distance - wall_follow_threshold:
+                    return 'turn_left_gentle'
+                elif right_dist > target_wall_distance + wall_follow_threshold:
+                    return 'turn_right_gentle'
         
         return 'forward' 

@@ -13,6 +13,7 @@ from enum import Enum
 
 from .controllers.motor_controller import MotorController
 from .controllers.navigation_controller import NavigationController
+from .processors.lidar_processor import LidarProcessor
 
 class RobotState(Enum):
     EXPLORING = 1    # Moving to frontier
@@ -69,71 +70,44 @@ class MobileRobotController(Node):
         # Create control timer
         self.create_timer(0.05, self.control_loop)
         
+        # Initialize LidarProcessor
+        self.lidar_processor = LidarProcessor()
+        
     def control_loop(self):
         """Main control loop for exploration."""
         if self.current_pose is None or self.last_scan is None:
-            self.get_logger().warn("Waiting for sensor data...")
             return
 
-        # Get current position and orientation
-        current_x = self.current_pose.position.x
-        current_y = self.current_pose.position.y
-        current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
+        # Process LIDAR data
+        sector_data = self.lidar_processor.process_scan(self.last_scan.ranges)
+        if not sector_data:
+            self.motors.stop()
+            return
+
+        # Get navigation command
+        command = self.lidar_processor.get_navigation_command(sector_data)
         
-        # Always check obstacles first
-        if self.check_obstacles():
-            return
+        # Execute command with appropriate speeds
+        if command == 'forward':
+            self.motors.forward(speed=0.7)  # Reduced speed for stability
+        elif command == 'reverse':
+            self.motors.backward()
+            time.sleep(0.5)  # Brief reverse
+            self.motors.turn_left()  # Turn after reversing
+            time.sleep(0.3)
+        elif command == 'turn_left':
+            self.motors.turn_left()
+        elif command == 'turn_right':
+            self.motors.turn_right()
+        elif command == 'turn_left_gentle':
+            self.motors.turn_left_gentle()
+        elif command == 'turn_right_gentle':
+            self.motors.turn_right_gentle()
+        elif command == 'stop':
+            self.motors.stop()
 
-        # State machine
-        if self.state == RobotState.SCANNING:
-            if self.scan_start_time is None:
-                self.scan_start_time = time.time()
-                self.motors.turn_left()  # Simple left turn
-            elif time.time() - self.scan_start_time >= self.scan_duration:
-                self.motors.stop()
-                self.state = RobotState.EXPLORING
-                self.scan_start_time = None
-                self.find_next_target()
-            
-        elif self.state == RobotState.EXPLORING:
-            if self.current_target is None:
-                self.find_next_target()
-                if self.current_target is None:
-                    self.state = RobotState.SCANNING
-                    return
-
-            # Calculate angle to target
-            dx = self.current_target[0] - current_x
-            dy = self.current_target[1] - current_y
-            distance = math.sqrt(dx*dx + dy*dy)
-            target_angle = math.atan2(dy, dx)
-            
-            # Calculate angle difference
-            angle_diff = target_angle - current_yaw
-            while angle_diff > math.pi: angle_diff -= 2 * math.pi
-            while angle_diff < -math.pi: angle_diff += 2 * math.pi
-
-            # Log navigation info
-            self.get_logger().info(
-                f"Distance: {distance:.2f}m, Angle: {math.degrees(angle_diff):.1f}°"
-            )
-            
-            if distance < self.navigator.goal_tolerance:
-                self.motors.stop()
-                self.current_target = None
-                self.state = RobotState.SCANNING
-                return
-
-            # Decisive movement based on angle
-            if abs(angle_diff) > math.pi/6:  # 30 degrees
-                # Need to turn
-                if angle_diff > 0:
-                    self.motors.turn_left()
-                else:
-                    self.motors.turn_right()
-            else:
-                # Aligned enough, move forward
-                self.motors.forward()
+        # Add small delay for stability
+        time.sleep(0.05)
 
     def check_obstacles(self):
         """Check for obstacles and handle avoidance."""

@@ -21,17 +21,21 @@ class MotorController:
             frame_width=20.0/1000
         )
         
-        # Movement states
+        # Add speed constants
         self.FULL_SPEED = 1.0
+        self.HALF_SPEED = 0.5
+        self.TURN_SPEED = 0.7
+        self.GENTLE_TURN = 0.4
         self.STOP = 0.0
         
         # Ensure motors are stopped at start
         self.stop()
         
-    def forward(self):
-        """Move forward at full speed."""
-        self.motor_left.value = self.FULL_SPEED
-        self.motor_right.value = self.FULL_SPEED
+    def forward(self, speed=None):
+        """Move forward at specified speed."""
+        speed = speed or self.FULL_SPEED
+        self.motor_left.value = speed
+        self.motor_right.value = speed
         
     def backward(self):
         """Move backward at full speed."""
@@ -53,6 +57,16 @@ class MotorController:
         self.motor_left.value = self.STOP
         self.motor_right.value = self.STOP
         time.sleep(0.1)  # Short delay to ensure stop
+        
+    def turn_left_gentle(self):
+        """Make a gentler left turn."""
+        self.motor_left.value = -self.GENTLE_TURN
+        self.motor_right.value = self.GENTLE_TURN
+        
+    def turn_right_gentle(self):
+        """Make a gentler right turn."""
+        self.motor_left.value = self.GENTLE_TURN
+        self.motor_right.value = -self.GENTLE_TURN
         
     def __del__(self):
         """Cleanup on object destruction."""

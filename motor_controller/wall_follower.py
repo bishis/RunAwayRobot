@@ -87,27 +87,27 @@ class MobileRobotController(Node):
         # Get navigation command
         command = self.lidar_processor.get_navigation_command(sector_data)
         
-        # Execute command with appropriate speeds
+        # Execute command
         if command == 'forward':
-            self.motors.forward(speed=0.7)  # Reduced speed for stability
+            self.motors.forward(speed=0.8)
         elif command == 'reverse':
             self.motors.backward()
-            time.sleep(0.5)  # Brief reverse
-            self.motors.turn_left()  # Turn after reversing
+            time.sleep(0.3)  # Brief reverse
+            # Turn randomly after reversing
+            if np.random.choice([True, False]):
+                self.motors.turn_left()
+            else:
+                self.motors.turn_right()
             time.sleep(0.3)
         elif command == 'turn_left':
             self.motors.turn_left()
         elif command == 'turn_right':
             self.motors.turn_right()
-        elif command == 'turn_left_gentle':
-            self.motors.turn_left_gentle()
-        elif command == 'turn_right_gentle':
-            self.motors.turn_right_gentle()
         elif command == 'stop':
             self.motors.stop()
 
-        # Add small delay for stability
-        time.sleep(0.05)
+        # Small delay for stability
+        time.sleep(0.02)
 
     def check_obstacles(self):
         """Check for obstacles and handle avoidance."""

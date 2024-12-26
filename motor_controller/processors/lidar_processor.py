@@ -60,20 +60,29 @@ class LidarProcessor:
     def get_navigation_command(self, sector_data):
         """Determine if path is clear for movement."""
         if not sector_data:
+            print("No sector data available")
             return 'stop'
             
         front_dist = sector_data['front']['min_distance']
         front_left_dist = sector_data['front_left']['min_distance']
         front_right_dist = sector_data['front_right']['min_distance']
         
+        print(f"\nLIDAR Distances:"
+              f"\n  Front: {front_dist:.2f}m"
+              f"\n  Front-Left: {front_left_dist:.2f}m"
+              f"\n  Front-Right: {front_right_dist:.2f}m")
+        
         # Emergency stop if too close to obstacles
         if front_dist < self.SAFETY_RADIUS or \
            front_left_dist < self.SAFETY_RADIUS or \
            front_right_dist < self.SAFETY_RADIUS:
+            print(f"Emergency stop - Obstacle too close (safety radius: {self.SAFETY_RADIUS}m)")
             return False
             
         # Check if path is clear
         if front_dist < self.DETECTION_DISTANCE:
+            print(f"Path blocked - Obstacle within detection distance ({self.DETECTION_DISTANCE}m)")
             return False
             
+        print("Path is clear")
         return True 

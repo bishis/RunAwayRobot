@@ -47,7 +47,11 @@ class MobileRobotController(Node):
     
     def control_loop(self):
         """Main control loop for square wave pattern movement."""
-        if self.current_pose is None or self.last_scan is None:
+        if self.current_pose is None:
+            self.get_logger().warn("No pose data received yet")
+            return
+        if self.last_scan is None:
+            self.get_logger().warn("No LIDAR data received yet")
             return
 
         # Get current position and orientation
@@ -58,16 +62,24 @@ class MobileRobotController(Node):
         # Initialize start position if not set
         if self.start_position is None:
             self.start_position = (current_x, current_y)
-            
+            self.get_logger().info(f"Initialized start position to: ({current_x:.2f}, {current_y:.2f})")
+        
         # Process LIDAR data
         sector_data = self.lidar_processor.process_scan(self.last_scan.ranges)
         if not sector_data:
+            self.get_logger().warn("No valid LIDAR sector data")
             self.motors.stop()
             return
+
+        # Debug print LIDAR sectors
+        self.get_logger().info("LIDAR Sectors:")
+        for sector, data in sector_data.items():
+            self.get_logger().info(f"  {sector}: min_dist={data['min_distance']:.2f}m, readings={data['readings']}")
 
         # Check if path is clear
         path_clear = self.lidar_processor.get_navigation_command(sector_data)
         if not path_clear:
+            self.get_logger().warn("Path not clear, stopping")
             self.motors.stop()
             return
 
@@ -77,6 +89,17 @@ class MobileRobotController(Node):
         else:  # Odd legs (sideways)
             distance = abs(current_x - self.start_position[0])
 
+        # Debug current state
+        self.get_logger().info(
+            f"\nCurrent State:"
+            f"\n  Position: ({current_x:.2f}, {current_y:.2f})"
+            f"\n  Yaw: {math.degrees(current_yaw):.1f}°"
+            f"\n  Current Leg: {self.current_leg}"
+            f"\n  Distance in Leg: {distance:.2f}m"
+            f"\n  Target Yaw: {self.target_yaw}°"
+            f"\n  Is Turning: {self.is_turning}"
+        )
+
         # Check if we need to turn
         if distance >= self.leg_length:
             if not self.is_turning:
@@ -84,24 +107,28 @@ class MobileRobotController(Node):
                 self.target_yaw = (self.current_leg + 1) * 90  # Turn 90 degrees
                 if self.target_yaw >= 360:
                     self.target_yaw -= 360
+                self.get_logger().info(f"Starting turn to {self.target_yaw}°")
             
             # Handle turning
             angle_diff = self.target_yaw - math.degrees(current_yaw)
+            self.get_logger().info(f"Turning - Angle difference: {angle_diff:.1f}°")
+            
             if abs(angle_diff) > 5:  # Allow 5 degrees of error
-                self.motors.turn_left() if angle_diff > 0 else self.motors.turn_right()
+                if angle_diff > 0:
+                    self.get_logger().info("Turning left")
+                    self.motors.turn_left()
+                else:
+                    self.get_logger().info("Turning right")
+                    self.motors.turn_right()
             else:
+                self.get_logger().info("Turn complete, starting new leg")
                 self.is_turning = False
                 self.current_leg += 1
                 self.start_position = (current_x, current_y)
         else:
             # Move forward if path is clear
+            self.get_logger().info("Moving forward")
             self.motors.forward(speed=0.8)
-
-        # Log current state
-        self.get_logger().info(
-            f"Leg: {self.current_leg}, Distance: {distance:.2f}m, "
-            f"Yaw: {math.degrees(current_yaw):.1f}°, Target: {self.target_yaw}°"
-        )
 
     def get_yaw_from_quaternion(self, q):
         """Extract yaw from quaternion."""
@@ -109,6 +136,19 @@ class MobileRobotController(Node):
         siny_cosp = 2 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
         return math.atan2(siny_cosp, cosy_cosp)
+
+    def lidar_callback(self, msg):
+        """Process LIDAR data."""
+        self.last_scan = msg
+        self.get_logger().debug(f"Received LIDAR scan with {len(msg.ranges)} points")
+
+    def odom_callback(self, msg):
+        """Process odometry data."""
+        self.current_pose = msg.pose.pose
+        self.get_logger().debug(
+            f"Received odom update - Position: ({msg.pose.pose.position.x:.2f}, "
+            f"{msg.pose.pose.position.y:.2f})"
+        )
 
 def main(args=None):
     rclpy.init(args=args)

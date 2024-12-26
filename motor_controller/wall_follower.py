@@ -29,6 +29,9 @@ class MobileRobotController(Node):
         self.motors = MotorController(left_pin=18, right_pin=12)
         self.lidar_processor = LidarProcessor()
         
+        # Add test movement flag
+        self.test_movement_done = False
+        
         # Navigation parameters
         self.current_pose = None
         self.last_scan = None
@@ -47,6 +50,18 @@ class MobileRobotController(Node):
     
     def control_loop(self):
         """Main control loop for square wave pattern movement."""
+        if not self.test_movement_done:
+            self.get_logger().info("Performing test movement...")
+            self.motors.forward(speed=0.8)
+            time.sleep(1.0)
+            self.motors.stop()
+            self.motors.turn_left()
+            time.sleep(1.0)
+            self.motors.stop()
+            self.test_movement_done = True
+            self.get_logger().info("Test movement completed")
+            return
+
         if self.current_pose is None:
             self.get_logger().warn("No pose data received yet")
             return

@@ -8,12 +8,13 @@ class LidarProcessor:
         self.DETECTION_DISTANCE = detection_distance
         
         # Define sectors for RPLIDAR A1 (0 degrees is front)
+        # Adjusted sectors to be more precise
         self.sectors = {
-            'front': (350, 10),     # Front sector ±10 degrees
-            'front_left': (10, 45),  # Front-left sector
-            'front_right': (315, 350),  # Front-right sector
-            'left': (45, 135),      # Left sector
-            'right': (225, 315)     # Right sector
+            'front': (355, 5),       # Narrower front sector (±5 degrees)
+            'front_left': (5, 60),   # Wider front-left sector
+            'front_right': (300, 355), # Wider front-right sector
+            'left': (60, 120),
+            'right': (240, 300)
         }
     
     def process_scan(self, ranges):
@@ -32,6 +33,11 @@ class LidarProcessor:
         valid_ranges = ranges_array[valid_mask]
         valid_angles = angles[valid_mask]
         
+        # Debug print for raw LIDAR data
+        print("\nRaw LIDAR data sample:")
+        for i in range(0, len(ranges), len(ranges)//8):  # Print 8 sample points
+            print(f"Angle {i/len(ranges)*360:.1f}°: {ranges[i]:.2f}m")
+        
         sector_data = {}
         for sector_name, (start, end) in self.sectors.items():
             # Handle wraparound for front sector
@@ -43,17 +49,23 @@ class LidarProcessor:
             sector_ranges = valid_ranges[mask]
             
             if len(sector_ranges) > 0:
+                min_dist = float(np.min(sector_ranges))
+                mean_dist = float(np.mean(sector_ranges))
                 sector_data[sector_name] = {
-                    'min_distance': float(np.min(sector_ranges)),
-                    'mean_distance': float(np.mean(sector_ranges)),
+                    'min_distance': min_dist,
+                    'mean_distance': mean_dist,
                     'readings': len(sector_ranges)
                 }
+                print(f"\nSector {sector_name}:")
+                print(f"  Range of values: {np.min(sector_ranges):.2f}m to {np.max(sector_ranges):.2f}m")
+                print(f"  Number of readings: {len(sector_ranges)}")
             else:
                 sector_data[sector_name] = {
                     'min_distance': float('inf'),
                     'mean_distance': float('inf'),
                     'readings': 0
                 }
+                print(f"\nSector {sector_name}: No valid readings")
         
         return sector_data
 
@@ -67,21 +79,22 @@ class LidarProcessor:
         front_left_dist = sector_data['front_left']['min_distance']
         front_right_dist = sector_data['front_right']['min_distance']
         
-        print(f"\nLIDAR Distances:"
-              f"\n  Front: {front_dist:.2f}m"
-              f"\n  Front-Left: {front_left_dist:.2f}m"
-              f"\n  Front-Right: {front_right_dist:.2f}m")
+        print(f"\nLIDAR Distances:")
+        print(f"  Front: {front_dist:.2f}m (readings: {sector_data['front']['readings']})")
+        print(f"  Front-Left: {front_left_dist:.2f}m (readings: {sector_data['front_left']['readings']})")
+        print(f"  Front-Right: {front_right_dist:.2f}m (readings: {sector_data['front_right']['readings']})")
         
-        # Emergency stop if too close to obstacles
-        if front_dist < self.SAFETY_RADIUS or \
+        # Adjusted thresholds
+        if front_dist < self.SAFETY_RADIUS * 1.2 or \
            front_left_dist < self.SAFETY_RADIUS or \
            front_right_dist < self.SAFETY_RADIUS:
-            print(f"Emergency stop - Obstacle too close (safety radius: {self.SAFETY_RADIUS}m)")
+            print(f"Emergency stop - Obstacle detected:")
+            print(f"  Safety radius: {self.SAFETY_RADIUS}m")
+            print(f"  Front distance: {front_dist:.2f}m")
             return False
             
-        # Check if path is clear
         if front_dist < self.DETECTION_DISTANCE:
-            print(f"Path blocked - Obstacle within detection distance ({self.DETECTION_DISTANCE}m)")
+            print(f"Path blocked - Obstacle at {front_dist:.2f}m")
             return False
             
         print("Path is clear")

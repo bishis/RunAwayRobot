@@ -4,191 +4,207 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid, Odometry
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import Pose, Quaternion
 import tf2_ros
-from tf2_ros import TransformBroadcaster
 import math
 import time
 import numpy as np
 from enum import Enum
 
 from .controllers.motor_controller import MotorController
-from .processors.lidar_processor import LidarProcessor
-from .processors.frontier_processor import FrontierProcessor
+from .controllers.navigation_controller import NavigationController
 
 class RobotState(Enum):
-    EXPLORING = 1    # Moving forward or to frontier
-    AVOIDING = 2     # Avoiding obstacle
-    ROTATING = 3     # Turning to new direction
-    REVERSING = 4    # Backing away from obstacle
+    EXPLORING = 1    # Moving to frontier
+    ROTATING = 2     # Turning to new direction
+    REVERSING = 3    # Backing away from obstacle
+    SCANNING = 4     # Scanning area for mapping
 
 class MobileRobotController(Node):
     def __init__(self):
         super().__init__('mobile_robot_controller')
         
-        # Initialize components
-        self.motors = MotorController(
-            left_pin=18,
-            right_pin=12
-        )
-        self.lidar = LidarProcessor()
+        # Initialize controllers
+        self.motors = MotorController(left_pin=18, right_pin=12)
+        self.navigator = NavigationController()
         
-        # Navigation state
-        self.robot_state = RobotState.EXPLORING
+        # Robot state
+        self.state = RobotState.SCANNING
+        self.current_pose = None
+        self.last_scan = None
         self.current_target = None
-        self.reverse_start_time = None
-        self.reverse_duration = 0.75  # Reduced from 1.5 to 0.75 seconds for faster response
-        self.rotation_start_time = None
-        self.rotation_duration = 0.5  # Reduced from 1.0 to 0.5 seconds for quicker turns
-        self.turn_direction = 'RIGHT'
+        self.scan_start_time = None
+        self.scan_duration = 4.0  # seconds to scan area
         
-        # Safety parameters - adjusted for faster reaction
-        self.safety_distance = 0.5    # Increased from 0.4 to 0.5m to detect obstacles earlier
-        self.critical_distance = 0.3  # Increased from 0.25 to 0.3m for earlier stopping
+        # Safety parameters
+        self.safety_distance = 0.4
+        self.critical_distance = 0.25
         
-        # Expanded scan sectors for better detection
-        self.scan_sectors = {
-            'front': {'start': 320, 'end': 40, 'min_dist': float('inf')},      # Wider front view
-            'front_left': {'start': 20, 'end': 100, 'min_dist': float('inf')}, # Wider left view
-            'front_right': {'start': 260, 'end': 340, 'min_dist': float('inf')}, # Wider right view
-            'far_left': {'start': 80, 'end': 100, 'min_dist': float('inf')},   # Additional sectors
-            'far_right': {'start': 260, 'end': 280, 'min_dist': float('inf')}
-        }
-        
-        # Create timer for faster updates
-        self.create_timer(0.05, self.move_robot)  # Increased from 0.1 to 0.05 for faster updates
-        
-        # Start moving forward
-        self.robot_state = RobotState.EXPLORING
-        self.motors.set_speeds(1.0, 1.0)
-        
-        # Add LIDAR subscription back
+        # Setup ROS subscriptions
         self.create_subscription(
             LaserScan,
             '/scan',
             self.lidar_callback,
             10
         )
-        
-        # Add map subscription
         self.create_subscription(
             OccupancyGrid,
             '/map',
             self.map_callback,
             10
         )
+        self.create_subscription(
+            Odometry,
+            '/odom_rf2o',
+            self.odom_callback,
+            10
+        )
         
-        # Add variables for scan data
-        self.latest_scan = None
-        self.scan_time = None
-        self.scan_timeout = 0.5  # seconds
-
-    def move_robot(self):
-        """Main control loop with priority on obstacle avoidance."""
-        # Check if we have recent scan data
-        if self.latest_scan is None or (time.time() - self.scan_time) > self.scan_timeout:
-            self.get_logger().warn("No recent LIDAR data - stopping!")
-            self.motors.stop()
+        # Create control timer
+        self.create_timer(0.05, self.control_loop)
+        
+    def control_loop(self):
+        """Main control loop for exploration."""
+        if self.current_pose is None or self.last_scan is None:
+            self.get_logger().warn("Waiting for sensor data...")
             return
 
-        # Get all distances
-        front_dist = min(self.scan_sectors['front']['min_dist'], 5.0)
-        left_dist = min(self.scan_sectors['front_left']['min_dist'], 5.0)
-        right_dist = min(self.scan_sectors['front_right']['min_dist'], 5.0)
-        far_left = min(self.scan_sectors['far_left']['min_dist'], 5.0)
-        far_right = min(self.scan_sectors['far_right']['min_dist'], 5.0)
+        # Get current position and orientation
+        current_x = self.current_pose.position.x
+        current_y = self.current_pose.position.y
+        current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
+        
+        # Check for obstacles
+        if self.check_obstacles():
+            return  # Let obstacle avoidance take over
+            
+        # State machine
+        if self.state == RobotState.SCANNING:
+            if self.scan_start_time is None:
+                self.scan_start_time = time.time()
+                self.motors.move(0, self.motors.max_angular_speed * 0.5)  # Start rotating
+            elif time.time() - self.scan_start_time >= self.scan_duration:
+                self.state = RobotState.EXPLORING
+                self.scan_start_time = None
+                self.find_next_target()
+            
+        elif self.state == RobotState.EXPLORING:
+            if self.current_target is None:
+                self.find_next_target()
+                if self.current_target is None:
+                    self.state = RobotState.SCANNING
+                    return
+                    
+            # Check if we've reached the target
+            dx = self.current_target[0] - current_x
+            dy = self.current_target[1] - current_y
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            if distance < self.navigator.goal_tolerance:
+                self.get_logger().info("Reached target, scanning area")
+                self.current_target = None
+                self.state = RobotState.SCANNING
+                return
+                
+            # Move towards target
+            self.motors.move_to_pose(
+                current_x, current_y, current_yaw,
+                self.current_target[0], self.current_target[1]
+            )
 
-        # Double check front distance with raw scan data
-        front_ranges = self.latest_scan.ranges[350:10]  # Direct front view
+    def check_obstacles(self):
+        """Check for obstacles and handle avoidance."""
+        if self.last_scan is None:
+            return False
+            
+        # Check front sector for obstacles
+        front_ranges = self.last_scan.ranges[350:] + self.last_scan.ranges[:10]
         valid_ranges = [r for r in front_ranges if 0.1 < r < 5.0]
-        if valid_ranges:
-            direct_front = min(valid_ranges)
-            front_dist = min(front_dist, direct_front)  # Use the smaller value
+        
+        if not valid_ranges:
+            return False
+            
+        min_distance = min(valid_ranges)
+        
+        if min_distance < self.critical_distance:
+            self.get_logger().warn(f"Critical obstacle at {min_distance:.2f}m!")
+            self.handle_obstacle()
+            return True
+            
+        elif min_distance < self.safety_distance:
+            self.get_logger().info(f"Obstacle detected at {min_distance:.2f}m")
+            self.find_alternative_path()
+            return True
+            
+        return False
 
-        # Log distances and state
-        self.get_logger().info(
-            f"State: {self.robot_state.name}, "
-            f"F: {front_dist:.2f}m, "
-            f"L: {left_dist:.2f}m, "
-            f"R: {right_dist:.2f}m, "
-            f"Direct Front: {direct_front:.2f}m"
-        )
+    def handle_obstacle(self):
+        """Handle immediate obstacle."""
+        self.motors.stop()
+        self.state = RobotState.REVERSING
+        self.motors.set_speeds(-1.0, -1.0)
+        time.sleep(1.0)
+        self.find_alternative_path()
 
-        # More aggressive obstacle detection
-        if front_dist < self.critical_distance or direct_front < self.critical_distance:
-            self.get_logger().warn(f"CRITICAL - Obstacle very close! Front: {front_dist:.2f}m")
-            self.motors.stop()
-            self.start_reversing()
+    def find_alternative_path(self):
+        """Find alternative path to target."""
+        if self.current_target is None:
+            self.state = RobotState.SCANNING
             return
             
-        elif front_dist < self.safety_distance or direct_front < self.safety_distance:
-            self.get_logger().warn(f"WARNING - Obstacle ahead! Front: {front_dist:.2f}m")
-            self.start_rotating()
-            return
-
-        # If no obstacles, continue forward with slight adjustments
-        if self.robot_state == RobotState.EXPLORING:
-            # Adjust trajectory based on side distances
-            if left_dist < 0.4:  # Too close to left
-                self.motors.set_speeds(1.0, 0.8)  # Slight right turn
-            elif right_dist < 0.4:  # Too close to right
-                self.motors.set_speeds(0.8, 1.0)  # Slight left turn
-            else:
-                self.motors.set_speeds(1.0, 1.0)  # Full speed ahead
-
-    def start_reversing(self):
-        """Start reversing away from obstacle."""
-        self.get_logger().info("Starting to reverse")
-        self.robot_state = RobotState.REVERSING
-        self.reverse_start_time = time.time()
-        self.motors.set_speeds(-1.0, -1.0)
+        # Check left and right for clear path
+        left_ranges = self.last_scan.ranges[60:120]
+        right_ranges = self.last_scan.ranges[240:300]
         
-    def start_rotating(self):
-        """Start rotating to avoid obstacle."""
-        self.get_logger().info(f"Starting to rotate {self.turn_direction}")
-        self.robot_state = RobotState.ROTATING
-        self.rotation_start_time = time.time()
+        left_clear = any(r > self.safety_distance for r in left_ranges)
+        right_clear = any(r > self.safety_distance for r in right_ranges)
         
-        if self.turn_direction == 'LEFT':
-            self.motors.set_speeds(-1.0, 1.0)
-            self.turn_direction = 'RIGHT'  # Alternate direction for next time
+        if left_clear and not right_clear:
+            self.motors.set_speeds(-1.0, 1.0)  # Turn left
+        elif right_clear and not left_clear:
+            self.motors.set_speeds(1.0, -1.0)  # Turn right
         else:
-            self.motors.set_speeds(1.0, -1.0)
-            self.turn_direction = 'LEFT'  # Alternate direction for next time
+            # Choose direction based on target position
+            current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
+            target_angle = math.atan2(
+                self.current_target[1] - self.current_pose.position.y,
+                self.current_target[0] - self.current_pose.position.x
+            )
+            
+            angle_diff = target_angle - current_yaw
+            while angle_diff > math.pi: angle_diff -= 2 * math.pi
+            while angle_diff < -math.pi: angle_diff += 2 * math.pi
+            
+            if angle_diff > 0:
+                self.motors.set_speeds(-1.0, 1.0)  # Turn left
+            else:
+                self.motors.set_speeds(1.0, -1.0)  # Turn right
+
+    def find_next_target(self):
+        """Find next exploration target."""
+        target = self.navigator.find_best_frontier()
+        if target:
+            self.current_target = target
+            self.get_logger().info(f"New target: {target}")
+            self.state = RobotState.EXPLORING
 
     def lidar_callback(self, msg):
-        """Process LIDAR data for obstacle detection."""
-        self.latest_scan = msg
-        self.scan_time = time.time()
-        
-        # Update sector distances with improved filtering
-        for sector in self.scan_sectors.values():
-            if sector['start'] > sector['end']:  # Wrapping around 360
-                ranges = msg.ranges[sector['start']:] + msg.ranges[:sector['end']]
-            else:
-                ranges = msg.ranges[sector['start']:sector['end']]
-            
-            # Enhanced filtering - use minimum of valid readings
-            valid_ranges = [r for r in ranges if 0.1 < r < 5.0]
-            if valid_ranges:
-                # Take minimum of valid readings for safety
-                sector['min_dist'] = min(valid_ranges)
-            else:
-                sector['min_dist'] = float('inf')
-
-        # Emergency check - if any reading in front is too close, stop immediately
-        front_readings = msg.ranges[350:] + msg.ranges[:10]
-        critical_readings = [r for r in front_readings if 0.1 < r < self.critical_distance]
-        if critical_readings:
-            self.get_logger().error(f"Emergency - Obstacle detected at {min(critical_readings):.2f}m!")
-            self.motors.stop()
-            self.start_reversing()
+        """Process LIDAR data."""
+        self.last_scan = msg
 
     def map_callback(self, msg):
         """Process map updates."""
-        # Store map data for obstacle checking
-        self.map_data = msg.data
-        self.map_info = msg.info
+        self.navigator.update_map(msg)
+
+    def odom_callback(self, msg):
+        """Process odometry data."""
+        self.current_pose = msg.pose.pose
+        self.navigator.update_pose(msg.pose.pose)
+
+    def get_yaw_from_quaternion(self, q: Quaternion) -> float:
+        """Extract yaw from quaternion."""
+        return math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 def main(args=None):
     rclpy.init(args=args)
@@ -197,7 +213,7 @@ def main(args=None):
     try:
         rclpy.spin(robot)
     except KeyboardInterrupt:
-        robot.get_logger().info("Stopping motors")
+        robot.get_logger().info("Stopping robot")
         robot.motors.stop()
     finally:
         robot.destroy_node()

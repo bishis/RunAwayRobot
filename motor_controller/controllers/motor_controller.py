@@ -1,5 +1,6 @@
 from gpiozero import Servo
 import time
+import math
 
 class MotorController:
     """Handles low-level motor control operations using Servo controllers."""
@@ -20,6 +21,11 @@ class MotorController:
             frame_width=20.0/1000
         )
         
+        # Control parameters
+        self.max_linear_speed = 1.0
+        self.max_angular_speed = 2.0
+        self.wheel_separation = 0.2  # meters
+        
         # Ensure motors are stopped at start
         self.stop()
         time.sleep(0.1)
@@ -30,14 +36,48 @@ class MotorController:
         left_speed = max(min(left_speed, 1.0), -1.0)
         right_speed = max(min(right_speed, 1.0), -1.0)
         
-        print(f"Setting speeds - Left: {left_speed:.2f}, Right: {right_speed:.2f}")
-        
         try:
-            # Convert from -1,1 range to 0,1 range for servos
             self.motor_left.value = left_speed
             self.motor_right.value = right_speed
         except Exception as e:
             print(f"Error setting motor speeds: {e}")
+            
+    def move(self, linear_speed, angular_speed):
+        """Move robot with given linear and angular speeds."""
+        # Convert to wheel speeds
+        left_speed = linear_speed - (angular_speed * self.wheel_separation / 2.0)
+        right_speed = linear_speed + (angular_speed * self.wheel_separation / 2.0)
+        
+        # Scale to motor range (-1 to 1)
+        max_speed = max(abs(left_speed), abs(right_speed))
+        if max_speed > 1.0:
+            left_speed /= max_speed
+            right_speed /= max_speed
+            
+        self.set_speeds(left_speed, right_speed)
+        
+    def move_to_pose(self, current_x, current_y, current_yaw, target_x, target_y):
+        """Move towards target pose using proportional control."""
+        # Calculate distance and angle to target
+        dx = target_x - current_x
+        dy = target_y - current_y
+        distance = math.sqrt(dx*dx + dy*dy)
+        target_angle = math.atan2(dy, dx)
+        
+        # Calculate angle difference
+        angle_diff = target_angle - current_yaw
+        while angle_diff > math.pi: angle_diff -= 2 * math.pi
+        while angle_diff < -math.pi: angle_diff += 2 * math.pi
+        
+        # Proportional control
+        linear_speed = min(distance * 2.0, self.max_linear_speed)  # Kp = 2.0
+        angular_speed = min(angle_diff * 3.0, self.max_angular_speed)  # Kp = 3.0
+        
+        # Reduce linear speed when turning sharply
+        if abs(angle_diff) > math.pi/4:
+            linear_speed *= 0.5
+            
+        self.move(linear_speed, angular_speed)
         
     def stop(self):
         """Stop both motors."""

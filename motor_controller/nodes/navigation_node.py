@@ -6,10 +6,32 @@ from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 from ..processors.lidar_processor import LidarProcessor
+from std_msgs.msg import String
 
 class NavigationNode(Node):
     def __init__(self):
         super().__init__('navigation_controller')
+        
+        # Add heartbeat subscription and robot status tracking
+        self.robot_online = False
+        self.last_heartbeat = None
+        self.create_subscription(
+            String,
+            'robot_heartbeat',
+            self.heartbeat_callback,
+            10
+        )
+        
+        # Add command echo subscription
+        self.create_subscription(
+            String,
+            'cmd_echo',
+            self.cmd_echo_callback,
+            10
+        )
+        
+        # Add status check timer
+        self.create_timer(2.0, self.check_robot_status)
         
         # Initialize parameters
         self.declare_parameters(
@@ -75,6 +97,25 @@ class NavigationNode(Node):
     def odom_callback(self, msg):
         """Process odometry data."""
         self.current_pose = msg.pose.pose
+        
+    def heartbeat_callback(self, msg):
+        self.robot_online = True
+        self.last_heartbeat = self.get_clock().now()
+        self.get_logger().info(f"Received robot heartbeat: {msg.data}")
+        
+    def cmd_echo_callback(self, msg):
+        self.get_logger().info(f"Command confirmation: {msg.data}")
+        
+    def check_robot_status(self):
+        if not self.robot_online:
+            self.get_logger().warn("No heartbeat received from robot yet!")
+            return
+            
+        if self.last_heartbeat:
+            time_since_heartbeat = (self.get_clock().now() - self.last_heartbeat).nanoseconds / 1e9
+            if time_since_heartbeat > 5.0:
+                self.get_logger().warn(f"No heartbeat for {time_since_heartbeat:.1f} seconds!")
+                self.robot_online = False
 
 def main(args=None):
     rclpy.init(args=args)

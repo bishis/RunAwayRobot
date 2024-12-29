@@ -4,10 +4,26 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from ..controllers.motor_controller import MotorController
+from std_msgs.msg import String
 
 class RobotHardwareNode(Node):
     def __init__(self):
         super().__init__('robot_hardware')
+        
+        # Add heartbeat publisher
+        self.heartbeat_pub = self.create_publisher(
+            String,
+            'robot_heartbeat',
+            10
+        )
+        self.create_timer(1.0, self.publish_heartbeat)
+        
+        # Add command echo publisher
+        self.cmd_echo_pub = self.create_publisher(
+            String,
+            'cmd_echo',
+            10
+        )
         
         # Initialize motor controller
         self.declare_parameter('left_motor_pin', 18)
@@ -28,8 +44,20 @@ class RobotHardwareNode(Node):
         
         self.get_logger().info('Robot hardware node initialized')
         
+    def publish_heartbeat(self):
+        msg = String()
+        msg.data = f"Robot Hardware Online - {self.get_clock().now().to_msg()}"
+        self.heartbeat_pub.publish(msg)
+        self.get_logger().info("Published heartbeat")
+        
     def cmd_vel_callback(self, msg):
         """Handle incoming velocity commands."""
+        # Echo received command
+        echo_msg = String()
+        echo_msg.data = f"Received cmd_vel - linear: {msg.linear.x:.2f}, angular: {msg.angular.z:.2f}"
+        self.cmd_echo_pub.publish(echo_msg)
+        self.get_logger().info(echo_msg.data)
+        
         linear_x = msg.linear.x
         angular_z = msg.angular.z
         

@@ -23,7 +23,13 @@ class HardwareController(Node):
             10
         )
         
+        # Add counter for received commands
+        self.command_count = 0
+        
         self.get_logger().info('Hardware controller initialized and ready for commands')
+        
+        # Create a timer to print status
+        self.create_timer(1.0, self.status_callback)
         
     def velocity_callback(self, msg):
         """Handle incoming velocity commands."""
@@ -36,11 +42,28 @@ class HardwareController(Node):
             left_speed = linear_x - angular_z
             right_speed = linear_x + angular_z
             
+            # Print received command details
+            self.get_logger().info(
+                f"\nReceived cmd_vel:"
+                f"\n  Linear X: {linear_x:.2f}"
+                f"\n  Angular Z: {angular_z:.2f}"
+                f"\nCalculated wheel speeds:"
+                f"\n  Left: {left_speed:.2f}"
+                f"\n  Right: {right_speed:.2f}"
+            )
+            
             # Apply to motors
             self.motors.set_speeds(left_speed, right_speed)
             
+            # Increment command counter
+            self.command_count += 1
+            
         except Exception as e:
             self.get_logger().error(f'Error setting motor speeds: {str(e)}')
+    
+    def status_callback(self):
+        """Print periodic status updates."""
+        self.get_logger().info(f'Total commands received: {self.command_count}')
     
     def __del__(self):
         if hasattr(self, 'motors'):

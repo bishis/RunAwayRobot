@@ -27,14 +27,14 @@ class NavigationController(Node):
         self.target_yaw = 0.0
         self.start_position = None
         
-        # Publishers
+        # Publishers for robot control
         self.cmd_vel_pub = self.create_publisher(
             Twist,
-            'cmd_vel',
+            'cmd_vel',  # This will be sent to the Pi
             10
         )
         
-        # Subscribers
+        # Subscribers for sensor data
         self.odom_sub = self.create_subscription(
             Odometry,
             'odom_rf2o',
@@ -49,28 +49,27 @@ class NavigationController(Node):
             10
         )
         
-        # Control loop timer
+        # Control loop timer (10Hz)
         self.create_timer(0.1, self.control_loop)
-        self.get_logger().info('Navigation controller initialized')
         
         # Store latest data
         self.current_pose = None
         self.latest_scan = None
+        
+        self.get_logger().info('Navigation controller initialized')
     
-    def odom_callback(self, msg):
-        """Handle odometry updates."""
-        self.current_pose = msg.pose.pose
-        
-    def scan_callback(self, msg):
-        """Handle LIDAR scan updates."""
-        self.latest_scan = msg
-        
-    def get_yaw_from_quaternion(self, q):
-        """Extract yaw from quaternion."""
-        # Convert quaternion to Euler angles
-        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
-        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
-        return math.atan2(siny_cosp, cosy_cosp)
+    def send_velocity_command(self, linear_x, angular_z):
+        """Send velocity command to the robot."""
+        cmd = Twist()
+        cmd.linear.x = linear_x
+        cmd.angular.z = angular_z
+        self.cmd_vel_pub.publish(cmd)
+        self.get_logger().debug(f'Sent velocity command - linear: {linear_x}, angular: {angular_z}')
+    
+    def stop_robot(self):
+        """Stop the robot."""
+        self.send_velocity_command(0.0, 0.0)
+        self.get_logger().info('Stopping robot')
     
     def check_obstacles(self):
         """Check for obstacles in path."""
@@ -81,8 +80,11 @@ class NavigationController(Node):
         front_angles = range(-30, 31)  # -30° to +30°
         for angle in front_angles:
             idx = (angle + 360) % 360
-            if 0 < self.latest_scan.ranges[idx] < self.safety_radius:
-                return True
+            if idx < len(self.latest_scan.ranges):
+                distance = self.latest_scan.ranges[idx]
+                if 0.1 < distance < self.safety_radius:
+                    self.get_logger().warn(f'Obstacle detected at {distance}m')
+                    return True
         return False
     
     def control_loop(self):
@@ -103,7 +105,6 @@ class NavigationController(Node):
         
         # Check for obstacles
         if self.check_obstacles():
-            self.get_logger().warn('Obstacle detected!')
             self.stop_robot()
             return
         
@@ -121,7 +122,6 @@ class NavigationController(Node):
         )
         
         # Handle movement
-        cmd = Twist()
         if distance >= self.leg_length:
             # Time to turn
             if not self.is_turning:
@@ -129,6 +129,7 @@ class NavigationController(Node):
                 self.target_yaw = (self.current_leg + 1) * 90
                 if self.target_yaw >= 360:
                     self.target_yaw -= 360
+                self.get_logger().info(f'Starting turn to {self.target_yaw}°')
             
             # Calculate turn
             angle_diff = self.target_yaw - math.degrees(current_yaw)
@@ -137,23 +138,34 @@ class NavigationController(Node):
             
             if abs(angle_diff) > 5:
                 # Keep turning
-                cmd.angular.z = 0.5 if angle_diff > 0 else -0.5
+                turn_speed = 0.5 if angle_diff > 0 else -0.5
+                self.send_velocity_command(0.0, turn_speed)
+                self.get_logger().debug(f'Turning - angle diff: {angle_diff:.1f}°')
             else:
                 # Turn complete
                 self.is_turning = False
                 self.current_leg += 1
                 self.start_position = (current_x, current_y)
+                self.stop_robot()
+                self.get_logger().info('Turn complete, starting new leg')
         else:
             # Move forward
-            cmd.linear.x = 0.2
-        
-        # Publish command
-        self.cmd_vel_pub.publish(cmd)
+            self.send_velocity_command(0.2, 0.0)
+            self.get_logger().debug('Moving forward')
     
-    def stop_robot(self):
-        """Stop the robot."""
-        cmd = Twist()
-        self.cmd_vel_pub.publish(cmd)
+    def odom_callback(self, msg):
+        """Handle odometry updates."""
+        self.current_pose = msg.pose.pose
+    
+    def scan_callback(self, msg):
+        """Handle LIDAR scan updates."""
+        self.latest_scan = msg
+    
+    def get_yaw_from_quaternion(self, q):
+        """Extract yaw from quaternion."""
+        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny_cosp, cosy_cosp)
 
 def main(args=None):
     rclpy.init(args=args)

@@ -9,10 +9,25 @@ def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
     
     return LaunchDescription([
-        # Set same ROS_DOMAIN_ID as the robot
+        # Network setup
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
         
+        # Odometry processing
+        Node(
+            package='rf2o_laser_odometry',
+            executable='rf2o_laser_odometry_node',
+            name='rf2o_laser_odometry',
+            parameters=[{
+                'laser_scan_topic': '/scan',
+                'odom_topic': '/odom_rf2o',
+                'publish_tf': True,
+                'base_frame_id': 'base_link',
+                'odom_frame_id': 'odom',
+                'freq': 20.0
+            }]
+        ),
+
         # SLAM Toolbox
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
@@ -28,7 +43,7 @@ def generate_launch_description():
         # Navigation Controller
         Node(
             package='motor_controller',
-            executable='navigation_controller',  # We'll create this
+            executable='navigation_controller',
             name='navigation_controller',
             parameters=[{
                 'use_sim_time': False,

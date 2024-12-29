@@ -4,13 +4,11 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     return LaunchDescription([
-        # Set ROS_DOMAIN_ID to a value between 0-101 (safe range for Linux)
-        SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),  # Using 42 as an example
-        
-        # Disable localhost only to allow network communication
+        # Network setup
+        SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
         
-        # RPLIDAR node
+        # RPLIDAR node - just publishes raw data
         Node(
             package='rplidar_ros',
             executable='rplidar_composition',
@@ -23,26 +21,10 @@ def generate_launch_description():
             }]
         ),
 
-        # RF2O Odometry node
-        Node(
-            package='rf2o_laser_odometry',
-            executable='rf2o_laser_odometry_node',
-            name='rf2o_laser_odometry',
-            parameters=[{
-                'laser_scan_topic': '/scan',
-                'odom_topic': '/odom_rf2o',
-                'publish_tf': True,
-                'base_frame_id': 'base_link',
-                'odom_frame_id': 'odom',
-                'init_pose_from_topic': '',
-                'freq': 20.0
-            }]
-        ),
-
-        # Motor Controller node (simplified version that only handles motor commands)
+        # Simple hardware interface for motors
         Node(
             package='motor_controller',
-            executable='hardware_controller',  # We'll create this
+            executable='hardware_controller',
             name='hardware_controller',
             parameters=[{
                 'left_pin': 18,

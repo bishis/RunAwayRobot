@@ -51,20 +51,20 @@ class NavigationController(Node):
         if not self.latest_scan:
             return None
             
-        # Adjusted sectors for better coverage
+        # Adjusted sectors for better coverage (adding 180° to align with robot's front)
         sectors = {
-            'front': (-30, 30),        # Wider front sector
-            'front_left': (30, 60),    # Adjusted front-left
-            'front_right': (-60, -30), # Adjusted front-right
-            'left': (60, 90),
-            'right': (-90, -60)
+            'front': (150, 210),        # Front is now 180° ±30°
+            'front_left': (210, 240),   # Front-left is now 210° to 240°
+            'front_right': (120, 150),  # Front-right is now 120° to 150°
+            'left': (240, 270),         # Left is now around 270°
+            'right': (90, 120)          # Right is now around 90°
         }
         
         sector_data = {}
         for sector_name, (start, end) in sectors.items():
             # Convert angles to array indices
-            start_idx = int(((start + 360) % 360) * len(self.latest_scan.ranges) / 360)
-            end_idx = int(((end + 360) % 360) * len(self.latest_scan.ranges) / 360)
+            start_idx = int((start * len(self.latest_scan.ranges) / 360))
+            end_idx = int((end * len(self.latest_scan.ranges) / 360))
             
             # Get ranges for this sector
             ranges = []
@@ -74,9 +74,10 @@ class NavigationController(Node):
                 indices = list(range(start_idx, len(self.latest_scan.ranges))) + list(range(0, end_idx + 1))
             
             for i in indices:
-                range_val = self.latest_scan.ranges[i]
-                if 0.1 < range_val < 5.0:  # Filter valid ranges
-                    ranges.append(range_val)
+                if i < len(self.latest_scan.ranges):
+                    range_val = self.latest_scan.ranges[i]
+                    if 0.1 < range_val < 5.0:  # Filter valid ranges
+                        ranges.append(range_val)
             
             if ranges:
                 min_dist = min(ranges)

@@ -19,9 +19,9 @@ class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
-        # Parameters
-        self.declare_parameter('safety_radius', 0.3)
-        self.declare_parameter('detection_distance', 0.5)
+        # Parameters - adjusted for better responsiveness
+        self.declare_parameter('safety_radius', 0.5)  # Increased from 0.3
+        self.declare_parameter('detection_distance', 1.0)  # Increased from 0.5
         
         self.safety_radius = self.get_parameter('safety_radius').value
         self.detection_distance = self.get_parameter('detection_distance').value
@@ -51,31 +51,37 @@ class NavigationController(Node):
         if not self.latest_scan:
             return None
             
-        # Define sectors (angles in degrees)
+        # Adjusted sectors for better coverage
         sectors = {
-            'front': (-15, 15),
-            'front_left': (15, 45),
-            'front_right': (-45, -15),
-            'left': (45, 90),
-            'right': (-90, -45)
+            'front': (-30, 30),        # Wider front sector
+            'front_left': (30, 60),    # Adjusted front-left
+            'front_right': (-60, -30), # Adjusted front-right
+            'left': (60, 90),
+            'right': (-90, -60)
         }
         
         sector_data = {}
         for sector_name, (start, end) in sectors.items():
             # Convert angles to array indices
-            start_idx = ((start + 360) % 360)
-            end_idx = ((end + 360) % 360)
+            start_idx = int(((start + 360) % 360) * len(self.latest_scan.ranges) / 360)
+            end_idx = int(((end + 360) % 360) * len(self.latest_scan.ranges) / 360)
             
             # Get ranges for this sector
             ranges = []
-            for angle in range(start_idx, end_idx):
-                if angle < len(self.latest_scan.ranges):
-                    range_val = self.latest_scan.ranges[angle]
-                    if 0.1 < range_val < 5.0:  # Filter valid ranges
-                        ranges.append(range_val)
+            if start_idx <= end_idx:
+                indices = range(start_idx, end_idx + 1)
+            else:
+                indices = list(range(start_idx, len(self.latest_scan.ranges))) + list(range(0, end_idx + 1))
+            
+            for i in indices:
+                range_val = self.latest_scan.ranges[i]
+                if 0.1 < range_val < 5.0:  # Filter valid ranges
+                    ranges.append(range_val)
             
             if ranges:
-                sector_data[sector_name] = min(ranges)
+                min_dist = min(ranges)
+                sector_data[sector_name] = min_dist
+                self.get_logger().debug(f"{sector_name}: {min_dist:.2f}m")
             else:
                 sector_data[sector_name] = float('inf')
         
@@ -89,28 +95,34 @@ class NavigationController(Node):
         # Debug print
         self.get_logger().info(f"Sector distances: {sector_data}")
         
-        # Check if path is blocked
-        if sector_data['front'] < self.safety_radius:
-            self.get_logger().info("Front blocked, checking sides")
+        # More aggressive obstacle avoidance
+        if sector_data['front'] < self.safety_radius * 1.5:  # Added buffer
+            self.get_logger().warn(f"Front obstacle at {sector_data['front']:.2f}m")
             # If front is blocked, check sides
             if sector_data['front_left'] > sector_data['front_right']:
-                self.get_logger().info("Turning left")
-                return (0.0, 1.0)  # Turn left
+                self.get_logger().info("Turning left - obstacle avoidance")
+                return (0.0, 1.0)  # Sharp left turn
             else:
-                self.get_logger().info("Turning right")
-                return (0.0, -1.0)  # Turn right
+                self.get_logger().info("Turning right - obstacle avoidance")
+                return (0.0, -1.0)  # Sharp right turn
         
-        # If front-left is too close, turn right slightly
+        # Preventive turning when obstacles are near
         elif sector_data['front_left'] < self.safety_radius:
-            self.get_logger().info("Front-left too close, adjusting right")
-            return (0.5, -1.0)
+            self.get_logger().info("Preventive right turn")
+            return (0.3, -1.0)  # Slower forward, strong right turn
         
-        # If front-right is too close, turn left slightly
         elif sector_data['front_right'] < self.safety_radius:
-            self.get_logger().info("Front-right too close, adjusting left")
-            return (0.5, 1.0)
+            self.get_logger().info("Preventive left turn")
+            return (0.3, 1.0)  # Slower forward, strong left turn
         
-        # If path is clear, go forward
+        # If path is clear but obstacles nearby, make gentle adjustments
+        elif sector_data['front_left'] < self.detection_distance:
+            return (0.8, -0.5)  # Maintain speed, gentle right
+        
+        elif sector_data['front_right'] < self.detection_distance:
+            return (0.8, 0.5)  # Maintain speed, gentle left
+        
+        # If path is completely clear, go forward
         else:
             self.get_logger().info("Path clear, moving forward")
             return (1.0, 0.0)
@@ -120,11 +132,6 @@ class NavigationController(Node):
         if not self.current_pose or not self.latest_scan:
             self.get_logger().warn('Waiting for sensor data...')
             return
-        
-        # Get current position and orientation
-        current_x = self.current_pose.position.x
-        current_y = self.current_pose.position.y
-        current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
         
         # Process LIDAR data
         sector_data = self.check_lidar_sectors()
@@ -136,14 +143,21 @@ class NavigationController(Node):
         # Determine movement
         linear_x, angular_z = self.determine_movement(sector_data)
         
+        # Add emergency stop check
+        if min(sector_data.values()) < self.safety_radius * 0.5:  # Very close obstacle
+            self.get_logger().warn("Emergency stop - obstacle too close!")
+            self.stop_robot()
+            return
+        
         # Send command to robot
         self.send_velocity_command(linear_x, angular_z)
         
-        # Log state
+        # Log state with more detail
         self.get_logger().info(
-            f'Position: ({current_x:.2f}, {current_y:.2f}), '
-            f'Yaw: {math.degrees(current_yaw):.1f}°, '
-            f'Command: linear={linear_x:.1f}, angular={angular_z:.1f}'
+            f'Command: linear={linear_x:.1f}, angular={angular_z:.1f}\n'
+            f'Distances - Front: {sector_data["front"]:.2f}m, '
+            f'FL: {sector_data["front_left"]:.2f}m, '
+            f'FR: {sector_data["front_right"]:.2f}m'
         )
     
     def send_velocity_command(self, linear_x, angular_z):

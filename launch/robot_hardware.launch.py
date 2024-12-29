@@ -4,10 +4,10 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     return LaunchDescription([
-        # Set ROS_DOMAIN_ID
-        SetEnvironmentVariable('ROS_DOMAIN_ID', '0'),
+        # Set ROS_DOMAIN_ID to a value between 0-101 (safe range for Linux)
+        SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),  # Using 42 as an example
         
-        # Set ROS_LOCALHOST_ONLY=0 to allow network communication
+        # Disable localhost only to allow network communication
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
         
         # RPLIDAR node

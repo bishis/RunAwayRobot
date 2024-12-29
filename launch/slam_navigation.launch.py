@@ -1,7 +1,7 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import SetEnvironmentVariable, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 
@@ -9,6 +9,10 @@ def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
     
     return LaunchDescription([
+        # Set same ROS_DOMAIN_ID as the robot
+        SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
+        SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
+        
         # SLAM Toolbox
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([

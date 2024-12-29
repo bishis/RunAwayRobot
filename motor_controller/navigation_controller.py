@@ -138,7 +138,7 @@ class NavigationController(Node):
             
             if abs(angle_diff) > 5:
                 # Keep turning
-                turn_speed = 0.5 if angle_diff > 0 else -0.5
+                turn_speed = 1.0 if angle_diff > 0 else -1.0
                 self.send_velocity_command(0.0, turn_speed)
                 self.get_logger().debug(f'Turning - angle diff: {angle_diff:.1f}°')
             else:
@@ -150,7 +150,7 @@ class NavigationController(Node):
                 self.get_logger().info('Turn complete, starting new leg')
         else:
             # Move forward
-            self.send_velocity_command(0.2, 0.0)
+            self.send_velocity_command(1.0, 0.0)
             self.get_logger().debug('Moving forward')
     
     def odom_callback(self, msg):

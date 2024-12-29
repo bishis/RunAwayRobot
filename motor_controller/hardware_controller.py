@@ -31,6 +31,13 @@ class HardwareController(Node):
         # Create a timer to print status
         self.create_timer(1.0, self.status_callback)
         
+    def convert_to_binary_speed(self, speed):
+        """Convert decimal speed to binary (0 or 1)."""
+        threshold = 0.1  # Threshold for movement
+        if abs(speed) < threshold:
+            return 0
+        return 1 if speed > 0 else -1
+        
     def velocity_callback(self, msg):
         """Handle incoming velocity commands."""
         try:
@@ -42,18 +49,22 @@ class HardwareController(Node):
             left_speed = linear_x - angular_z
             right_speed = linear_x + angular_z
             
+            # Convert to binary speeds
+            binary_left = self.convert_to_binary_speed(left_speed)
+            binary_right = self.convert_to_binary_speed(right_speed)
+            
             # Print received command details
             self.get_logger().info(
                 f"\nReceived cmd_vel:"
                 f"\n  Linear X: {linear_x:.2f}"
                 f"\n  Angular Z: {angular_z:.2f}"
                 f"\nCalculated wheel speeds:"
-                f"\n  Left: {left_speed:.2f}"
-                f"\n  Right: {right_speed:.2f}"
+                f"\n  Left: {left_speed:.2f} -> {binary_left}"
+                f"\n  Right: {right_speed:.2f} -> {binary_right}"
             )
             
-            # Apply to motors
-            self.motors.set_speeds(left_speed, right_speed)
+            # Apply binary speeds to motors
+            self.motors.set_speeds(binary_left, binary_right)
             
             # Increment command counter
             self.command_count += 1

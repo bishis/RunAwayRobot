@@ -5,24 +5,34 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from ..controllers.motor_controller import MotorController
 from std_msgs.msg import String
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
+from rclpy.qos import QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 
 class RobotHardwareNode(Node):
     def __init__(self):
         super().__init__('robot_hardware')
         
-        # Add heartbeat publisher
+        # Define QoS profile for reliable communication
+        qos_profile = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+        
+        # Add heartbeat publisher with reliable QoS
         self.heartbeat_pub = self.create_publisher(
             String,
             'robot_heartbeat',
-            10
+            qos_profile
         )
         self.create_timer(1.0, self.publish_heartbeat)
         
-        # Add command echo publisher
+        # Add command echo publisher with reliable QoS
         self.cmd_echo_pub = self.create_publisher(
             String,
             'cmd_echo',
-            10
+            qos_profile
         )
         
         # Initialize motor controller
@@ -34,12 +44,12 @@ class RobotHardwareNode(Node):
         
         self.motors = MotorController(left_pin=left_pin, right_pin=right_pin)
         
-        # Subscribe to movement commands
+        # Subscribe to movement commands with reliable QoS
         self.create_subscription(
             Twist,
             'cmd_vel',
             self.cmd_vel_callback,
-            10
+            qos_profile
         )
         
         self.get_logger().info('Robot hardware node initialized')

@@ -7,27 +7,37 @@ from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 from ..processors.lidar_processor import LidarProcessor
 from std_msgs.msg import String
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
+from rclpy.qos import QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 
 class NavigationNode(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
-        # Add heartbeat subscription and robot status tracking
+        # Define QoS profile for reliable communication
+        qos_profile = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+        
+        # Add heartbeat subscription with reliable QoS
         self.robot_online = False
         self.last_heartbeat = None
         self.create_subscription(
             String,
             'robot_heartbeat',
             self.heartbeat_callback,
-            10
+            qos_profile
         )
         
-        # Add command echo subscription
+        # Add command echo subscription with reliable QoS
         self.create_subscription(
             String,
             'cmd_echo',
             self.cmd_echo_callback,
-            10
+            qos_profile
         )
         
         # Add status check timer
@@ -53,8 +63,12 @@ class NavigationNode(Node):
         self.current_pose = None
         self.last_scan = None
         
-        # Publishers and subscribers
-        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
+        # Publishers with reliable QoS
+        self.cmd_vel_pub = self.create_publisher(
+            Twist,
+            'cmd_vel',
+            qos_profile
+        )
         
         self.create_subscription(LaserScan, '/scan', self.lidar_callback, 10)
         self.create_subscription(Odometry, '/odom_rf2o', self.odom_callback, 10)

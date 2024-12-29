@@ -12,8 +12,8 @@ def generate_launch_description():
         # Network setup
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
-        
-        # Odometry processing
+
+        # RF2O Odometry
         Node(
             package='rf2o_laser_odometry',
             executable='rf2o_laser_odometry_node',
@@ -24,11 +24,12 @@ def generate_launch_description():
                 'publish_tf': True,
                 'base_frame_id': 'base_link',
                 'odom_frame_id': 'odom',
+                'init_pose_from_topic': '',
                 'freq': 20.0
             }]
         ),
 
-        # SLAM Toolbox
+        # SLAM Toolbox (using existing configuration)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(get_package_share_directory('slam_toolbox'),

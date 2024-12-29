@@ -1,24 +1,24 @@
 from launch import LaunchDescription
-from launch.actions import SetEnvironmentVariable
+from launch.actions import SetEnvironmentVariable, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
+import os
+from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
+    pkg_dir = get_package_share_directory('motor_controller')
+    
     return LaunchDescription([
         # Network setup
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
-        
-        # RPLIDAR node - just publishes raw data
-        Node(
-            package='rplidar_ros',
-            executable='rplidar_composition',
-            name='rplidar',
-            parameters=[{
-                'serial_port': '/dev/ttyUSB0',
-                'frame_id': 'laser',
-                'angle_compensate': True,
-                'scan_mode': 'Standard'
-            }]
+
+        # Include the working RPLIDAR launch configuration
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource([
+                os.path.join(get_package_share_directory('rplidar_ros'),
+                           'launch', 'rplidar.launch.py')
+            ])
         ),
 
         # Simple hardware interface for motors

@@ -26,8 +26,8 @@ setup(
     entry_points={
         'console_scripts': [
             'wall_follower = motor_controller.wall_follower:main',
-            'robot_hardware_node = motor_controller.nodes.robot_hardware_node:main',
-            'navigation_node = motor_controller.nodes.navigation_node:main',
+            'hardware_controller = motor_controller.hardware_controller:main',
+            'navigation_controller = motor_controller.navigation_controller:main',
         ],
     },
 )

@@ -57,6 +57,16 @@ class MotorController:
         self.motor_right.value = self.STOP
         time.sleep(0.1)
         
+    def set_speeds(self, left_speed, right_speed):
+        """Set speeds for both motors."""
+        # Clamp speeds to [-1, 1]
+        left_speed = max(-1.0, min(1.0, left_speed))
+        right_speed = max(-1.0, min(1.0, right_speed))
+        
+        # Apply speeds to motors
+        self.motor_left.value = left_speed
+        self.motor_right.value = right_speed
+        
     def __del__(self):
         """Cleanup on object destruction."""
         self.stop() 

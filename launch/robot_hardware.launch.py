@@ -1,8 +1,15 @@
 from launch import LaunchDescription
+from launch.actions import SetEnvironmentVariable
 from launch_ros.actions import Node
 
 def generate_launch_description():
     return LaunchDescription([
+        # Set ROS_DOMAIN_ID
+        SetEnvironmentVariable('ROS_DOMAIN_ID', '0'),
+        
+        # Set ROS_LOCALHOST_ONLY=0 to allow network communication
+        SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
+        
         # RPLIDAR node
         Node(
             package='rplidar_ros',

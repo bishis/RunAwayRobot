@@ -117,40 +117,47 @@ class NavigationController(Node):
         left_blocked = sector_data['front_left'] < self.safety_radius
         right_blocked = sector_data['front_right'] < self.safety_radius
         
-        current_time = self.get_clock().now()
+        self.get_logger().info(f"Distances - Front: {sector_data['front']:.2f}m, "
+                              f"FL: {sector_data['front_left']:.2f}m, "
+                              f"FR: {sector_data['front_right']:.2f}m")
         
         if self.state == RobotState.EXPLORING:
-            # Find best direction to explore
-            best_direction = self.find_best_direction(sector_data)
-            
-            if best_direction is not None:
-                # Convert to relative angle
-                current_yaw = math.degrees(self.get_yaw_from_quaternion(self.current_pose.orientation))
-                angle_diff = (best_direction - current_yaw) % 360
-                if angle_diff > 180:
-                    angle_diff -= 360
+            # If path is blocked, find best direction
+            if front_blocked or left_blocked or right_blocked:
+                best_direction = self.find_best_direction(sector_data)
                 
-                # If significant turn needed, switch to rotating
-                if abs(angle_diff) > 20:
-                    self.state = RobotState.ROTATING
-                    self.rotation_direction = 1 if angle_diff > 0 else -1
-                    return (0.0, self.rotation_direction * 1.0)
+                if best_direction is not None:
+                    current_yaw = math.degrees(self.get_yaw_from_quaternion(self.current_pose.orientation))
+                    angle_diff = (best_direction - current_yaw) % 360
+                    if angle_diff > 180:
+                        angle_diff -= 360
+                    
+                    # If significant turn needed
+                    if abs(angle_diff) > 20:
+                        self.state = RobotState.ROTATING
+                        self.rotation_direction = 1 if angle_diff > 0 else -1
+                        self.get_logger().info(f"Starting rotation {self.rotation_direction}")
+                        return (0.0, self.rotation_direction * 1.0)
+                    
+                    # Small adjustment while moving
+                    turn_rate = np.clip(angle_diff / 45.0, -0.5, 0.5)
+                    return (0.8, turn_rate)
                 
-                # Otherwise, make gentle turns while moving
-                turn_rate = np.clip(angle_diff / 45.0, -0.5, 0.5)
-                return (0.8, turn_rate)
+                # No good direction found, rotate in place
+                self.state = RobotState.ROTATING
+                self.rotation_direction = 1
+                return (0.0, 1.0)
             
-            # If no good direction found, start rotating
-            self.state = RobotState.ROTATING
-            return (0.0, 1.0)
+            # Path is clear, move forward
+            return (1.0, 0.0)
             
         elif self.state == RobotState.ROTATING:
             # Keep rotating until we find a clear path
             if not front_blocked and not left_blocked and not right_blocked:
                 self.state = RobotState.EXPLORING
-                # Mark current direction as explored
                 current_yaw = math.degrees(self.get_yaw_from_quaternion(self.current_pose.orientation))
                 self.update_explored_directions(current_yaw)
+                self.get_logger().info("Found clear path, moving forward")
                 return (1.0, 0.0)
             return (0.0, self.rotation_direction * 1.0)
         
@@ -216,6 +223,44 @@ class NavigationController(Node):
         siny_cosp = 2 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
         return math.atan2(siny_cosp, cosy_cosp)
+    
+    def check_lidar_sectors(self):
+        """Process LIDAR data into sectors and check for obstacles."""
+        if not self.latest_scan:
+            return None
+        
+        sectors = {
+            'front': (150, 210),      # Front is 180° ±30°
+            'front_left': (210, 240),
+            'front_right': (120, 150),
+            'left': (240, 270),
+            'right': (90, 120)
+        }
+        
+        sector_data = {}
+        for sector_name, (start, end) in sectors.items():
+            start_idx = int((start * len(self.latest_scan.ranges) / 360))
+            end_idx = int((end * len(self.latest_scan.ranges) / 360))
+            
+            ranges = []
+            if start_idx <= end_idx:
+                indices = range(start_idx, end_idx + 1)
+            else:
+                indices = list(range(start_idx, len(self.latest_scan.ranges))) + list(range(0, end_idx + 1))
+            
+            for i in indices:
+                if i < len(self.latest_scan.ranges):
+                    range_val = self.latest_scan.ranges[i]
+                    if 0.1 < range_val < 5.0:  # Filter valid ranges
+                        ranges.append(range_val)
+            
+            if ranges:
+                sector_data[sector_name] = min(ranges)
+                self.get_logger().debug(f"{sector_name}: {sector_data[sector_name]:.2f}m")
+            else:
+                sector_data[sector_name] = float('inf')
+        
+        return sector_data
 
 def main(args=None):
     rclpy.init(args=args)

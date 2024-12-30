@@ -11,10 +11,9 @@ from enum import Enum
 
 class RobotState(Enum):
     FORWARD = 1
-    AVOIDING_LEFT = 2
-    AVOIDING_RIGHT = 3
-    RETURNING = 4
-    STOPPED = 5
+    ROTATING = 2    # New state for in-place rotation
+    AVOIDING = 3
+    STOPPED = 4
 
 class NavigationController(Node):
     def __init__(self):
@@ -32,10 +31,8 @@ class NavigationController(Node):
         self.current_pose = None
         self.latest_scan = None
         self.map_data = None
-        self.original_heading = None
-        self.avoidance_start_pose = None
-        self.obstacle_side = None  # 'left' or 'right'
-        self.parallel_distance = 0.4  # Distance to maintain from wall
+        self.target_rotation = None  # Target angle to rotate to
+        self.rotation_direction = 1  # 1 for right, -1 for left
         
         # Publishers and Subscribers
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
@@ -55,9 +52,7 @@ class NavigationController(Node):
             'front_left': (210, 240),
             'front_right': (120, 150),
             'left': (240, 270),
-            'right': (90, 120),
-            'parallel_left': (225, 255),  # For parallel wall following
-            'parallel_right': (105, 135)
+            'right': (90, 120)
         }
         
         sector_data = {}
@@ -84,94 +79,48 @@ class NavigationController(Node):
         
         return sector_data
     
+    def find_best_rotation(self, sector_data):
+        """Find the best direction to rotate based on LIDAR data."""
+        # Check which direction has more space
+        left_space = min(sector_data['left'], sector_data['front_left'])
+        right_space = min(sector_data['right'], sector_data['front_right'])
+        
+        if right_space > left_space:
+            return -1  # Rotate clockwise (right)
+        return 1      # Rotate counter-clockwise (left)
+    
     def determine_movement(self, sector_data):
         if not sector_data:
             return (0.0, 0.0)
         
         self.get_logger().info(f"State: {self.state.name}, Sector distances: {sector_data}")
         
+        # Check if path is blocked
+        front_blocked = sector_data['front'] < self.safety_radius * 1.5
+        left_blocked = sector_data['front_left'] < self.safety_radius
+        right_blocked = sector_data['front_right'] < self.safety_radius
+        
         if self.state == RobotState.FORWARD:
-            if sector_data['front'] < self.safety_radius * 1.5:
-                # Decide which way to avoid based on more open space
-                if sector_data['left'] > sector_data['right']:
-                    self.state = RobotState.AVOIDING_LEFT
-                    self.obstacle_side = 'right'
-                    self.avoidance_start_pose = self.current_pose
-                    return (0.0, 1.0)  # Start turning left
-                else:
-                    self.state = RobotState.AVOIDING_RIGHT
-                    self.obstacle_side = 'left'
-                    self.avoidance_start_pose = self.current_pose
-                    return (0.0, -1.0)  # Start turning right
+            if front_blocked or left_blocked or right_blocked:
+                self.state = RobotState.ROTATING
+                self.rotation_direction = self.find_best_rotation(sector_data)
+                self.get_logger().info(f"Obstacle detected, starting rotation {'right' if self.rotation_direction < 0 else 'left'}")
+                return (0.0, self.rotation_direction * 1.0)  # Start rotating
             return (1.0, 0.0)  # Continue forward
             
-        elif self.state in [RobotState.AVOIDING_LEFT, RobotState.AVOIDING_RIGHT]:
-            # Wall following behavior
-            is_avoiding_left = self.state == RobotState.AVOIDING_LEFT
-            parallel_sector = 'parallel_left' if is_avoiding_left else 'parallel_right'
-            front_side = 'front_left' if is_avoiding_left else 'front_right'
-            
-            # Check if we can return to original heading
-            if self.can_return_to_path(sector_data):
-                self.state = RobotState.RETURNING
-                return (0.0, -1.0 if is_avoiding_left else 1.0)
-            
-            # Wall following adjustments
-            parallel_dist = sector_data[parallel_sector]
-            error = parallel_dist - self.parallel_distance
-            turn_adjust = np.clip(error * 2.0, -1.0, 1.0)  # P controller
-            
-            # Stronger turn if front is blocked
-            if sector_data[front_side] < self.safety_radius:
-                turn_adjust = 1.0 if is_avoiding_left else -1.0
-            
-            return (0.5, turn_adjust)  # Move forward while adjusting
-            
-        elif self.state == RobotState.RETURNING:
-            # Check if we're back on original heading
-            if self.is_aligned_with_original_heading():
+        elif self.state == RobotState.ROTATING:
+            # Keep rotating until we find a clear path
+            if not front_blocked and not left_blocked and not right_blocked:
                 self.state = RobotState.FORWARD
+                self.get_logger().info("Clear path found, moving forward")
                 return (1.0, 0.0)
-            return (0.3, -1.0 if self.obstacle_side == 'right' else 1.0)
-        
+            return (0.0, self.rotation_direction * 1.0)  # Continue rotating
+            
         return (0.0, 0.0)  # Default stop
-    
-    def can_return_to_path(self, sector_data):
-        """Check if we can return to original path."""
-        if not self.avoidance_start_pose:
-            return False
-            
-        # Check if we've moved past the obstacle
-        current_x = self.current_pose.position.x
-        current_y = self.current_pose.position.y
-        start_x = self.avoidance_start_pose.position.x
-        start_y = self.avoidance_start_pose.position.y
-        
-        # Calculate distance moved perpendicular to original direction
-        dist_moved = math.sqrt((current_x - start_x)**2 + (current_y - start_y)**2)
-        
-        # Check if we've moved enough and front is clear
-        return (dist_moved > 1.0 and 
-                sector_data['front'] > self.detection_distance and
-                sector_data['front_left'] > self.safety_radius and
-                sector_data['front_right'] > self.safety_radius)
-    
-    def is_aligned_with_original_heading(self):
-        """Check if we're aligned with original heading."""
-        if self.original_heading is None:
-            return True
-            
-        current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
-        angle_diff = abs(current_yaw - self.original_heading)
-        return angle_diff < math.radians(10)  # Within 10 degrees
     
     def control_loop(self):
         if not self.current_pose or not self.latest_scan:
             return
-        
-        # Store original heading when starting
-        if self.original_heading is None:
-            self.original_heading = self.get_yaw_from_quaternion(self.current_pose.orientation)
         
         sector_data = self.check_lidar_sectors()
         if not sector_data:

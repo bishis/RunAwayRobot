@@ -10,9 +10,9 @@ import numpy as np
 from enum import Enum
 
 class RobotState(Enum):
-    FORWARD = 1
-    ROTATING = 2    # New state for in-place rotation
-    AVOIDING = 3
+    EXPLORING = 1
+    ROTATING = 2
+    FOLLOWING_PATH = 3
     STOPPED = 4
 
 class NavigationController(Node):
@@ -22,17 +22,20 @@ class NavigationController(Node):
         # Parameters
         self.declare_parameter('safety_radius', 0.5)
         self.declare_parameter('detection_distance', 1.0)
+        self.declare_parameter('look_ahead_distance', 1.5)  # Distance to look ahead for planning
         
         self.safety_radius = self.get_parameter('safety_radius').value
         self.detection_distance = self.get_parameter('detection_distance').value
+        self.look_ahead_distance = self.get_parameter('look_ahead_distance').value
         
         # Robot state
-        self.state = RobotState.FORWARD
+        self.state = RobotState.EXPLORING
         self.current_pose = None
         self.latest_scan = None
         self.map_data = None
-        self.target_rotation = None  # Target angle to rotate to
-        self.rotation_direction = 1  # 1 for right, -1 for left
+        self.rotation_direction = 1
+        self.last_turn_time = self.get_clock().now()
+        self.unexplored_directions = list(range(0, 360, 45))  # Directions to explore (in degrees)
         
         # Publishers and Subscribers
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
@@ -43,80 +46,125 @@ class NavigationController(Node):
         self.create_timer(0.1, self.control_loop)
         self.get_logger().info('Navigation controller initialized')
     
-    def check_lidar_sectors(self):
-        if not self.latest_scan:
+    def find_best_direction(self, sector_data):
+        """Find best direction considering both LIDAR and unexplored areas."""
+        if not sector_data:
             return None
             
-        sectors = {
-            'front': (150, 210),      # Front is 180° ±30°
-            'front_left': (210, 240),
-            'front_right': (120, 150),
-            'left': (240, 270),
-            'right': (90, 120)
-        }
+        # Get current yaw
+        if not self.current_pose:
+            return None
+        current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
+        current_yaw_deg = math.degrees(current_yaw) % 360
         
-        sector_data = {}
-        for sector_name, (start, end) in sectors.items():
-            start_idx = int((start * len(self.latest_scan.ranges) / 360))
-            end_idx = int((end * len(self.latest_scan.ranges) / 360))
-            
-            ranges = []
-            if start_idx <= end_idx:
-                indices = range(start_idx, end_idx + 1)
-            else:
-                indices = list(range(start_idx, len(self.latest_scan.ranges))) + list(range(0, end_idx + 1))
-            
-            for i in indices:
-                if i < len(self.latest_scan.ranges):
-                    range_val = self.latest_scan.ranges[i]
-                    if 0.1 < range_val < 5.0:
-                        ranges.append(range_val)
-            
-            if ranges:
-                sector_data[sector_name] = min(ranges)
-            else:
-                sector_data[sector_name] = float('inf')
+        # Score each potential direction
+        best_score = -1
+        best_direction = None
         
-        return sector_data
+        for direction in self.unexplored_directions[:]:  # Copy list for iteration
+            # Convert to robot's frame
+            relative_direction = (direction - current_yaw_deg) % 360
+            
+            # Check if this direction is clear
+            if self.is_direction_clear(relative_direction, sector_data):
+                # Calculate score based on:
+                # 1. Distance to obstacles
+                # 2. How different it is from current direction
+                # 3. Whether it's unexplored
+                distance_score = self.get_distance_score(relative_direction, sector_data)
+                turn_score = 1.0 - abs(relative_direction - 180) / 180.0  # Prefer forward directions
+                
+                total_score = distance_score * 0.6 + turn_score * 0.4
+                
+                if total_score > best_score:
+                    best_score = total_score
+                    best_direction = direction
+        
+        return best_direction
     
-    def find_best_rotation(self, sector_data):
-        """Find the best direction to rotate based on LIDAR data."""
-        # Check which direction has more space
-        left_space = min(sector_data['left'], sector_data['front_left'])
-        right_space = min(sector_data['right'], sector_data['front_right'])
+    def is_direction_clear(self, direction, sector_data):
+        """Check if a direction is clear of obstacles."""
+        # Map direction to sectors
+        if 150 <= direction <= 210:  # Front
+            return sector_data['front'] > self.safety_radius * 1.5
+        elif 210 < direction <= 270:  # Left
+            return sector_data['left'] > self.safety_radius
+        elif 90 <= direction < 150:  # Right
+            return sector_data['right'] > self.safety_radius
+        return False
+    
+    def get_distance_score(self, direction, sector_data):
+        """Calculate score based on distance to obstacles."""
+        # Get relevant distance based on direction
+        if 150 <= direction <= 210:
+            dist = sector_data['front']
+        elif 210 < direction <= 270:
+            dist = sector_data['left']
+        elif 90 <= direction < 150:
+            dist = sector_data['right']
+        else:
+            return 0.0
         
-        if right_space > left_space:
-            return -1  # Rotate clockwise (right)
-        return 1      # Rotate counter-clockwise (left)
+        # Normalize distance score
+        return min(1.0, dist / self.look_ahead_distance)
     
     def determine_movement(self, sector_data):
         if not sector_data:
             return (0.0, 0.0)
-        
-        self.get_logger().info(f"State: {self.state.name}, Sector distances: {sector_data}")
         
         # Check if path is blocked
         front_blocked = sector_data['front'] < self.safety_radius * 1.5
         left_blocked = sector_data['front_left'] < self.safety_radius
         right_blocked = sector_data['front_right'] < self.safety_radius
         
-        if self.state == RobotState.FORWARD:
-            if front_blocked or left_blocked or right_blocked:
-                self.state = RobotState.ROTATING
-                self.rotation_direction = self.find_best_rotation(sector_data)
-                self.get_logger().info(f"Obstacle detected, starting rotation {'right' if self.rotation_direction < 0 else 'left'}")
-                return (0.0, self.rotation_direction * 1.0)  # Start rotating
-            return (1.0, 0.0)  # Continue forward
+        current_time = self.get_clock().now()
+        
+        if self.state == RobotState.EXPLORING:
+            # Find best direction to explore
+            best_direction = self.find_best_direction(sector_data)
+            
+            if best_direction is not None:
+                # Convert to relative angle
+                current_yaw = math.degrees(self.get_yaw_from_quaternion(self.current_pose.orientation))
+                angle_diff = (best_direction - current_yaw) % 360
+                if angle_diff > 180:
+                    angle_diff -= 360
+                
+                # If significant turn needed, switch to rotating
+                if abs(angle_diff) > 20:
+                    self.state = RobotState.ROTATING
+                    self.rotation_direction = 1 if angle_diff > 0 else -1
+                    return (0.0, self.rotation_direction * 1.0)
+                
+                # Otherwise, make gentle turns while moving
+                turn_rate = np.clip(angle_diff / 45.0, -0.5, 0.5)
+                return (0.8, turn_rate)
+            
+            # If no good direction found, start rotating
+            self.state = RobotState.ROTATING
+            return (0.0, 1.0)
             
         elif self.state == RobotState.ROTATING:
             # Keep rotating until we find a clear path
             if not front_blocked and not left_blocked and not right_blocked:
-                self.state = RobotState.FORWARD
-                self.get_logger().info("Clear path found, moving forward")
+                self.state = RobotState.EXPLORING
+                # Mark current direction as explored
+                current_yaw = math.degrees(self.get_yaw_from_quaternion(self.current_pose.orientation))
+                self.update_explored_directions(current_yaw)
                 return (1.0, 0.0)
-            return (0.0, self.rotation_direction * 1.0)  # Continue rotating
-            
-        return (0.0, 0.0)  # Default stop
+            return (0.0, self.rotation_direction * 1.0)
+        
+        return (0.0, 0.0)
+    
+    def update_explored_directions(self, current_yaw):
+        """Update list of unexplored directions."""
+        # Remove directions that have been explored
+        self.unexplored_directions = [d for d in self.unexplored_directions 
+                                    if abs((d - current_yaw) % 360) > 45]
+        
+        # Reset list if all directions explored
+        if not self.unexplored_directions:
+            self.unexplored_directions = list(range(0, 360, 45))
     
     def control_loop(self):
         if not self.current_pose or not self.latest_scan:

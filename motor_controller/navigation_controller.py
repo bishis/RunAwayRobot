@@ -3,12 +3,14 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist, Point, Vector3
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, OccupancyGrid
 from sensor_msgs.msg import LaserScan
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 import math
 from enum import Enum
+import random
+import numpy as np
 
 class RobotState(Enum):
     ROTATING = 1
@@ -44,11 +46,21 @@ class NavigationController(Node):
         # Subscribers
         self.create_subscription(Odometry, 'odom_rf2o', self.odom_callback, 10)
         self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
+        self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
         
         # Timer
         self.create_timer(0.1, self.control_loop)
         
         self.get_logger().info('Navigation controller initialized')
+        
+        # Add map subscriber
+        self.map_data = None
+        self.map_info = None
+        
+        # Monte Carlo parameters
+        self.num_particles = 100
+        self.max_iterations = 50
+        self.step_size = 0.5  # meters
 
     def generate_waypoints(self):
         """Generate square wave waypoints starting from current position and orientation."""
@@ -144,88 +156,124 @@ class NavigationController(Node):
         return min_distance < self.safety_radius, min_distance
 
     def control_loop(self):
-        if not self.current_pose:
-            self.get_logger().warn('Waiting for pose data...')
+        if not self.current_pose or not self.latest_scan or not self.map_data is not None:
             return
 
         self.publish_waypoints()
 
-        # If no waypoints yet, return
-        if not self.waypoints:
-            return
-
-        if self.current_waypoint_index >= len(self.waypoints):
+        if not self.waypoints or self.current_waypoint_index >= len(self.waypoints):
             self.stop_robot()
             return
 
         current_target = self.waypoints[self.current_waypoint_index]
-        
-        # Calculate distance and angle to target
-        dx = current_target.x - self.current_pose.position.x
-        dy = current_target.y - self.current_pose.position.y
-        distance = math.sqrt(dx*dx + dy*dy)
-        target_angle = math.atan2(dy, dx)
-        current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
-        angle_diff = target_angle - current_angle
-        
-        # Normalize angle
-        while angle_diff > math.pi: angle_diff -= 2*math.pi
-        while angle_diff < -math.pi: angle_diff += 2*math.pi
-
-        # Debug info
-        self.get_logger().info(
-            f'State: {self.state.name}, Target: {self.current_waypoint_index}, '
-            f'Distance: {distance:.2f}, Angle diff: {math.degrees(angle_diff):.1f}°'
-        )
+        current_x = self.current_pose.position.x
+        current_y = self.current_pose.position.y
 
         # Check for obstacles
         is_blocked, obstacle_distance = self.check_obstacles()
         
-        # Create command message
-        cmd = Twist()
-
-        # State machine
-        if self.state == RobotState.BACKING:
-            # Continue backing up until we have enough space
-            if not is_blocked or (obstacle_distance and obstacle_distance > self.safety_radius * 2):
-                self.state = RobotState.ROTATING
-                clear_path = self.find_clear_path()
-                if clear_path is not None:
-                    cmd.angular.z = 1.0 if clear_path > 0 else -1.0
-                else:
-                    cmd.angular.z = 1.0  # Default to left if no clear path
+        if is_blocked:
+            if self.state != RobotState.BACKING:
+                self.state = RobotState.BACKING
+                self.get_logger().info('Obstacle detected, backing up')
+                self.send_velocity_command(-1.0, 0.0)
             else:
-                # Keep backing up
-                cmd.linear.x = -1.0
-        
-        elif is_blocked:
-            # Start backing up if too close to obstacle
-            self.state = RobotState.BACKING
-            cmd.linear.x = -1.0
-            self.get_logger().info('Obstacle detected, backing up')
-        
-        elif distance < self.waypoint_threshold:
-            self.get_logger().info(f'Reached waypoint {self.current_waypoint_index}')
-            self.current_waypoint_index += 1
-            self.state = RobotState.ROTATING
-            self.stop_robot()
-            return
-        
-        elif abs(angle_diff) > math.radians(20):
-            self.state = RobotState.ROTATING
-            cmd.angular.z = 1.0 if angle_diff > 0 else -1.0
-        
+                # After backing up, find new path
+                path = self.find_path_monte_carlo(
+                    current_x, current_y,
+                    current_target.x, current_target.y
+                )
+                
+                if path:
+                    # Get next waypoint from path
+                    next_x, next_y = path[1]  # Use second point in path
+                    angle = math.atan2(next_y - current_y, next_x - current_x)
+                    current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
+                    angle_diff = angle - current_angle
+                    
+                    # Normalize angle
+                    while angle_diff > math.pi: angle_diff -= 2*math.pi
+                    while angle_diff < -math.pi: angle_diff += 2*math.pi
+                    
+                    if abs(angle_diff) > math.radians(20):
+                        # Turn towards clear path
+                        self.state = RobotState.ROTATING
+                        self.send_velocity_command(0.0, 1.0 if angle_diff > 0 else -1.0)
+                    else:
+                        # Move forward along path
+                        self.state = RobotState.MOVING
+                        self.send_velocity_command(1.0, 0.0)
+                else:
+                    # No path found, keep backing up
+                    self.send_velocity_command(-1.0, 0.0)
         else:
-            # Move forward
-            self.state = RobotState.MOVING
-            cmd.linear.x = 1.0
+            # Normal waypoint following
+            # Calculate distance and angle to target
+            dx = current_target.x - self.current_pose.position.x
+            dy = current_target.y - self.current_pose.position.y
+            distance = math.sqrt(dx*dx + dy*dy)
+            target_angle = math.atan2(dy, dx)
+            current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
+            angle_diff = target_angle - current_angle
+            
+            # Normalize angle
+            while angle_diff > math.pi: angle_diff -= 2*math.pi
+            while angle_diff < -math.pi: angle_diff += 2*math.pi
 
-        # Publish command
-        self.cmd_vel_pub.publish(cmd)
-        self.get_logger().info(
-            f'Command sent - State: {self.state.name}, '
-            f'Linear: {cmd.linear.x}, Angular: {cmd.angular.z}'
-        )
+            # Debug info
+            self.get_logger().info(
+                f'State: {self.state.name}, Target: {self.current_waypoint_index}, '
+                f'Distance: {distance:.2f}, Angle diff: {math.degrees(angle_diff):.1f}°'
+            )
+
+            # Check for obstacles
+            is_blocked, obstacle_distance = self.check_obstacles()
+            
+            # Create command message
+            cmd = Twist()
+
+            # State machine
+            if self.state == RobotState.BACKING:
+                # Continue backing up until we have enough space
+                if not is_blocked or (obstacle_distance and obstacle_distance > self.safety_radius * 2):
+                    self.state = RobotState.ROTATING
+                    clear_path = self.find_clear_path()
+                    if clear_path is not None:
+                        cmd.angular.z = 1.0 if clear_path > 0 else -1.0
+                    else:
+                        cmd.angular.z = 1.0  # Default to left if no clear path
+                else:
+                    # Keep backing up
+                    cmd.linear.x = -1.0
+            
+            elif is_blocked:
+                # Start backing up if too close to obstacle
+                self.state = RobotState.BACKING
+                cmd.linear.x = -1.0
+                self.get_logger().info('Obstacle detected, backing up')
+            
+            elif distance < self.waypoint_threshold:
+                self.get_logger().info(f'Reached waypoint {self.current_waypoint_index}')
+                self.current_waypoint_index += 1
+                self.state = RobotState.ROTATING
+                self.stop_robot()
+                return
+            
+            elif abs(angle_diff) > math.radians(20):
+                self.state = RobotState.ROTATING
+                cmd.angular.z = 1.0 if angle_diff > 0 else -1.0
+            
+            else:
+                # Move forward
+                self.state = RobotState.MOVING
+                cmd.linear.x = 1.0
+
+            # Publish command
+            self.cmd_vel_pub.publish(cmd)
+            self.get_logger().info(
+                f'Command sent - State: {self.state.name}, '
+                f'Linear: {cmd.linear.x}, Angular: {cmd.angular.z}'
+            )
 
     def stop_robot(self):
         """Stop the robot."""
@@ -340,6 +388,96 @@ class NavigationController(Node):
                     break
                 
         return gap_size
+
+    def map_callback(self, msg):
+        """Process incoming map data."""
+        self.map_data = np.array(msg.data).reshape((msg.info.height, msg.info.width))
+        self.map_info = msg.info
+        
+    def world_to_map(self, x, y):
+        """Convert world coordinates to map coordinates."""
+        if not self.map_info:
+            return None, None
+        mx = int((x - self.map_info.origin.position.x) / self.map_info.resolution)
+        my = int((y - self.map_info.origin.position.y) / self.map_info.resolution)
+        if 0 <= mx < self.map_info.width and 0 <= my < self.map_info.height:
+            return mx, my
+        return None, None
+        
+    def map_to_world(self, mx, my):
+        """Convert map coordinates to world coordinates."""
+        if not self.map_info:
+            return None, None
+        x = mx * self.map_info.resolution + self.map_info.origin.position.x
+        y = my * self.map_info.resolution + self.map_info.origin.position.y
+        return x, y
+
+    def is_valid_point(self, x, y):
+        """Check if point is valid and free in map."""
+        mx, my = self.world_to_map(x, y)
+        if mx is None or my is None:
+            return False
+        return self.map_data[my, mx] == 0  # 0 indicates free space
+
+    def find_path_monte_carlo(self, start_x, start_y, goal_x, goal_y):
+        """Use Monte Carlo to find a clear path to goal."""
+        if not self.map_data is not None:
+            return None
+
+        best_path = None
+        best_cost = float('inf')
+        
+        for _ in range(self.max_iterations):
+            # Generate random path
+            current_x, current_y = start_x, start_y
+            path = [(current_x, current_y)]
+            blocked = False
+            
+            while math.sqrt((current_x - goal_x)**2 + (current_y - goal_y)**2) > self.step_size:
+                # Generate random step towards goal with bias
+                dx = goal_x - current_x
+                dy = goal_y - current_y
+                distance = math.sqrt(dx*dx + dy*dy)
+                
+                # Add random variation
+                angle = math.atan2(dy, dx) + random.uniform(-math.pi/4, math.pi/4)
+                step_x = self.step_size * math.cos(angle)
+                step_y = self.step_size * math.sin(angle)
+                
+                new_x = current_x + step_x
+                new_y = current_y + step_y
+                
+                # Check if new position is valid
+                if not self.is_valid_point(new_x, new_y):
+                    blocked = True
+                    break
+                
+                current_x, current_y = new_x, new_y
+                path.append((current_x, current_y))
+            
+            if not blocked:
+                # Calculate path cost (length + clearance from obstacles)
+                cost = 0
+                for i in range(len(path)-1):
+                    x1, y1 = path[i]
+                    x2, y2 = path[i+1]
+                    cost += math.sqrt((x2-x1)**2 + (y2-y1)**2)
+                    
+                    # Add penalty for proximity to obstacles
+                    mx, my = self.world_to_map(x2, y2)
+                    if mx is not None and my is not None:
+                        for dx in [-1, 0, 1]:
+                            for dy in [-1, 0, 1]:
+                                if (0 <= mx+dx < self.map_info.width and 
+                                    0 <= my+dy < self.map_info.height):
+                                    if self.map_data[my+dy, mx+dx] > 50:
+                                        cost += 1.0
+                
+                if cost < best_cost:
+                    best_cost = cost
+                    best_path = path
+        
+        return best_path
 
 def main(args=None):
     rclpy.init(args=args)

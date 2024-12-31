@@ -66,18 +66,19 @@ class NavigationController(Node):
     def generate_square_wave(self) -> List[Point]:
         """Generate square wave waypoints."""
         points = []
-        x, y = 0, 0
+        x, y = 0, 0  # Start at origin
         leg_length = self.leg_length
         
-        # Generate 4 legs of the square wave
+        # Generate square wave pattern
         for i in range(4):
-            if i % 2 == 0:
-                y += leg_length
-            else:
-                x += leg_length
             point = Point()
+            if i % 2 == 0:
+                y += leg_length  # Move up
+            else:
+                x += leg_length  # Move right
             point.x, point.y = x, y
             points.append(point)
+            self.get_logger().info(f'Generated waypoint {i}: ({point.x}, {point.y})')
         
         return points
 
@@ -225,15 +226,24 @@ class NavigationController(Node):
             return
         
         # Check for obstacles in each sector
-        self.obstacle_detected = False
-        if sector_data['front'] < self.safety_radius:
-            self.obstacle_detected = True
+        front_blocked = sector_data['front'] < self.safety_radius
+        left_blocked = sector_data['front_left'] < self.safety_radius
+        right_blocked = sector_data['front_right'] < self.safety_radius
+        
+        self.obstacle_detected = front_blocked or left_blocked or right_blocked
+        
+        if self.obstacle_detected:
             # Decide which way to turn based on side distances
             if sector_data['left'] > sector_data['right']:
                 self.obstacle_direction = 'left'
             else:
                 self.obstacle_direction = 'right'
-            self.get_logger().warn(f'Obstacle detected! Turning {self.obstacle_direction}')
+            self.get_logger().warn(
+                f'Obstacle detected! Turning {self.obstacle_direction}\n'
+                f'Distances - Front: {sector_data["front"]:.2f}m, '
+                f'Left: {sector_data["left"]:.2f}m, '
+                f'Right: {sector_data["right"]:.2f}m'
+            )
 
     def publish_waypoints(self):
         """Publish waypoints for visualization."""
@@ -244,10 +254,12 @@ class NavigationController(Node):
         waypoint_marker.header.frame_id = 'map'
         waypoint_marker.header.stamp = self.get_clock().now().to_msg()
         waypoint_marker.ns = 'waypoints'
+        waypoint_marker.id = 0
         waypoint_marker.type = Marker.SPHERE_LIST
         waypoint_marker.action = Marker.ADD
         waypoint_marker.scale = Vector3(x=0.2, y=0.2, z=0.2)
         waypoint_marker.color = ColorRGBA(r=1.0, g=0.0, b=0.0, a=1.0)
+        waypoint_marker.pose.orientation.w = 1.0
         
         for point in self.square_wave_points:
             waypoint_marker.points.append(point)
@@ -260,9 +272,11 @@ class NavigationController(Node):
             target_marker.header.frame_id = 'map'
             target_marker.header.stamp = self.get_clock().now().to_msg()
             target_marker.ns = 'current_target'
+            target_marker.id = 1
             target_marker.type = Marker.SPHERE
             target_marker.action = Marker.ADD
             target_marker.pose.position = self.target_waypoint
+            target_marker.pose.orientation.w = 1.0
             target_marker.scale = Vector3(x=0.3, y=0.3, z=0.3)
             target_marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0)
             marker_array.markers.append(target_marker)
@@ -288,14 +302,23 @@ class NavigationController(Node):
 
     def control_loop(self):
         if not self.current_pose or not self.map_data:
+            self.get_logger().warn('Waiting for pose or map data...')
             return
 
         # Publish visualizations
         self.publish_waypoints()
         self.publish_planned_path()
 
+        # Debug current state
+        self.get_logger().info(
+            f'State: {self.state.name}, '
+            f'Waypoint Index: {self.current_waypoint_index}, '
+            f'Obstacle Detected: {self.obstacle_detected}'
+        )
+
         # Handle obstacle avoidance first
         if self.obstacle_detected:
+            self.get_logger().info(f'Avoiding obstacle: turning {self.obstacle_direction}')
             if self.obstacle_direction == 'left':
                 self.send_wheel_commands(-1, 1)  # Turn right
             else:
@@ -304,31 +327,41 @@ class NavigationController(Node):
 
         # Normal navigation logic
         if self.state == RobotState.PLANNING:
-            # Get next waypoint
+            self.get_logger().info('Planning state...')
             if self.current_waypoint_index < len(self.square_wave_points):
                 self.target_waypoint = self.square_wave_points[self.current_waypoint_index]
                 self.current_path = self.plan_path_to_waypoint(self.target_waypoint)
                 if self.current_path:
                     self.state = RobotState.FOLLOWING
-                    self.get_logger().info(f"Planning complete, following path to waypoint {self.current_waypoint_index}")
+                    self.get_logger().info(
+                        f"Planning complete, following path to waypoint {self.current_waypoint_index} "
+                        f"at ({self.target_waypoint.x:.2f}, {self.target_waypoint.y:.2f})"
+                    )
+                else:
+                    self.get_logger().warn("Failed to plan path!")
             else:
                 self.state = RobotState.STOPPED
                 self.stop_robot()
                 return
 
         elif self.state == RobotState.FOLLOWING:
-            # Check if we've reached the current waypoint
             if self.is_at_waypoint(self.target_waypoint):
+                self.get_logger().info(f"Reached waypoint {self.current_waypoint_index}")
                 self.current_waypoint_index += 1
                 self.state = RobotState.PLANNING
-                self.get_logger().info("Reached waypoint, planning next path")
                 return
 
-            # Follow the path only if no obstacles
             if self.current_path:
                 linear_x, angular_z = self.pure_pursuit()
                 left_speed, right_speed = self.get_binary_velocity_commands(linear_x, angular_z)
+                self.get_logger().info(
+                    f'Following path: linear_x={linear_x:.2f}, angular_z={angular_z:.2f} -> '
+                    f'left={left_speed}, right={right_speed}'
+                )
                 self.send_wheel_commands(left_speed, right_speed)
+            else:
+                self.get_logger().warn('No path to follow!')
+                self.state = RobotState.PLANNING
 
     def pure_pursuit(self) -> Tuple[float, float]:
         """Pure pursuit path following algorithm."""

@@ -160,6 +160,9 @@ class NavigationController(Node):
             f'Distance: {distance:.2f}, Angle diff: {math.degrees(angle_diff):.1f}°'
         )
 
+        # Create command message
+        cmd = Twist()
+
         # State machine
         if distance < self.waypoint_threshold:
             self.get_logger().info(f'Reached waypoint {self.current_waypoint_index}')
@@ -171,22 +174,25 @@ class NavigationController(Node):
         # If angle is too large, rotate in place
         if abs(angle_diff) > math.radians(20):
             self.state = RobotState.ROTATING
-            direction = -1 if angle_diff > 0 else 1
-            cmd = Twist()
-            cmd.angular.z = float(direction * 2)  # Ensure we're sending the command
-            self.cmd_vel_pub.publish(cmd)
+            cmd.angular.z = -2.0 if angle_diff > 0 else 2.0  # Full speed rotation
             self.get_logger().info(f'Rotating with angular.z = {cmd.angular.z}')
         else:
             # Move forward
             self.state = RobotState.MOVING
-            cmd = Twist()
             cmd.linear.x = 1.0  # Full speed forward
-            self.cmd_vel_pub.publish(cmd)
             self.get_logger().info(f'Moving forward with linear.x = {cmd.linear.x}')
+
+        # Publish command
+        self.cmd_vel_pub.publish(cmd)
+        self.get_logger().info(f'Published command - linear.x: {cmd.linear.x}, angular.z: {cmd.angular.z}')
 
     def stop_robot(self):
         """Stop the robot."""
-        self.send_wheel_commands(0, 0)
+        cmd = Twist()
+        cmd.linear.x = 0.0
+        cmd.angular.z = 0.0
+        self.cmd_vel_pub.publish(cmd)
+        self.get_logger().info('Stopping robot')
 
     def odom_callback(self, msg):
         """Handle odometry updates."""

@@ -29,7 +29,7 @@ def generate_launch_description():
             }]
         ),
 
-        # SLAM Toolbox
+        # SLAM Toolbox (using existing configuration)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(get_package_share_directory('slam_toolbox'),
@@ -48,9 +48,9 @@ def generate_launch_description():
             name='navigation_controller',
             parameters=[{
                 'use_sim_time': False,
-                'waypoint_threshold': 0.5,
-                'leg_length': 1.0,
-                'safety_radius': 0.5
+                'safety_radius': 0.3,
+                'detection_distance': 0.5,
+                'leg_length': 2.0
             }]
         ),
 

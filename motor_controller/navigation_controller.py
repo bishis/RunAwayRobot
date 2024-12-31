@@ -31,9 +31,10 @@ class NavigationController(Node):
         # Robot state
         self.state = RobotState.STOPPED
         self.current_pose = None
-        self.latest_scan = None  # Add LIDAR data storage
+        self.latest_scan = None
         self.current_waypoint_index = 0
-        self.waypoints = self.generate_waypoints()
+        self.waypoints = []  # Initialize empty, will generate after getting initial pose
+        self.initial_pose_received = False
         
         # Publishers
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
@@ -41,30 +42,33 @@ class NavigationController(Node):
         
         # Subscribers
         self.create_subscription(Odometry, 'odom_rf2o', self.odom_callback, 10)
-        self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)  # Add LIDAR subscription
+        self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         
         # Timer
         self.create_timer(0.1, self.control_loop)
-        self.publish_waypoints()
         
         self.get_logger().info('Navigation controller initialized')
-        self.get_logger().info(f'Generated {len(self.waypoints)} waypoints')
 
     def generate_waypoints(self):
-        """Generate square wave waypoints."""
+        """Generate square wave waypoints starting from current position."""
+        if not self.current_pose:
+            return []
+        
         points = []
-        x, y = 0.0, 0.0
+        # Start from current position
+        x = self.current_pose.position.x
+        y = self.current_pose.position.y
         
         # Generate square wave pattern
         for i in range(4):
             point = Point()
             if i % 2 == 0:
-                y += self.leg_length
+                y += self.leg_length  # Move forward
             else:
-                x += self.leg_length
+                x += self.leg_length  # Move right
             point.x, point.y = x, y
             points.append(point)
-            self.get_logger().info(f'Waypoint {i}: ({point.x}, {point.y})')
+            self.get_logger().info(f'Waypoint {i}: ({point.x:.2f}, {point.y:.2f})')
         
         return points
 
@@ -208,6 +212,13 @@ class NavigationController(Node):
     def odom_callback(self, msg):
         """Handle odometry updates."""
         self.current_pose = msg.pose.pose
+        
+        # Generate waypoints once we get initial pose
+        if not self.initial_pose_received:
+            self.initial_pose_received = True
+            self.waypoints = self.generate_waypoints()
+            self.get_logger().info(f'Generated {len(self.waypoints)} waypoints from initial position')
+            self.publish_waypoints()
 
     def get_yaw_from_quaternion(self, q):
         """Extract yaw from quaternion."""

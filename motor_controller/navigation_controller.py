@@ -9,6 +9,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 import math
 from enum import Enum
+from .processors.path_planner import MonteCarloPathPlanner
 
 class RobotState(Enum):
     ROTATING = 1
@@ -47,6 +48,18 @@ class NavigationController(Node):
         
         # Timer
         self.create_timer(0.1, self.control_loop)
+        
+        # Add path planner
+        self.path_planner = MonteCarloPathPlanner()
+        self.current_path = []
+        
+        # Add subscriber for map
+        self.create_subscription(
+            OccupancyGrid,
+            'map',
+            self.map_callback,
+            10
+        )
         
         self.get_logger().info('Navigation controller initialized')
 
@@ -227,6 +240,22 @@ class NavigationController(Node):
             f'Linear: {cmd.linear.x}, Angular: {cmd.angular.z}'
         )
 
+        # When blocked, find new path
+        if is_blocked:
+            self.get_logger().info('Obstacle detected, planning new path')
+            new_path = self.find_path_to_target()
+            
+            if new_path:
+                self.current_path = new_path
+                self.get_logger().info(f'Found new path with {len(new_path)} points')
+                # Start following new path
+                self.state = RobotState.MOVING
+            else:
+                # If no path found, back up and rotate
+                self.state = RobotState.BACKING
+                cmd.linear.x = -1.0
+                self.get_logger().warn('No valid path found, backing up')
+
     def stop_robot(self):
         """Stop the robot."""
         cmd = Twist()
@@ -340,6 +369,30 @@ class NavigationController(Node):
                     break
                 
         return gap_size
+
+    def map_callback(self, msg):
+        """Handle map updates."""
+        self.path_planner.set_map(
+            msg.data,
+            msg.info.resolution,
+            msg.info.origin,
+            msg.info.width,
+            msg.info.height
+        )
+
+    def find_path_to_target(self):
+        """Find path to current waypoint."""
+        if not self.current_pose or self.current_waypoint_index >= len(self.waypoints):
+            return None
+            
+        start = Point(
+            x=self.current_pose.position.x,
+            y=self.current_pose.position.y,
+            z=0.0
+        )
+        goal = self.waypoints[self.current_waypoint_index]
+        
+        return self.path_planner.find_path(start, goal)
 
 def main(args=None):
     rclpy.init(args=args)

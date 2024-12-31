@@ -23,8 +23,8 @@ class NavigationController(Node):
         super().__init__('navigation_controller')
         
         # Parameters
-        self.declare_parameter('waypoint_threshold', 0.3)
-        self.declare_parameter('leg_length', 2.0)
+        self.declare_parameter('waypoint_threshold', 0.5)
+        self.declare_parameter('leg_length', 1.0)
         self.declare_parameter('safety_radius', 0.5)
         
         self.waypoint_threshold = self.get_parameter('waypoint_threshold').value
@@ -42,6 +42,7 @@ class NavigationController(Node):
         # Publishers
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
         self.waypoint_pub = self.create_publisher(MarkerArray, 'waypoints', 10)
+        self.path_pub = self.create_publisher(Marker, 'planned_path', 10)
         
         # Subscribers
         self.create_subscription(Odometry, 'odom_rf2o', self.odom_callback, 10)
@@ -64,7 +65,7 @@ class NavigationController(Node):
 
     def generate_waypoints(self):
         """Generate square wave waypoints starting from current position and orientation."""
-        if not self.current_pose:
+        if not self.current_pose or not self.map_info:
             return []
         
         points = []
@@ -86,15 +87,26 @@ class NavigationController(Node):
             point = Point()
             if i % 2 == 0:
                 # Move in robot's forward direction
-                x += forward_x * self.leg_length
-                y += forward_y * self.leg_length
+                new_x = x + forward_x * self.leg_length
+                new_y = y + forward_y * self.leg_length
             else:
                 # Move in robot's right direction
-                x += right_x * self.leg_length
-                y += right_y * self.leg_length
-            point.x, point.y = x, y
-            points.append(point)
-            self.get_logger().info(f'Waypoint {i}: ({point.x:.2f}, {point.y:.2f})')
+                new_x = x + right_x * self.leg_length
+                new_y = y + right_y * self.leg_length
+            
+            # Ensure point is within map bounds
+            mx, my = self.world_to_map(new_x, new_y)
+            if mx is not None and my is not None:
+                # Add some margin from map edges
+                margin = 5  # cells
+                if (margin <= mx < self.map_info.width - margin and 
+                    margin <= my < self.map_info.height - margin):
+                    point.x, point.y = new_x, new_y
+                    points.append(point)
+                    x, y = new_x, new_y  # Update current position
+                    self.get_logger().info(f'Waypoint {i}: ({point.x:.2f}, {point.y:.2f})')
+                else:
+                    self.get_logger().warn(f'Waypoint {i} would be out of bounds, skipping')
         
         return points
 
@@ -169,8 +181,38 @@ class NavigationController(Node):
         current_x = self.current_pose.position.x
         current_y = self.current_pose.position.y
 
+        # Calculate distance and angle to target
+        dx = current_target.x - current_x
+        dy = current_target.y - current_y
+        distance = math.sqrt(dx*dx + dy*dy)
+        target_angle = math.atan2(dy, dx)
+        current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
+        angle_diff = target_angle - current_angle
+        
+        # Normalize angle
+        while angle_diff > math.pi: angle_diff -= 2*math.pi
+        while angle_diff < -math.pi: angle_diff += 2*math.pi
+
+        # Debug info
+        self.get_logger().info(
+            f'State: {self.state.name}, Target: {self.current_waypoint_index}, '
+            f'Distance: {distance:.2f}, Angle diff: {math.degrees(angle_diff):.1f}°'
+        )
+
         # Check for obstacles
         is_blocked, obstacle_distance = self.check_obstacles()
+        
+        # Create command message
+        cmd = Twist()
+
+        # State machine
+        if distance < self.waypoint_threshold:
+            self.get_logger().info(f'Reached waypoint {self.current_waypoint_index}')
+            self.current_waypoint_index += 1
+            if self.current_waypoint_index < len(self.waypoints):
+                self.state = RobotState.ROTATING
+                self.stop_robot()
+            return
         
         if is_blocked:
             if self.state != RobotState.BACKING:
@@ -178,102 +220,38 @@ class NavigationController(Node):
                 self.get_logger().info('Obstacle detected, backing up')
                 self.send_velocity_command(-1.0, 0.0)
             else:
-                # After backing up, find new path
-                path = self.find_path_monte_carlo(
-                    current_x, current_y,
-                    current_target.x, current_target.y
-                )
-                
+                path = self.find_path_monte_carlo(current_x, current_y, 
+                                               current_target.x, current_target.y)
                 if path:
-                    # Get next waypoint from path
-                    next_x, next_y = path[1]  # Use second point in path
+                    self.publish_planned_path(path)
+                    next_x, next_y = path[1]
                     angle = math.atan2(next_y - current_y, next_x - current_x)
-                    current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
                     angle_diff = angle - current_angle
-                    
-                    # Normalize angle
                     while angle_diff > math.pi: angle_diff -= 2*math.pi
                     while angle_diff < -math.pi: angle_diff += 2*math.pi
                     
                     if abs(angle_diff) > math.radians(20):
-                        # Turn towards clear path
                         self.state = RobotState.ROTATING
                         self.send_velocity_command(0.0, 1.0 if angle_diff > 0 else -1.0)
                     else:
-                        # Move forward along path
                         self.state = RobotState.MOVING
                         self.send_velocity_command(1.0, 0.0)
                 else:
-                    # No path found, keep backing up
                     self.send_velocity_command(-1.0, 0.0)
         else:
-            # Normal waypoint following
-            # Calculate distance and angle to target
-            dx = current_target.x - self.current_pose.position.x
-            dy = current_target.y - self.current_pose.position.y
-            distance = math.sqrt(dx*dx + dy*dy)
-            target_angle = math.atan2(dy, dx)
-            current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
-            angle_diff = target_angle - current_angle
-            
-            # Normalize angle
-            while angle_diff > math.pi: angle_diff -= 2*math.pi
-            while angle_diff < -math.pi: angle_diff += 2*math.pi
-
-            # Debug info
-            self.get_logger().info(
-                f'State: {self.state.name}, Target: {self.current_waypoint_index}, '
-                f'Distance: {distance:.2f}, Angle diff: {math.degrees(angle_diff):.1f}°'
-            )
-
-            # Check for obstacles
-            is_blocked, obstacle_distance = self.check_obstacles()
-            
-            # Create command message
-            cmd = Twist()
-
-            # State machine
-            if self.state == RobotState.BACKING:
-                # Continue backing up until we have enough space
-                if not is_blocked or (obstacle_distance and obstacle_distance > self.safety_radius * 2):
-                    self.state = RobotState.ROTATING
-                    clear_path = self.find_clear_path()
-                    if clear_path is not None:
-                        cmd.angular.z = 1.0 if clear_path > 0 else -1.0
-                    else:
-                        cmd.angular.z = 1.0  # Default to left if no clear path
-                else:
-                    # Keep backing up
-                    cmd.linear.x = -1.0
-            
-            elif is_blocked:
-                # Start backing up if too close to obstacle
-                self.state = RobotState.BACKING
-                cmd.linear.x = -1.0
-                self.get_logger().info('Obstacle detected, backing up')
-            
-            elif distance < self.waypoint_threshold:
-                self.get_logger().info(f'Reached waypoint {self.current_waypoint_index}')
-                self.current_waypoint_index += 1
+            if abs(angle_diff) > math.radians(20):
                 self.state = RobotState.ROTATING
-                self.stop_robot()
-                return
-            
-            elif abs(angle_diff) > math.radians(20):
-                self.state = RobotState.ROTATING
-                cmd.angular.z = 1.0 if angle_diff > 0 else -1.0
-            
+                self.send_velocity_command(0.0, 1.0 if angle_diff > 0 else -1.0)
             else:
-                # Move forward
                 self.state = RobotState.MOVING
-                cmd.linear.x = 1.0
+                self.send_velocity_command(1.0, 0.0)
 
-            # Publish command
-            self.cmd_vel_pub.publish(cmd)
-            self.get_logger().info(
-                f'Command sent - State: {self.state.name}, '
-                f'Linear: {cmd.linear.x}, Angular: {cmd.angular.z}'
-            )
+        # Publish command
+        self.cmd_vel_pub.publish(cmd)
+        self.get_logger().info(
+            f'Command sent - State: {self.state.name}, '
+            f'Linear: {cmd.linear.x}, Angular: {cmd.angular.z}'
+        )
 
     def stop_robot(self):
         """Stop the robot."""
@@ -478,6 +456,30 @@ class NavigationController(Node):
                     best_path = path
         
         return best_path
+
+    def publish_planned_path(self, path):
+        """Visualize the planned path."""
+        marker = Marker()
+        marker.header.frame_id = 'map'
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = 'planned_path'
+        marker.id = 0
+        marker.type = Marker.LINE_STRIP
+        marker.action = Marker.ADD
+        marker.scale.x = 0.05  # Line width
+        marker.color.r = 0.0
+        marker.color.g = 1.0
+        marker.color.b = 0.0
+        marker.color.a = 1.0
+        
+        for x, y in path:
+            point = Point()
+            point.x = x
+            point.y = y
+            point.z = 0.1
+            marker.points.append(point)
+        
+        self.path_pub.publish(marker)
 
 def main(args=None):
     rclpy.init(args=args)

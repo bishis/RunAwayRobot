@@ -2,17 +2,19 @@
 
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist, PoseStamped
+from geometry_msgs.msg import Twist, PoseStamped, Point
 from nav_msgs.msg import Odometry, OccupancyGrid
 from sensor_msgs.msg import LaserScan
 import math
 import numpy as np
 from enum import Enum
+from typing import List, Tuple
+import heapq
 
 class RobotState(Enum):
-    EXPLORING = 1
-    ROTATING = 2
-    FOLLOWING_PATH = 3
+    PLANNING = 1
+    FOLLOWING = 2
+    ROTATING = 3
     STOPPED = 4
 
 class NavigationController(Node):
@@ -21,21 +23,22 @@ class NavigationController(Node):
         
         # Parameters
         self.declare_parameter('safety_radius', 0.5)
-        self.declare_parameter('detection_distance', 1.0)
-        self.declare_parameter('look_ahead_distance', 1.5)  # Distance to look ahead for planning
+        self.declare_parameter('waypoint_threshold', 0.3)
+        self.declare_parameter('leg_length', 2.0)
         
         self.safety_radius = self.get_parameter('safety_radius').value
-        self.detection_distance = self.get_parameter('detection_distance').value
-        self.look_ahead_distance = self.get_parameter('look_ahead_distance').value
+        self.waypoint_threshold = self.get_parameter('waypoint_threshold').value
+        self.leg_length = self.get_parameter('leg_length').value
         
-        # Robot state
-        self.state = RobotState.EXPLORING
+        # Navigation state
+        self.state = RobotState.PLANNING
         self.current_pose = None
         self.latest_scan = None
         self.map_data = None
-        self.rotation_direction = 1
-        self.last_turn_time = self.get_clock().now()
-        self.unexplored_directions = list(range(0, 360, 45))  # Directions to explore (in degrees)
+        self.current_path: List[Point] = []
+        self.current_waypoint_index = 0
+        self.square_wave_points = self.generate_square_wave()
+        self.target_waypoint = None
         
         # Publishers and Subscribers
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
@@ -45,167 +48,222 @@ class NavigationController(Node):
         
         self.create_timer(0.1, self.control_loop)
         self.get_logger().info('Navigation controller initialized')
-    
-    def find_best_direction(self, sector_data):
-        """Find best direction considering both LIDAR and unexplored areas."""
-        if not sector_data:
-            return None
+
+    def generate_square_wave(self) -> List[Point]:
+        """Generate square wave waypoints."""
+        points = []
+        x, y = 0, 0
+        leg_length = self.leg_length
+        
+        # Generate 4 legs of the square wave
+        for i in range(4):
+            if i % 2 == 0:
+                y += leg_length
+            else:
+                x += leg_length
+            point = Point()
+            point.x, point.y = x, y
+            points.append(point)
+        
+        return points
+
+    def a_star(self, start: Tuple[int, int], goal: Tuple[int, int]) -> List[Tuple[int, int]]:
+        """A* path planning algorithm."""
+        if not self.map_data:
+            return []
+
+        def heuristic(a, b):
+            return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+        def get_neighbors(pos):
+            neighbors = []
+            for dx, dy in [(0,1), (1,0), (0,-1), (-1,0)]:
+                new_pos = (pos[0] + dx, pos[1] + dy)
+                if (0 <= new_pos[0] < self.map_data.info.width and
+                    0 <= new_pos[1] < self.map_data.info.height and
+                    self.map_data.data[new_pos[1] * self.map_data.info.width + new_pos[0]] < 50):
+                    neighbors.append(new_pos)
+            return neighbors
+
+        frontier = []
+        heapq.heappush(frontier, (0, start))
+        came_from = {start: None}
+        cost_so_far = {start: 0}
+
+        while frontier:
+            current = heapq.heappop(frontier)[1]
             
-        # Get current yaw
-        if not self.current_pose:
-            return None
-        current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
-        current_yaw_deg = math.degrees(current_yaw) % 360
-        
-        # Score each potential direction
-        best_score = -1
-        best_direction = None
-        
-        for direction in self.unexplored_directions[:]:  # Copy list for iteration
-            # Convert to robot's frame
-            relative_direction = (direction - current_yaw_deg) % 360
-            
-            # Check if this direction is clear
-            if self.is_direction_clear(relative_direction, sector_data):
-                # Calculate score based on:
-                # 1. Distance to obstacles
-                # 2. How different it is from current direction
-                # 3. Whether it's unexplored
-                distance_score = self.get_distance_score(relative_direction, sector_data)
-                turn_score = 1.0 - abs(relative_direction - 180) / 180.0  # Prefer forward directions
+            if current == goal:
+                break
                 
-                total_score = distance_score * 0.6 + turn_score * 0.4
-                
-                if total_score > best_score:
-                    best_score = total_score
-                    best_direction = direction
-        
-        return best_direction
-    
-    def is_direction_clear(self, direction, sector_data):
-        """Check if a direction is clear of obstacles."""
-        # Map direction to sectors
-        if 150 <= direction <= 210:  # Front
-            return sector_data['front'] > self.safety_radius * 1.5
-        elif 210 < direction <= 270:  # Left
-            return sector_data['left'] > self.safety_radius
-        elif 90 <= direction < 150:  # Right
-            return sector_data['right'] > self.safety_radius
-        return False
-    
-    def get_distance_score(self, direction, sector_data):
-        """Calculate score based on distance to obstacles."""
-        # Get relevant distance based on direction
-        if 150 <= direction <= 210:
-            dist = sector_data['front']
-        elif 210 < direction <= 270:
-            dist = sector_data['left']
-        elif 90 <= direction < 150:
-            dist = sector_data['right']
-        else:
-            return 0.0
-        
-        # Normalize distance score
-        return min(1.0, dist / self.look_ahead_distance)
-    
-    def determine_movement(self, sector_data):
-        if not sector_data:
+            for next_pos in get_neighbors(current):
+                new_cost = cost_so_far[current] + 1
+                if next_pos not in cost_so_far or new_cost < cost_so_far[next_pos]:
+                    cost_so_far[next_pos] = new_cost
+                    priority = new_cost + heuristic(goal, next_pos)
+                    heapq.heappush(frontier, (priority, next_pos))
+                    came_from[next_pos] = current
+
+        # Reconstruct path
+        path = []
+        current = goal
+        while current is not None:
+            path.append(current)
+            current = came_from.get(current)
+        path.reverse()
+        return path
+
+    def world_to_map(self, x: float, y: float) -> Tuple[int, int]:
+        """Convert world coordinates to map coordinates."""
+        if not self.map_data:
+            return (0, 0)
+        mx = int((x - self.map_data.info.origin.position.x) / self.map_data.info.resolution)
+        my = int((y - self.map_data.info.origin.position.y) / self.map_data.info.resolution)
+        return (mx, my)
+
+    def map_to_world(self, mx: int, my: int) -> Tuple[float, float]:
+        """Convert map coordinates to world coordinates."""
+        if not self.map_data:
             return (0.0, 0.0)
-        
-        # Check if path is blocked
-        front_blocked = sector_data['front'] < self.safety_radius * 1.5
-        left_blocked = sector_data['front_left'] < self.safety_radius
-        right_blocked = sector_data['front_right'] < self.safety_radius
-        
-        self.get_logger().info(f"Distances - Front: {sector_data['front']:.2f}m, "
-                              f"FL: {sector_data['front_left']:.2f}m, "
-                              f"FR: {sector_data['front_right']:.2f}m")
-        
-        if self.state == RobotState.EXPLORING:
-            # If path is blocked, find best direction
-            if front_blocked or left_blocked or right_blocked:
-                best_direction = self.find_best_direction(sector_data)
-                
-                if best_direction is not None:
-                    current_yaw = math.degrees(self.get_yaw_from_quaternion(self.current_pose.orientation))
-                    angle_diff = (best_direction - current_yaw) % 360
-                    if angle_diff > 180:
-                        angle_diff -= 360
-                    
-                    # If significant turn needed
-                    if abs(angle_diff) > 20:
-                        self.state = RobotState.ROTATING
-                        self.rotation_direction = 1 if angle_diff > 0 else -1
-                        self.get_logger().info(f"Starting rotation {self.rotation_direction}")
-                        return (0.0, self.rotation_direction * 1.0)
-                    
-                    # Small adjustment while moving
-                    turn_rate = np.clip(angle_diff / 45.0, -0.5, 0.5)
-                    return (0.8, turn_rate)
-                
-                # No good direction found, rotate in place
-                self.state = RobotState.ROTATING
-                self.rotation_direction = 1
-                return (0.0, 1.0)
+        x = mx * self.map_data.info.resolution + self.map_data.info.origin.position.x
+        y = my * self.map_data.info.resolution + self.map_data.info.origin.position.y
+        return (x, y)
+
+    def plan_path_to_waypoint(self, target_point: Point):
+        """Plan path to next waypoint using A*."""
+        if not self.current_pose or not self.map_data:
+            return []
             
-            # Path is clear, move forward
-            return (1.0, 0.0)
-            
-        elif self.state == RobotState.ROTATING:
-            # Keep rotating until we find a clear path
-            if not front_blocked and not left_blocked and not right_blocked:
-                self.state = RobotState.EXPLORING
-                current_yaw = math.degrees(self.get_yaw_from_quaternion(self.current_pose.orientation))
-                self.update_explored_directions(current_yaw)
-                self.get_logger().info("Found clear path, moving forward")
-                return (1.0, 0.0)
-            return (0.0, self.rotation_direction * 1.0)
-        
-        return (0.0, 0.0)
-    
-    def update_explored_directions(self, current_yaw):
-        """Update list of unexplored directions."""
-        # Remove directions that have been explored
-        self.unexplored_directions = [d for d in self.unexplored_directions 
-                                    if abs((d - current_yaw) % 360) > 45]
-        
-        # Reset list if all directions explored
-        if not self.unexplored_directions:
-            self.unexplored_directions = list(range(0, 360, 45))
-    
-    def control_loop(self):
-        if not self.current_pose or not self.latest_scan:
-            return
-        
-        sector_data = self.check_lidar_sectors()
-        if not sector_data:
-            self.stop_robot()
-            return
-        
-        # Emergency stop check
-        if min(sector_data.values()) < self.safety_radius * 0.5:
-            self.get_logger().warn("Emergency stop - obstacle too close!")
-            self.stop_robot()
-            return
-        
-        linear_x, angular_z = self.determine_movement(sector_data)
-        self.send_velocity_command(linear_x, angular_z)
-        
-        self.get_logger().info(
-            f'State: {self.state.name}, Command: linear={linear_x:.1f}, angular={angular_z:.1f}'
+        start = self.world_to_map(
+            self.current_pose.position.x,
+            self.current_pose.position.y
         )
-    
-    def send_velocity_command(self, linear_x, angular_z):
-        """Send velocity command to the robot."""
+        goal = self.world_to_map(target_point.x, target_point.y)
+        
+        path_cells = self.a_star(start, goal)
+        
+        # Convert cell path to world coordinates
+        path = []
+        for cell in path_cells:
+            x, y = self.map_to_world(cell[0], cell[1])
+            point = Point()
+            point.x, point.y = x, y
+            path.append(point)
+        
+        return path
+
+    def get_binary_velocity_commands(self, linear_x: float, angular_z: float) -> Tuple[int, int]:
+        """Convert continuous velocity commands to binary wheel speeds."""
+        # Threshold for movement
+        threshold = 0.1
+        
+        # Calculate wheel speeds
+        left_speed = linear_x - angular_z
+        right_speed = linear_x + angular_z
+        
+        # Convert to binary
+        left_binary = 1 if left_speed > threshold else (-1 if left_speed < -threshold else 0)
+        right_binary = 1 if right_speed > threshold else (-1 if right_speed < -threshold else 0)
+        
+        return left_binary, right_binary
+
+    def control_loop(self):
+        if not self.current_pose or not self.map_data:
+            return
+
+        if self.state == RobotState.PLANNING:
+            # Get next waypoint
+            if self.current_waypoint_index < len(self.square_wave_points):
+                self.target_waypoint = self.square_wave_points[self.current_waypoint_index]
+                self.current_path = self.plan_path_to_waypoint(self.target_waypoint)
+                if self.current_path:
+                    self.state = RobotState.FOLLOWING
+                    self.get_logger().info(f"Planning complete, following path to waypoint {self.current_waypoint_index}")
+            else:
+                self.state = RobotState.STOPPED
+                self.stop_robot()
+                return
+
+        elif self.state == RobotState.FOLLOWING:
+            # Check if we've reached the current waypoint
+            if self.is_at_waypoint(self.target_waypoint):
+                self.current_waypoint_index += 1
+                self.state = RobotState.PLANNING
+                self.get_logger().info("Reached waypoint, planning next path")
+                return
+
+            # Follow the path
+            if self.current_path:
+                linear_x, angular_z = self.pure_pursuit()
+                left_speed, right_speed = self.get_binary_velocity_commands(linear_x, angular_z)
+                self.send_wheel_commands(left_speed, right_speed)
+
+    def pure_pursuit(self) -> Tuple[float, float]:
+        """Pure pursuit path following algorithm."""
+        if not self.current_path:
+            return (0.0, 0.0)
+
+        # Find closest point on path
+        min_dist = float('inf')
+        target_point = None
+        lookahead_distance = 0.5  # meters
+
+        for point in self.current_path:
+            dist = math.sqrt(
+                (point.x - self.current_pose.position.x)**2 +
+                (point.y - self.current_pose.position.y)**2
+            )
+            if dist < min_dist:
+                min_dist = dist
+                if dist > lookahead_distance:
+                    target_point = point
+
+        if not target_point:
+            target_point = self.current_path[-1]
+
+        # Calculate angle to target
+        target_angle = math.atan2(
+            target_point.y - self.current_pose.position.y,
+            target_point.x - self.current_pose.position.x
+        )
+        
+        current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
+        angle_diff = target_angle - current_yaw
+        
+        # Normalize angle
+        while angle_diff > math.pi: angle_diff -= 2 * math.pi
+        while angle_diff < -math.pi: angle_diff += 2 * math.pi
+
+        # Convert to velocity commands
+        if abs(angle_diff) > math.pi/4:
+            # Turn in place
+            return (0.0, 1.0 if angle_diff > 0 else -1.0)
+        else:
+            # Move forward while turning
+            return (1.0, angle_diff)
+
+    def is_at_waypoint(self, waypoint: Point) -> bool:
+        """Check if robot has reached waypoint."""
+        if not self.current_pose:
+            return False
+            
+        distance = math.sqrt(
+            (waypoint.x - self.current_pose.position.x)**2 +
+            (waypoint.y - self.current_pose.position.y)**2
+        )
+        return distance < self.waypoint_threshold
+
+    def send_wheel_commands(self, left_speed: int, right_speed: int):
+        """Send wheel commands to the robot."""
         cmd = Twist()
-        cmd.linear.x = linear_x
-        cmd.angular.z = angular_z
+        if left_speed == right_speed:
+            cmd.linear.x = float(left_speed)
+            cmd.angular.z = 0.0
+        else:
+            cmd.linear.x = 0.0
+            cmd.angular.z = float(right_speed - left_speed)
         self.cmd_vel_pub.publish(cmd)
-    
-    def stop_robot(self):
-        """Stop the robot."""
-        self.send_velocity_command(0.0, 0.0)
-    
+
     def map_callback(self, msg):
         """Process map updates."""
         self.map_data = msg
@@ -224,43 +282,9 @@ class NavigationController(Node):
         cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
         return math.atan2(siny_cosp, cosy_cosp)
     
-    def check_lidar_sectors(self):
-        """Process LIDAR data into sectors and check for obstacles."""
-        if not self.latest_scan:
-            return None
-        
-        sectors = {
-            'front': (150, 210),      # Front is 180° ±30°
-            'front_left': (210, 240),
-            'front_right': (120, 150),
-            'left': (240, 270),
-            'right': (90, 120)
-        }
-        
-        sector_data = {}
-        for sector_name, (start, end) in sectors.items():
-            start_idx = int((start * len(self.latest_scan.ranges) / 360))
-            end_idx = int((end * len(self.latest_scan.ranges) / 360))
-            
-            ranges = []
-            if start_idx <= end_idx:
-                indices = range(start_idx, end_idx + 1)
-            else:
-                indices = list(range(start_idx, len(self.latest_scan.ranges))) + list(range(0, end_idx + 1))
-            
-            for i in indices:
-                if i < len(self.latest_scan.ranges):
-                    range_val = self.latest_scan.ranges[i]
-                    if 0.1 < range_val < 5.0:  # Filter valid ranges
-                        ranges.append(range_val)
-            
-            if ranges:
-                sector_data[sector_name] = min(ranges)
-                self.get_logger().debug(f"{sector_name}: {sector_data[sector_name]:.2f}m")
-            else:
-                sector_data[sector_name] = float('inf')
-        
-        return sector_data
+    def stop_robot(self):
+        """Stop the robot."""
+        self.send_wheel_commands(0, 0)
 
 def main(args=None):
     rclpy.init(args=args)

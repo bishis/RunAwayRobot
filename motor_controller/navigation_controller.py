@@ -2,9 +2,11 @@
 
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist, PoseStamped, Point
+from geometry_msgs.msg import Twist, PoseStamped, Point, Vector3
 from nav_msgs.msg import Odometry, OccupancyGrid
 from sensor_msgs.msg import LaserScan
+from visualization_msgs.msg import Marker, MarkerArray
+from std_msgs.msg import ColorRGBA
 import math
 import numpy as np
 from enum import Enum
@@ -45,6 +47,18 @@ class NavigationController(Node):
         self.create_subscription(Odometry, 'odom_rf2o', self.odom_callback, 10)
         self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
+        
+        # Add new publishers for visualization
+        self.waypoint_pub = self.create_publisher(MarkerArray, 'waypoints', 10)
+        self.path_pub = self.create_publisher(Marker, 'planned_path', 10)
+        
+        # Add LIDAR sectors check
+        self.check_sectors_timer = self.create_timer(0.05, self.check_obstacles)
+        self.obstacle_detected = False
+        self.obstacle_direction = None
+        
+        # Publish waypoints immediately
+        self.publish_waypoints()
         
         self.create_timer(0.1, self.control_loop)
         self.get_logger().info('Navigation controller initialized')
@@ -167,10 +181,128 @@ class NavigationController(Node):
         
         return left_binary, right_binary
 
+    def check_lidar_sectors(self):
+        """Process LIDAR data into sectors and check for obstacles."""
+        if not self.latest_scan:
+            return None
+            
+        sectors = {
+            'front': (150, 210),      # Front is 180° ±30°
+            'front_left': (210, 240),
+            'front_right': (120, 150),
+            'left': (240, 270),
+            'right': (90, 120)
+        }
+        
+        sector_data = {}
+        for sector_name, (start, end) in sectors.items():
+            start_idx = int((start * len(self.latest_scan.ranges) / 360))
+            end_idx = int((end * len(self.latest_scan.ranges) / 360))
+            
+            ranges = []
+            if start_idx <= end_idx:
+                indices = range(start_idx, end_idx + 1)
+            else:
+                indices = list(range(start_idx, len(self.latest_scan.ranges))) + list(range(0, end_idx + 1))
+            
+            for i in indices:
+                if i < len(self.latest_scan.ranges):
+                    range_val = self.latest_scan.ranges[i]
+                    if 0.1 < range_val < 5.0:
+                        ranges.append(range_val)
+            
+            if ranges:
+                sector_data[sector_name] = min(ranges)
+            else:
+                sector_data[sector_name] = float('inf')
+        
+        return sector_data
+
+    def check_obstacles(self):
+        """Check for obstacles using LIDAR data."""
+        sector_data = self.check_lidar_sectors()
+        if not sector_data:
+            return
+        
+        # Check for obstacles in each sector
+        self.obstacle_detected = False
+        if sector_data['front'] < self.safety_radius:
+            self.obstacle_detected = True
+            # Decide which way to turn based on side distances
+            if sector_data['left'] > sector_data['right']:
+                self.obstacle_direction = 'left'
+            else:
+                self.obstacle_direction = 'right'
+            self.get_logger().warn(f'Obstacle detected! Turning {self.obstacle_direction}')
+
+    def publish_waypoints(self):
+        """Publish waypoints for visualization."""
+        marker_array = MarkerArray()
+        
+        # Waypoint markers
+        waypoint_marker = Marker()
+        waypoint_marker.header.frame_id = 'map'
+        waypoint_marker.header.stamp = self.get_clock().now().to_msg()
+        waypoint_marker.ns = 'waypoints'
+        waypoint_marker.type = Marker.SPHERE_LIST
+        waypoint_marker.action = Marker.ADD
+        waypoint_marker.scale = Vector3(x=0.2, y=0.2, z=0.2)
+        waypoint_marker.color = ColorRGBA(r=1.0, g=0.0, b=0.0, a=1.0)
+        
+        for point in self.square_wave_points:
+            waypoint_marker.points.append(point)
+        
+        marker_array.markers.append(waypoint_marker)
+        
+        # Current target waypoint marker
+        if self.target_waypoint:
+            target_marker = Marker()
+            target_marker.header.frame_id = 'map'
+            target_marker.header.stamp = self.get_clock().now().to_msg()
+            target_marker.ns = 'current_target'
+            target_marker.type = Marker.SPHERE
+            target_marker.action = Marker.ADD
+            target_marker.pose.position = self.target_waypoint
+            target_marker.scale = Vector3(x=0.3, y=0.3, z=0.3)
+            target_marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0)
+            marker_array.markers.append(target_marker)
+        
+        self.waypoint_pub.publish(marker_array)
+
+    def publish_planned_path(self):
+        """Publish planned path for visualization."""
+        if not self.current_path:
+            return
+            
+        path_marker = Marker()
+        path_marker.header.frame_id = 'map'
+        path_marker.header.stamp = self.get_clock().now().to_msg()
+        path_marker.ns = 'planned_path'
+        path_marker.type = Marker.LINE_STRIP
+        path_marker.action = Marker.ADD
+        path_marker.scale = Vector3(x=0.05, y=0.05, z=0.05)
+        path_marker.color = ColorRGBA(r=0.0, g=0.0, b=1.0, a=1.0)
+        path_marker.points = self.current_path
+        
+        self.path_pub.publish(path_marker)
+
     def control_loop(self):
         if not self.current_pose or not self.map_data:
             return
 
+        # Publish visualizations
+        self.publish_waypoints()
+        self.publish_planned_path()
+
+        # Handle obstacle avoidance first
+        if self.obstacle_detected:
+            if self.obstacle_direction == 'left':
+                self.send_wheel_commands(-1, 1)  # Turn right
+            else:
+                self.send_wheel_commands(1, -1)  # Turn left
+            return
+
+        # Normal navigation logic
         if self.state == RobotState.PLANNING:
             # Get next waypoint
             if self.current_waypoint_index < len(self.square_wave_points):
@@ -192,7 +324,7 @@ class NavigationController(Node):
                 self.get_logger().info("Reached waypoint, planning next path")
                 return
 
-            # Follow the path
+            # Follow the path only if no obstacles
             if self.current_path:
                 linear_x, angular_z = self.pure_pursuit()
                 left_speed, right_speed = self.get_binary_velocity_commands(linear_x, angular_z)

@@ -50,7 +50,7 @@ class NavigationController(Node):
         self.get_logger().info('Navigation controller initialized')
 
     def generate_waypoints(self):
-        """Generate square wave waypoints starting from current position."""
+        """Generate square wave waypoints starting from current position and orientation."""
         if not self.current_pose:
             return []
         
@@ -59,13 +59,26 @@ class NavigationController(Node):
         x = self.current_pose.position.x
         y = self.current_pose.position.y
         
-        # Generate square wave pattern
+        # Get current orientation
+        current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
+        
+        # Calculate forward and right vectors based on current orientation
+        forward_x = math.cos(current_yaw)
+        forward_y = math.sin(current_yaw)
+        right_x = math.cos(current_yaw + math.pi/2)
+        right_y = math.sin(current_yaw + math.pi/2)
+        
+        # Generate square wave pattern relative to robot's orientation
         for i in range(4):
             point = Point()
             if i % 2 == 0:
-                y += self.leg_length  # Move forward
+                # Move in robot's forward direction
+                x += forward_x * self.leg_length
+                y += forward_y * self.leg_length
             else:
-                x += self.leg_length  # Move right
+                # Move in robot's right direction
+                x += right_x * self.leg_length
+                y += right_y * self.leg_length
             point.x, point.y = x, y
             points.append(point)
             self.get_logger().info(f'Waypoint {i}: ({point.x:.2f}, {point.y:.2f})')
@@ -134,16 +147,12 @@ class NavigationController(Node):
 
         self.publish_waypoints()
 
-        # Check for obstacles first
-        if self.check_obstacles():
-            self.get_logger().warn('Obstacle detected! Stopping.')
-            cmd = Twist()
-            self.cmd_vel_pub.publish(cmd)
+        # If no waypoints yet, return
+        if not self.waypoints:
             return
 
         if self.current_waypoint_index >= len(self.waypoints):
-            cmd = Twist()
-            self.cmd_vel_pub.publish(cmd)
+            self.stop_robot()
             return
 
         current_target = self.waypoints[self.current_waypoint_index]
@@ -166,6 +175,23 @@ class NavigationController(Node):
             f'Distance: {distance:.2f}, Angle diff: {math.degrees(angle_diff):.1f}°'
         )
 
+        # Check for obstacles and determine best path
+        if self.check_obstacles():
+            # Find alternative path
+            clear_path = self.find_clear_path()
+            if clear_path is not None:
+                # Rotate towards clear path
+                cmd = Twist()
+                cmd.angular.z = 1.0 if clear_path > 0 else -1.0
+                self.cmd_vel_pub.publish(cmd)
+                self.get_logger().info(f'Obstacle detected, rotating {"left" if clear_path > 0 else "right"}')
+                return
+            else:
+                # No clear path found, stop and wait
+                self.stop_robot()
+                self.get_logger().warn('No clear path available')
+                return
+
         # Create command message
         cmd = Twist()
 
@@ -174,32 +200,20 @@ class NavigationController(Node):
             self.get_logger().info(f'Reached waypoint {self.current_waypoint_index}')
             self.current_waypoint_index += 1
             self.state = RobotState.ROTATING
-            self.cmd_vel_pub.publish(cmd)  # Send stop command
+            self.stop_robot()
             return
 
         # If angle is too large, rotate in place
         if abs(angle_diff) > math.radians(20):
             self.state = RobotState.ROTATING
-            # Send rotation command (convert to wheel speeds)
-            if angle_diff > 0:  # Need to turn left
-                cmd.linear.x = 0.0
-                cmd.angular.z = 1.0  # This will make left wheel backward, right wheel forward
-            else:  # Need to turn right
-                cmd.linear.x = 0.0
-                cmd.angular.z = -1.0  # This will make left wheel forward, right wheel backward
-            self.get_logger().info(f'Rotating with angular.z = {cmd.angular.z}')
+            cmd.angular.z = 1.0 if angle_diff > 0 else -1.0
         else:
-            # Move forward - both wheels forward
+            # Move forward
             self.state = RobotState.MOVING
             cmd.linear.x = 1.0
-            cmd.angular.z = 0.0
-            self.get_logger().info(f'Moving forward with linear.x = {cmd.linear.x}')
 
-        # Publish command and log
+        # Publish command
         self.cmd_vel_pub.publish(cmd)
-        self.get_logger().info(
-            f'Published command - linear.x: {cmd.linear.x}, angular.z: {cmd.angular.z}'
-        )
 
     def stop_robot(self):
         """Stop the robot."""
@@ -270,6 +284,50 @@ class NavigationController(Node):
         self.get_logger().info(
             f"Sending command - linear: {cmd.linear.x}, angular: {cmd.angular.z}"
         )
+
+    def find_clear_path(self):
+        """Find a clear direction to rotate towards."""
+        if not self.latest_scan:
+            return None
+        
+        # Check 180-degree arc in front for clear paths
+        scan_step = len(self.latest_scan.ranges) // 360
+        start_angle = 90  # Start checking from -90 degrees
+        end_angle = 270   # to +90 degrees
+        
+        max_gap = 0
+        best_angle = None
+        
+        for angle in range(start_angle, end_angle):
+            idx = angle * scan_step
+            if idx < len(self.latest_scan.ranges):
+                if self.latest_scan.ranges[idx] > self.safety_radius:
+                    gap_size = self.measure_gap(angle)
+                    if gap_size > max_gap:
+                        max_gap = gap_size
+                        best_angle = angle - 180  # Convert to robot-relative angle
+        
+        return best_angle if max_gap > 30 else None  # Return None if no good gaps found
+
+    def measure_gap(self, center_angle):
+        """Measure the size of a gap centered at the given angle."""
+        scan_step = len(self.latest_scan.ranges) // 360
+        gap_size = 0
+        
+        # Check outward from center angle
+        for offset in range(0, 30):  # Check up to 30 degrees each direction
+            left_idx = ((center_angle + offset) % 360) * scan_step
+            right_idx = ((center_angle - offset) % 360) * scan_step
+            
+            if (left_idx < len(self.latest_scan.ranges) and 
+                right_idx < len(self.latest_scan.ranges)):
+                if (self.latest_scan.ranges[left_idx] > self.safety_radius and 
+                    self.latest_scan.ranges[right_idx] > self.safety_radius):
+                    gap_size = offset * 2
+                else:
+                    break
+                
+        return gap_size
 
 def main(args=None):
     rclpy.init(args=args)

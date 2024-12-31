@@ -133,11 +133,13 @@ class NavigationController(Node):
         # Check for obstacles first
         if self.check_obstacles():
             self.get_logger().warn('Obstacle detected! Stopping.')
-            self.stop_robot()
+            cmd = Twist()
+            self.cmd_vel_pub.publish(cmd)
             return
 
         if self.current_waypoint_index >= len(self.waypoints):
-            self.stop_robot()
+            cmd = Twist()
+            self.cmd_vel_pub.publish(cmd)
             return
 
         current_target = self.waypoints[self.current_waypoint_index]
@@ -168,23 +170,32 @@ class NavigationController(Node):
             self.get_logger().info(f'Reached waypoint {self.current_waypoint_index}')
             self.current_waypoint_index += 1
             self.state = RobotState.ROTATING
-            self.stop_robot()
+            self.cmd_vel_pub.publish(cmd)  # Send stop command
             return
 
         # If angle is too large, rotate in place
         if abs(angle_diff) > math.radians(20):
             self.state = RobotState.ROTATING
-            cmd.angular.z = -2.0 if angle_diff > 0 else 2.0  # Full speed rotation
+            # Send rotation command (convert to wheel speeds)
+            if angle_diff > 0:  # Need to turn left
+                cmd.linear.x = 0.0
+                cmd.angular.z = 1.0  # This will make left wheel backward, right wheel forward
+            else:  # Need to turn right
+                cmd.linear.x = 0.0
+                cmd.angular.z = -1.0  # This will make left wheel forward, right wheel backward
             self.get_logger().info(f'Rotating with angular.z = {cmd.angular.z}')
         else:
-            # Move forward
+            # Move forward - both wheels forward
             self.state = RobotState.MOVING
-            cmd.linear.x = 1.0  # Full speed forward
+            cmd.linear.x = 1.0
+            cmd.angular.z = 0.0
             self.get_logger().info(f'Moving forward with linear.x = {cmd.linear.x}')
 
-        # Publish command
+        # Publish command and log
         self.cmd_vel_pub.publish(cmd)
-        self.get_logger().info(f'Published command - linear.x: {cmd.linear.x}, angular.z: {cmd.angular.z}')
+        self.get_logger().info(
+            f'Published command - linear.x: {cmd.linear.x}, angular.z: {cmd.angular.z}'
+        )
 
     def stop_robot(self):
         """Stop the robot."""

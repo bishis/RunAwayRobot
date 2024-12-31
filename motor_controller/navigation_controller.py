@@ -14,6 +14,7 @@ class RobotState(Enum):
     ROTATING = 1
     MOVING = 2
     STOPPED = 3
+    BACKING = 4  # New state for backing away from obstacles
 
 class NavigationController(Node):
     def __init__(self):
@@ -127,18 +128,20 @@ class NavigationController(Node):
     def check_obstacles(self):
         """Check for obstacles in front of the robot."""
         if not self.latest_scan:
-            return False
+            return False, None
         
         # Check front sector (150° to 210°)
         start_idx = int(150 * len(self.latest_scan.ranges) / 360)
         end_idx = int(210 * len(self.latest_scan.ranges) / 360)
         
+        min_distance = float('inf')
         for i in range(start_idx, end_idx):
             if i < len(self.latest_scan.ranges):
                 range_val = self.latest_scan.ranges[i]
-                if 0.1 < range_val < self.safety_radius:
-                    return True
-        return False
+                if 0.1 < range_val < min_distance:
+                    min_distance = range_val
+        
+        return min_distance < self.safety_radius, min_distance
 
     def control_loop(self):
         if not self.current_pose:
@@ -175,38 +178,43 @@ class NavigationController(Node):
             f'Distance: {distance:.2f}, Angle diff: {math.degrees(angle_diff):.1f}°'
         )
 
-        # Check for obstacles and determine best path
-        if self.check_obstacles():
-            # Find alternative path
-            clear_path = self.find_clear_path()
-            if clear_path is not None:
-                # Rotate towards clear path
-                cmd = Twist()
-                cmd.angular.z = 1.0 if clear_path > 0 else -1.0
-                self.cmd_vel_pub.publish(cmd)
-                self.get_logger().info(f'Obstacle detected, rotating {"left" if clear_path > 0 else "right"}')
-                return
-            else:
-                # No clear path found, stop and wait
-                self.stop_robot()
-                self.get_logger().warn('No clear path available')
-                return
-
+        # Check for obstacles
+        is_blocked, obstacle_distance = self.check_obstacles()
+        
         # Create command message
         cmd = Twist()
 
         # State machine
-        if distance < self.waypoint_threshold:
+        if self.state == RobotState.BACKING:
+            # Continue backing up until we have enough space
+            if not is_blocked or (obstacle_distance and obstacle_distance > self.safety_radius * 2):
+                self.state = RobotState.ROTATING
+                clear_path = self.find_clear_path()
+                if clear_path is not None:
+                    cmd.angular.z = 1.0 if clear_path > 0 else -1.0
+                else:
+                    cmd.angular.z = 1.0  # Default to left if no clear path
+            else:
+                # Keep backing up
+                cmd.linear.x = -1.0
+        
+        elif is_blocked:
+            # Start backing up if too close to obstacle
+            self.state = RobotState.BACKING
+            cmd.linear.x = -1.0
+            self.get_logger().info('Obstacle detected, backing up')
+        
+        elif distance < self.waypoint_threshold:
             self.get_logger().info(f'Reached waypoint {self.current_waypoint_index}')
             self.current_waypoint_index += 1
             self.state = RobotState.ROTATING
             self.stop_robot()
             return
-
-        # If angle is too large, rotate in place
-        if abs(angle_diff) > math.radians(20):
+        
+        elif abs(angle_diff) > math.radians(20):
             self.state = RobotState.ROTATING
             cmd.angular.z = 1.0 if angle_diff > 0 else -1.0
+        
         else:
             # Move forward
             self.state = RobotState.MOVING
@@ -214,6 +222,10 @@ class NavigationController(Node):
 
         # Publish command
         self.cmd_vel_pub.publish(cmd)
+        self.get_logger().info(
+            f'Command sent - State: {self.state.name}, '
+            f'Linear: {cmd.linear.x}, Angular: {cmd.angular.z}'
+        )
 
     def stop_robot(self):
         """Stop the robot."""

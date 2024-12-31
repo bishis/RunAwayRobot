@@ -49,22 +49,18 @@ class HardwareController(Node):
             left_speed = linear_x - angular_z
             right_speed = linear_x + angular_z
             
-            # Convert to binary speeds
-            binary_left = self.convert_to_binary_speed(left_speed)
-            binary_right = self.convert_to_binary_speed(right_speed)
-            
             # Print received command details
             self.get_logger().info(
                 f"\nReceived cmd_vel:"
                 f"\n  Linear X: {linear_x:.2f}"
                 f"\n  Angular Z: {angular_z:.2f}"
                 f"\nCalculated wheel speeds:"
-                f"\n  Left: {left_speed:.2f} -> {binary_left}"
-                f"\n  Right: {right_speed:.2f} -> {binary_right}"
+                f"\n  Left: {left_speed:.2f}"
+                f"\n  Right: {right_speed:.2f}"
             )
             
-            # Apply binary speeds to motors
-            self.motors.set_speeds(binary_left, binary_right)
+            # Apply speeds to motors (no binary conversion here)
+            self.motors.set_speeds(left_speed, right_speed)
             
             # Increment command counter
             self.command_count += 1

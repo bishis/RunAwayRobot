@@ -215,6 +215,51 @@ class NavigationController(Node):
         cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
         return math.atan2(siny_cosp, cosy_cosp)
 
+    def determine_movement(self, sector_data):
+        if not sector_data:
+            return (0.0, 0.0)
+        
+        self.get_logger().info(f"State: {self.state.name}, Sector distances: {sector_data}")
+        
+        # Check if path is blocked
+        front_blocked = sector_data['front'] < self.safety_radius * 1.5
+        left_blocked = sector_data['front_left'] < self.safety_radius
+        right_blocked = sector_data['front_right'] < self.safety_radius
+        
+        if self.state == RobotState.FORWARD:
+            if front_blocked or left_blocked or right_blocked:
+                self.state = RobotState.ROTATING
+                self.rotation_direction = self.find_best_rotation(sector_data)
+                self.get_logger().info(f"Obstacle detected, starting rotation {'right' if self.rotation_direction < 0 else 'left'}")
+                # Use full rotation speed
+                return (0.0, 1.0 if self.rotation_direction > 0 else -1.0)
+            # Use full forward speed when clear
+            return (1.0, 0.0)
+        
+        elif self.state == RobotState.ROTATING:
+            # Keep rotating until we find a clear path
+            if not front_blocked and not left_blocked and not right_blocked:
+                self.state = RobotState.FORWARD
+                self.get_logger().info("Clear path found, moving forward")
+                # Use full forward speed when clear
+                return (1.0, 0.0)
+            # Use full rotation speed
+            return (0.0, 1.0 if self.rotation_direction > 0 else -1.0)
+        
+        return (0.0, 0.0)  # Default stop
+
+    def send_velocity_command(self, linear_x, angular_z):
+        """Send velocity command to the robot."""
+        cmd = Twist()
+        # Convert to binary values here
+        cmd.linear.x = 1.0 if linear_x > 0.5 else (-1.0 if linear_x < -0.5 else 0.0)
+        cmd.angular.z = 1.0 if angular_z > 0.5 else (-1.0 if angular_z < -0.5 else 0.0)
+        self.cmd_vel_pub.publish(cmd)
+        
+        self.get_logger().info(
+            f"Sending command - linear: {cmd.linear.x}, angular: {cmd.angular.z}"
+        )
+
 def main(args=None):
     rclpy.init(args=args)
     controller = NavigationController()

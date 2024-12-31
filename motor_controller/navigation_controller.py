@@ -22,13 +22,16 @@ class NavigationController(Node):
         # Parameters
         self.declare_parameter('waypoint_threshold', 0.3)
         self.declare_parameter('leg_length', 2.0)
+        self.declare_parameter('safety_radius', 0.5)
         
         self.waypoint_threshold = self.get_parameter('waypoint_threshold').value
         self.leg_length = self.get_parameter('leg_length').value
+        self.safety_radius = self.get_parameter('safety_radius').value
         
         # Robot state
         self.state = RobotState.STOPPED
         self.current_pose = None
+        self.latest_scan = None  # Add LIDAR data storage
         self.current_waypoint_index = 0
         self.waypoints = self.generate_waypoints()
         
@@ -38,10 +41,11 @@ class NavigationController(Node):
         
         # Subscribers
         self.create_subscription(Odometry, 'odom_rf2o', self.odom_callback, 10)
+        self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)  # Add LIDAR subscription
         
         # Timer
         self.create_timer(0.1, self.control_loop)
-        self.publish_waypoints()  # Publish waypoints immediately
+        self.publish_waypoints()
         
         self.get_logger().info('Navigation controller initialized')
         self.get_logger().info(f'Generated {len(self.waypoints)} waypoints')
@@ -99,12 +103,38 @@ class NavigationController(Node):
         
         self.waypoint_pub.publish(marker_array)
 
+    def scan_callback(self, msg):
+        """Handle LIDAR scan updates."""
+        self.latest_scan = msg
+
+    def check_obstacles(self):
+        """Check for obstacles in front of the robot."""
+        if not self.latest_scan:
+            return False
+        
+        # Check front sector (150° to 210°)
+        start_idx = int(150 * len(self.latest_scan.ranges) / 360)
+        end_idx = int(210 * len(self.latest_scan.ranges) / 360)
+        
+        for i in range(start_idx, end_idx):
+            if i < len(self.latest_scan.ranges):
+                range_val = self.latest_scan.ranges[i]
+                if 0.1 < range_val < self.safety_radius:
+                    return True
+        return False
+
     def control_loop(self):
         if not self.current_pose:
             self.get_logger().warn('Waiting for pose data...')
             return
 
         self.publish_waypoints()
+
+        # Check for obstacles first
+        if self.check_obstacles():
+            self.get_logger().warn('Obstacle detected! Stopping.')
+            self.stop_robot()
+            return
 
         if self.current_waypoint_index >= len(self.waypoints):
             self.stop_robot()
@@ -141,27 +171,18 @@ class NavigationController(Node):
         # If angle is too large, rotate in place
         if abs(angle_diff) > math.radians(20):
             self.state = RobotState.ROTATING
-            self.send_wheel_commands(
-                -1 if angle_diff > 0 else 1,
-                1 if angle_diff > 0 else -1
-            )
+            direction = -1 if angle_diff > 0 else 1
+            cmd = Twist()
+            cmd.angular.z = float(direction * 2)  # Ensure we're sending the command
+            self.cmd_vel_pub.publish(cmd)
+            self.get_logger().info(f'Rotating with angular.z = {cmd.angular.z}')
         else:
             # Move forward
             self.state = RobotState.MOVING
-            self.send_wheel_commands(1, 1)
-
-    def send_wheel_commands(self, left: int, right: int):
-        """Send wheel commands to the robot."""
-        cmd = Twist()
-        if left == right:
-            cmd.linear.x = float(left)
-            cmd.angular.z = 0.0
-        else:
-            cmd.linear.x = 0.0
-            cmd.angular.z = float(right - left)
-        
-        self.cmd_vel_pub.publish(cmd)
-        self.get_logger().info(f'Sending command - left: {left}, right: {right}')
+            cmd = Twist()
+            cmd.linear.x = 1.0  # Full speed forward
+            self.cmd_vel_pub.publish(cmd)
+            self.get_logger().info(f'Moving forward with linear.x = {cmd.linear.x}')
 
     def stop_robot(self):
         """Stop the robot."""

@@ -22,14 +22,20 @@ class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
-        # Parameters - reduced distances for tighter pattern
-        self.declare_parameter('waypoint_threshold', 0.2)  # Reduced from 0.3
-        self.declare_parameter('leg_length', 0.3)         # Reduced from 0.5
-        self.declare_parameter('safety_radius', 0.3)      # Reduced from 0.5
+        # Load robot configuration
+        self.declare_parameter('robot.radius', 0.17)
+        self.declare_parameter('robot.safety.min_obstacle_distance', 0.25)
         
+        # Parameters - adjusted for robot size
+        self.declare_parameter('waypoint_threshold', 0.2)
+        self.declare_parameter('leg_length', 0.3)
+        self.declare_parameter('safety_radius', 0.25)  # Matches min_obstacle_distance
+        
+        # Get robot parameters
+        self.robot_radius = self.get_parameter('robot.radius').value
+        self.safety_radius = self.get_parameter('robot.safety.min_obstacle_distance').value
         self.waypoint_threshold = self.get_parameter('waypoint_threshold').value
         self.leg_length = self.get_parameter('leg_length').value
-        self.safety_radius = self.get_parameter('safety_radius').value
         
         # Robot state
         self.state = RobotState.STOPPED
@@ -440,11 +446,22 @@ class NavigationController(Node):
         return x, y
 
     def is_valid_point(self, x, y):
-        """Check if point is valid and free in map."""
+        """Check if point is valid and free in map, considering robot size."""
         mx, my = self.world_to_map(x, y)
         if mx is None or my is None:
             return False
-        return self.map_data[my, mx] == 0  # 0 indicates free space
+        
+        # Check area around point considering robot radius
+        radius_cells = int(self.robot_radius / self.map_info.resolution)
+        for dx in range(-radius_cells, radius_cells + 1):
+            for dy in range(-radius_cells, radius_cells + 1):
+                check_x = mx + dx
+                check_y = my + dy
+                if (0 <= check_x < self.map_info.width and 
+                    0 <= check_y < self.map_info.height):
+                    if self.map_data[check_y, check_x] > 50:  # Occupied
+                        return False
+        return True
 
     def find_path_monte_carlo(self, start_x, start_y, goal_x, goal_y):
         """Use Monte Carlo to find a clear path to goal."""

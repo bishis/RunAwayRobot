@@ -41,16 +41,18 @@ def generate_launch_description():
             }.items()
         ),
 
-        # Navigation Controller
+        # Navigation Controller with robot config
         Node(
             package='motor_controller',
             executable='navigation_controller',
             name='navigation_controller',
             parameters=[{
                 'use_sim_time': False,
-                'safety_radius': 0.3,
-                'detection_distance': 0.5,
-                'leg_length': 2.0
+                'robot.radius': 0.17,
+                'robot.safety.min_obstacle_distance': 0.25,
+                'waypoint_threshold': 0.2,
+                'leg_length': 0.3,
+                'safety_radius': 0.25
             }]
         ),
 

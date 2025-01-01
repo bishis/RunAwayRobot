@@ -1,0 +1,15 @@
+robot:
+  # Physical dimensions
+  radius: 0.17  # 17cm radius
+  height: 0.15  # 15cm height (approximate)
+  
+  # Sensor positions relative to base_link
+  lidar:
+    x: 0.0    # Centered
+    y: 0.0    # Centered
+    z: 0.18   # 18cm above base
+    
+  # Navigation parameters
+  safety:
+    min_obstacle_distance: 0.25  # Radius + 8cm safety margin
+    preferred_distance: 0.35     # More space for comfortable navigation 

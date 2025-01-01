@@ -22,17 +22,19 @@ class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
-        # Parameters - reduced distances for tighter pattern
+        # Parameters - increased safety distances
         self.declare_parameter('waypoint_threshold', 0.2)
-        self.declare_parameter('leg_length', 0.5)        # Reduced from 2.0 to 0.5 meters
-        self.declare_parameter('safety_radius', 0.25)
-        self.declare_parameter('num_waypoints', 8)       # Number of waypoints to generate
+        self.declare_parameter('leg_length', 0.5)
+        self.declare_parameter('safety_radius', 0.35)      # Increased from 0.25 to 0.35
+        self.declare_parameter('num_waypoints', 8)
+        self.declare_parameter('wall_margin', 0.4)        # Added explicit wall margin
         
         # Get parameters
         self.waypoint_threshold = self.get_parameter('waypoint_threshold').value
         self.leg_length = self.get_parameter('leg_length').value
         self.safety_radius = self.get_parameter('safety_radius').value
         self.num_waypoints = self.get_parameter('num_waypoints').value
+        self.wall_margin = self.get_parameter('wall_margin').value
         
         # Robot state
         self.state = RobotState.STOPPED
@@ -178,52 +180,49 @@ class NavigationController(Node):
         if not self.latest_scan:
             return False, None
         
-        # Check front sector (150° to 210°)
-        start_idx = int(150 * len(self.latest_scan.ranges) / 360)
-        end_idx = int(210 * len(self.latest_scan.ranges) / 360)
+        # Check wider front arc (120° to 240°)
+        start_idx = int(120 * len(self.latest_scan.ranges) / 360)
+        end_idx = int(240 * len(self.latest_scan.ranges) / 360)
         
         min_distance = float('inf')
+        min_angle = None
+        
         for i in range(start_idx, end_idx):
             if i < len(self.latest_scan.ranges):
                 range_val = self.latest_scan.ranges[i]
                 if 0.1 < range_val < min_distance:
                     min_distance = range_val
+                    min_angle = (i * 360 / len(self.latest_scan.ranges)) - 180
         
-        return min_distance < self.safety_radius, min_distance
+        # More sensitive obstacle detection
+        is_blocked = min_distance < (self.safety_radius * 1.5)
+        
+        if is_blocked:
+            self.get_logger().warn(f'Obstacle detected at {min_distance:.2f}m, angle: {min_angle:.1f}°')
+        
+        return is_blocked, min_distance
 
     def control_loop(self):
         """Main control loop."""
-        if not self.current_pose:
-            self.get_logger().warn('No pose data')
-            return
-        if not self.latest_scan:
-            self.get_logger().warn('No LIDAR data')
-            return
-        if not self.map_data is not None:
-            self.get_logger().warn('No map data')
+        if not self.current_pose or not self.latest_scan or not self.map_data is not None:
             return
 
-        # Always try to publish waypoints
         self.publish_waypoints()
 
-        # Check if we have waypoints
-        if not self.waypoints:
-            self.get_logger().warn('No waypoints available')
-            if self.current_pose and self.map_info:
-                self.waypoints = self.generate_waypoints()
-            return
-
-        if self.current_waypoint_index >= len(self.waypoints):
-            self.get_logger().info('All waypoints reached')
+        if not self.waypoints or self.current_waypoint_index >= len(self.waypoints):
             self.stop_robot()
             return
 
-        # Get current target
         current_target = self.waypoints[self.current_waypoint_index]
+        current_x = self.current_pose.position.x
+        current_y = self.current_pose.position.y
+
+        # Check for obstacles
+        is_blocked, obstacle_distance = self.check_obstacles()
         
         # Calculate distance and angle to target
-        dx = current_target.x - self.current_pose.position.x
-        dy = current_target.y - self.current_pose.position.y
+        dx = current_target.x - current_x
+        dy = current_target.y - current_y
         distance = math.sqrt(dx*dx + dy*dy)
         target_angle = math.atan2(dy, dx)
         current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
@@ -236,27 +235,63 @@ class NavigationController(Node):
         # Debug output
         self.get_logger().info(
             f'Navigation status:\n'
-            f'  Current pos: ({self.current_pose.position.x:.2f}, {self.current_pose.position.y:.2f})\n'
+            f'  Current pos: ({current_x:.2f}, {current_y:.2f})\n'
             f'  Target: ({current_target.x:.2f}, {current_target.y:.2f})\n'
             f'  Distance: {distance:.2f}m\n'
-            f'  Angle diff: {math.degrees(angle_diff):.1f}°'
+            f'  Angle diff: {math.degrees(angle_diff):.1f}°\n'
+            f'  Blocked: {is_blocked}, Distance to obstacle: {obstacle_distance:.2f}m'
         )
 
-        # Decision making with binary commands
         if distance < self.waypoint_threshold:
+            # Reached waypoint
             self.get_logger().info(f'Reached waypoint {self.current_waypoint_index}')
             self.current_waypoint_index += 1
             self.stop_robot()
-        elif abs(angle_diff) > math.radians(20):
-            # Turn to face target - full turn speed
-            self.send_velocity_command(0.0, 1.0 if angle_diff > 0 else -1.0)
+            return
+
+        if is_blocked:
+            # Try to find alternative path
+            new_path = self.find_path_monte_carlo(
+                current_x, current_y,
+                current_target.x, current_target.y
+            )
+            
+            if new_path and len(new_path) > 1:
+                # Get next point in path
+                next_x, next_y = new_path[1]
+                self.get_logger().info(f'Found alternative path, next point: ({next_x:.2f}, {next_y:.2f})')
+                
+                # Calculate angle to next point
+                dx = next_x - current_x
+                dy = next_y - current_y
+                new_target_angle = math.atan2(dy, dx)
+                new_angle_diff = new_target_angle - current_angle
+                
+                # Normalize angle
+                while new_angle_diff > math.pi: new_angle_diff -= 2*math.pi
+                while new_angle_diff < -math.pi: new_angle_diff += 2*math.pi
+                
+                if abs(new_angle_diff) > math.radians(20):
+                    # Turn towards new path
+                    self.send_velocity_command(0.0, 1.0 if new_angle_diff > 0 else -1.0)
+                else:
+                    # Move along new path
+                    self.send_velocity_command(1.0, 0.0)
+            else:
+                # No path found, rotate to find clear path
+                self.get_logger().warn('No clear path found, rotating to search')
+                clear_direction = self.find_clear_path()
+                if clear_direction is not None:
+                    self.send_velocity_command(0.0, 1.0 if clear_direction > 0 else -1.0)
+                else:
+                    self.stop_robot()
         else:
-            # Move forward with minimal correction
-            if abs(angle_diff) > math.radians(10):
-                # Need some correction - turn in place
+            # Normal navigation when no obstacles
+            if abs(angle_diff) > math.radians(20):
+                # Turn to face target
                 self.send_velocity_command(0.0, 1.0 if angle_diff > 0 else -1.0)
             else:
-                # Straight ahead
+                # Move forward
                 self.send_velocity_command(1.0, 0.0)
 
     def stop_robot(self):
@@ -396,11 +431,22 @@ class NavigationController(Node):
         return x, y
 
     def is_valid_point(self, x, y):
-        """Check if point is valid and free in map."""
+        """Check if point is valid and free in map, considering robot size."""
         mx, my = self.world_to_map(x, y)
         if mx is None or my is None:
             return False
-        return self.map_data[my, mx] == 0  # 0 indicates free space
+        
+        # Check larger area around point for safety
+        radius_cells = int((self.robot_radius + self.wall_margin) / self.map_info.resolution)
+        for dx in range(-radius_cells, radius_cells + 1):
+            for dy in range(-radius_cells, radius_cells + 1):
+                check_x = mx + dx
+                check_y = my + dy
+                if (0 <= check_x < self.map_info.width and 
+                    0 <= check_y < self.map_info.height):
+                    if self.map_data[check_y, check_x] > 20:  # More conservative threshold
+                        return False
+        return True
 
     def find_path_monte_carlo(self, start_x, start_y, goal_x, goal_y):
         """Use Monte Carlo to find a clear path to goal."""

@@ -50,9 +50,10 @@ def generate_launch_description():
                 'use_sim_time': False,
                 'waypoint_threshold': 0.2,
                 'leg_length': 0.5,
-                'safety_radius': 0.25,
+                'safety_radius': 0.35,
                 'num_waypoints': 8,
-                'robot.radius': 0.17
+                'robot.radius': 0.17,
+                'wall_margin': 0.4
             }]
         ),
 

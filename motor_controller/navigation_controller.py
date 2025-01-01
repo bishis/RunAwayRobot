@@ -85,6 +85,10 @@ class NavigationController(Node):
         # Get current orientation
         current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
         
+        # Add small random rotation to create different patterns
+        pattern_rotation = random.uniform(-math.pi/4, math.pi/4)  # ±45 degrees
+        current_yaw += pattern_rotation
+        
         # Calculate forward and right vectors based on current orientation
         forward_x = math.cos(current_yaw)
         forward_y = math.sin(current_yaw)
@@ -99,17 +103,20 @@ class NavigationController(Node):
         map_max_y = map_min_y + (self.map_info.height * self.map_info.resolution) - safety_margin
         
         # Generate waypoints in a tighter pattern
-        for i in range(self.num_waypoints):
+        attempts = 0
+        max_attempts = 20  # Prevent infinite loops
+        
+        while len(points) < self.num_waypoints and attempts < max_attempts:
             point = Point()
             
             # Calculate new position
-            if i % 2 == 0:
+            if len(points) % 2 == 0:
                 # Move forward
                 new_x = x + forward_x * self.leg_length
                 new_y = y + forward_y * self.leg_length
             else:
                 # Alternate between left and right
-                direction = 1 if (i // 2) % 2 == 0 else -1
+                direction = 1 if (len(points) // 2) % 2 == 0 else -1
                 new_x = x + (right_x * self.leg_length * direction)
                 new_y = y + (right_y * self.leg_length * direction)
             
@@ -129,7 +136,14 @@ class NavigationController(Node):
                 # Update current position for next waypoint
                 x, y = new_x, new_y
             else:
-                self.get_logger().warn(f'Skipping invalid waypoint at ({new_x:.2f}, {new_y:.2f})')
+                attempts += 1
+                self.get_logger().warn(f'Invalid waypoint at ({new_x:.2f}, {new_y:.2f}), attempt {attempts}')
+                # Try a different direction if point is invalid
+                current_yaw += math.pi/4  # Rotate 45 degrees
+                forward_x = math.cos(current_yaw)
+                forward_y = math.sin(current_yaw)
+                right_x = math.cos(current_yaw + math.pi/2)
+                right_y = math.sin(current_yaw + math.pi/2)
         
         return points
 
@@ -206,7 +220,16 @@ class NavigationController(Node):
 
         self.publish_waypoints()
 
+        # Check if we need to generate new waypoints
         if not self.waypoints or self.current_waypoint_index >= len(self.waypoints):
+            self.get_logger().info('Generating new set of waypoints')
+            # Save the last position as the new starting point
+            self.waypoints = self.generate_waypoints()
+            self.current_waypoint_index = 0
+            if not self.waypoints:
+                self.get_logger().warn('Failed to generate new waypoints')
+                return
+            self.get_logger().info(f'Generated {len(self.waypoints)} new waypoints')
             return
 
         current_target = self.waypoints[self.current_waypoint_index]

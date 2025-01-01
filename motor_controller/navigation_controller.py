@@ -11,6 +11,7 @@ import math
 from enum import Enum
 import random
 import numpy as np
+from .processors.path_planner import PathPlanner
 
 class RobotState(Enum):
     ROTATING = 1
@@ -64,6 +65,13 @@ class NavigationController(Node):
         self.num_particles = 100
         self.max_iterations = 50
         self.step_size = 0.5  # meters
+        
+        # Add path planner
+        self.path_planner = PathPlanner(
+            safety_radius=self.safety_radius,
+            num_samples=20,
+            step_size=0.3
+        )
 
     def generate_waypoints(self):
         """Generate square wave waypoints starting from current position and orientation."""
@@ -207,17 +215,37 @@ class NavigationController(Node):
         is_blocked = self.check_path_to_target(current_target)
         
         if is_blocked:
-            self.get_logger().info('Obstacle detected, attempting to avoid')
-            # First try turning in place to find clear path
-            clear_angle = self.find_clear_path()
+            self.get_logger().info('Obstacle detected, planning new path')
+            # Update path planner's map
+            self.path_planner.update_map(self.map_data, self.map_info)
             
-            if clear_angle is not None:
-                # Turn towards clear path
-                self.get_logger().info(f'Found clear path at angle {clear_angle}')
-                self.send_velocity_command(0.0, 1.0 if clear_angle > 0 else -1.0)
+            # Find next best point
+            next_point = self.path_planner.find_next_point(
+                self.current_pose.position,
+                current_target,
+                self.latest_scan
+            )
+            
+            if next_point:
+                # Calculate angle to next point
+                dx = next_point.x - self.current_pose.position.x
+                dy = next_point.y - self.current_pose.position.y
+                target_angle = math.atan2(dy, dx)
+                current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
+                angle_diff = target_angle - current_angle
+                
+                # Normalize angle
+                while angle_diff > math.pi: angle_diff -= 2*math.pi
+                while angle_diff < -math.pi: angle_diff += 2*math.pi
+                
+                if abs(angle_diff) > math.radians(20):
+                    # Turn towards next point
+                    self.send_velocity_command(0.0, 1.0 if angle_diff > 0 else -1.0)
+                else:
+                    # Move towards next point
+                    self.send_velocity_command(1.0, 0.0)
             else:
-                # If no clear path found, try backing up
-                self.get_logger().info('No clear path found, backing up')
+                # No valid point found, back up
                 self.send_velocity_command(-1.0, 0.0)
             return
 

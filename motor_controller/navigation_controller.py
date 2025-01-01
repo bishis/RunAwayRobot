@@ -207,38 +207,18 @@ class NavigationController(Node):
         is_blocked = self.check_path_to_target(current_target)
         
         if is_blocked:
-            self.get_logger().info('Obstacle detected, finding new path')
-            # Try to find path around obstacle
-            new_path = self.find_path_monte_carlo(
-                self.current_pose.position.x,
-                self.current_pose.position.y,
-                current_target.x,
-                current_target.y
-            )
+            self.get_logger().info('Obstacle detected, attempting to avoid')
+            # First try turning in place to find clear path
+            clear_angle = self.find_clear_path()
             
-            if new_path:
-                # Get next immediate point from path
-                next_x, next_y = new_path[1]  # Use second point as first is current position
-                angle_to_path = math.atan2(
-                    next_y - self.current_pose.position.y,
-                    next_x - self.current_pose.position.x
-                )
-                current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
-                angle_diff = angle_to_path - current_angle
-                
-                # Normalize angle
-                while angle_diff > math.pi: angle_diff -= 2*math.pi
-                while angle_diff < -math.pi: angle_diff += 2*math.pi
-                
+            if clear_angle is not None:
                 # Turn towards clear path
-                if abs(angle_diff) > math.radians(20):
-                    self.send_velocity_command(0.0, 1.0 if angle_diff > 0 else -1.0)
-                else:
-                    self.send_velocity_command(1.0, 0.0)
+                self.get_logger().info(f'Found clear path at angle {clear_angle}')
+                self.send_velocity_command(0.0, 1.0 if clear_angle > 0 else -1.0)
             else:
-                # No path found, stop and rotate to look for alternatives
-                self.send_velocity_command(0.0, 1.0)
-                self.get_logger().warn('No clear path found, rotating to search')
+                # If no clear path found, try backing up
+                self.get_logger().info('No clear path found, backing up')
+                self.send_velocity_command(-1.0, 0.0)
             return
 
         # Normal waypoint navigation
@@ -467,7 +447,7 @@ class NavigationController(Node):
     def check_path_to_target(self, target):
         """Check if there's a clear path to the target."""
         if not self.latest_scan:
-            return True  # Assume blocked if no LIDAR data
+            return False  # Assume clear if no LIDAR data
         
         # Calculate angle to target
         dx = target.x - self.current_pose.position.x

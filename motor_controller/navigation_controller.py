@@ -22,10 +22,10 @@ class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
-        # Parameters - reduced distances for tighter pattern
-        self.declare_parameter('waypoint_threshold', 0.2)  # Reduced from 0.3
-        self.declare_parameter('leg_length', 0.3)         # Reduced from 0.5
-        self.declare_parameter('safety_radius', 0.3)      # Reduced from 0.5
+        # Parameters
+        self.declare_parameter('waypoint_threshold', 0.3)
+        self.declare_parameter('leg_length', 2.0)
+        self.declare_parameter('safety_radius', 0.5)
         
         self.waypoint_threshold = self.get_parameter('waypoint_threshold').value
         self.leg_length = self.get_parameter('leg_length').value
@@ -64,10 +64,11 @@ class NavigationController(Node):
 
     def generate_waypoints(self):
         """Generate square wave waypoints starting from current position and orientation."""
-        if not self.current_pose or not self.map_info:
+        if not self.current_pose:
             return []
         
         points = []
+        # Start from current position
         x = self.current_pose.position.x
         y = self.current_pose.position.y
         
@@ -80,23 +81,8 @@ class NavigationController(Node):
         right_x = math.cos(current_yaw + math.pi/2)
         right_y = math.sin(current_yaw + math.pi/2)
         
-        # Map boundaries
-        map_min_x = self.map_info.origin.position.x
-        map_min_y = self.map_info.origin.position.y
-        map_max_x = map_min_x + (self.map_info.width * self.map_info.resolution)
-        map_max_y = map_min_y + (self.map_info.height * self.map_info.resolution)
-        
-        # Safety margin from walls
-        safety_margin = 0.2  # Reduced from 0.3
-        map_min_x += safety_margin
-        map_min_y += safety_margin
-        map_max_x -= safety_margin
-        map_max_y -= safety_margin
-        
-        # Generate more waypoints with smaller steps
-        num_segments = 12  # Increased from 8 for more waypoints
-        
-        for i in range(num_segments):
+        # Generate square wave pattern relative to robot's orientation
+        for i in range(4):
             point = Point()
             if i % 2 == 0:
                 # Move in robot's forward direction
@@ -106,22 +92,9 @@ class NavigationController(Node):
                 # Move in robot's right direction
                 x += right_x * self.leg_length
                 y += right_y * self.leg_length
-            
-            # Clamp to map boundaries
-            x = max(map_min_x, min(map_max_x, x))
-            y = max(map_min_y, min(map_max_y, y))
-            
-            # Create and validate point
-            point.x = x
-            point.y = y
-            point.z = 0.0
-            
-            # Only add point if it's in free space
-            if self.is_valid_point(x, y):
-                points.append(point)
-                self.get_logger().info(
-                    f'Waypoint {len(points)-1}: ({point.x:.2f}, {point.y:.2f})'
-                )
+            point.x, point.y = x, y
+            points.append(point)
+            self.get_logger().info(f'Waypoint {i}: ({point.x:.2f}, {point.y:.2f})')
         
         return points
 

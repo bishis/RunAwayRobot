@@ -209,7 +209,7 @@ class NavigationController(Node):
         # Check if we have waypoints
         if not self.waypoints:
             self.get_logger().warn('No waypoints available')
-            if self.current_pose and self.map_info:  # Try to generate waypoints
+            if self.current_pose and self.map_info:
                 self.waypoints = self.generate_waypoints()
             return
 
@@ -242,34 +242,26 @@ class NavigationController(Node):
             f'  Angle diff: {math.degrees(angle_diff):.1f}°'
         )
 
-        # Send movement commands
-        cmd = Twist()
-        
+        # Decision making with binary commands
         if distance < self.waypoint_threshold:
             self.get_logger().info(f'Reached waypoint {self.current_waypoint_index}')
             self.current_waypoint_index += 1
             self.stop_robot()
         elif abs(angle_diff) > math.radians(20):
-            # Turn to face target
-            cmd.angular.z = 1.0 if angle_diff > 0 else -1.0
-            self.get_logger().info(f'Turning with angular.z = {cmd.angular.z}')
-            self.cmd_vel_pub.publish(cmd)
+            # Turn to face target - full turn speed
+            self.send_velocity_command(0.0, 1.0 if angle_diff > 0 else -1.0)
         else:
-            # Move forward
-            cmd.linear.x = 1.0
-            # Small angular correction while moving
-            if abs(angle_diff) > math.radians(5):
-                cmd.angular.z = 0.5 if angle_diff > 0 else -0.5
-            self.get_logger().info(f'Moving with linear.x = {cmd.linear.x}, angular.z = {cmd.angular.z}')
-            self.cmd_vel_pub.publish(cmd)
+            # Move forward with minimal correction
+            if abs(angle_diff) > math.radians(10):
+                # Need some correction - turn in place
+                self.send_velocity_command(0.0, 1.0 if angle_diff > 0 else -1.0)
+            else:
+                # Straight ahead
+                self.send_velocity_command(1.0, 0.0)
 
     def stop_robot(self):
-        """Stop the robot."""
-        cmd = Twist()
-        cmd.linear.x = 0.0
-        cmd.angular.z = 0.0
-        self.cmd_vel_pub.publish(cmd)
-        self.get_logger().info('Stopping robot')
+        """Stop the robot using binary commands."""
+        self.send_velocity_command(0.0, 0.0)
 
     def odom_callback(self, msg):
         """Handle odometry updates."""
@@ -324,15 +316,16 @@ class NavigationController(Node):
         return (0.0, 0.0)  # Default stop
 
     def send_velocity_command(self, linear_x, angular_z):
-        """Send velocity command to the robot."""
+        """Send velocity command to the robot with binary values."""
         cmd = Twist()
-        # Convert to binary values here
-        cmd.linear.x = 1.0 if linear_x > 0.5 else (-1.0 if linear_x < -0.5 else 0.0)
-        cmd.angular.z = 1.0 if angular_z > 0.5 else (-1.0 if angular_z < -0.5 else 0.0)
-        self.cmd_vel_pub.publish(cmd)
         
+        # Convert to binary values (-1, 0, 1)
+        cmd.linear.x = 1.0 if linear_x > 0.1 else (-1.0 if linear_x < -0.1 else 0.0)
+        cmd.angular.z = 1.0 if angular_z > 0.1 else (-1.0 if angular_z < -0.1 else 0.0)
+        
+        self.cmd_vel_pub.publish(cmd)
         self.get_logger().info(
-            f"Sending command - linear: {cmd.linear.x}, angular: {cmd.angular.z}"
+            f"Binary command sent - linear: {cmd.linear.x}, angular: {cmd.angular.z}"
         )
 
     def find_clear_path(self):

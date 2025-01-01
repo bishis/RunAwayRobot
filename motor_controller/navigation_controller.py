@@ -127,23 +127,31 @@ class NavigationController(Node):
 
     def publish_waypoints(self):
         """Publish waypoints for visualization."""
+        if not self.waypoints:  # Debug print
+            self.get_logger().warn('No waypoints to publish')
+            return
+        
         marker_array = MarkerArray()
         
-        # All waypoints
+        # All waypoints as red spheres
         waypoint_marker = Marker()
-        waypoint_marker.header.frame_id = 'map'
+        waypoint_marker.header.frame_id = 'map'  # Make sure frame is correct
         waypoint_marker.header.stamp = self.get_clock().now().to_msg()
         waypoint_marker.ns = 'waypoints'
         waypoint_marker.id = 0
-        waypoint_marker.type = Marker.SPHERE_LIST
+        waypoint_marker.type = Marker.POINTS  # Changed to POINTS for better visibility
         waypoint_marker.action = Marker.ADD
-        waypoint_marker.scale = Vector3(x=0.2, y=0.2, z=0.2)
-        waypoint_marker.color = ColorRGBA(r=1.0, g=0.0, b=0.0, a=1.0)
         waypoint_marker.pose.orientation.w = 1.0
-        waypoint_marker.points = self.waypoints
+        waypoint_marker.scale = Vector3(x=0.1, y=0.1, z=0.1)  # Smaller points
+        waypoint_marker.color = ColorRGBA(r=1.0, g=0.0, b=0.0, a=1.0)
+        
+        # Add all waypoints
+        for point in self.waypoints:
+            waypoint_marker.points.append(point)
+        
         marker_array.markers.append(waypoint_marker)
         
-        # Current target
+        # Current target as green sphere
         if self.current_waypoint_index < len(self.waypoints):
             target_marker = Marker()
             target_marker.header.frame_id = 'map'
@@ -154,11 +162,12 @@ class NavigationController(Node):
             target_marker.action = Marker.ADD
             target_marker.pose.position = self.waypoints[self.current_waypoint_index]
             target_marker.pose.orientation.w = 1.0
-            target_marker.scale = Vector3(x=0.3, y=0.3, z=0.3)
+            target_marker.scale = Vector3(x=0.2, y=0.2, z=0.2)
             target_marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0)
             marker_array.markers.append(target_marker)
         
         self.waypoint_pub.publish(marker_array)
+        self.get_logger().info(f'Published {len(self.waypoints)} waypoints')  # Debug print
 
     def scan_callback(self, msg):
         """Handle LIDAR scan updates."""
@@ -183,124 +192,76 @@ class NavigationController(Node):
         return min_distance < self.safety_radius, min_distance
 
     def control_loop(self):
-        if not self.current_pose or not self.latest_scan or not self.map_data is not None:
+        """Main control loop."""
+        if not self.current_pose:
+            self.get_logger().warn('No pose data')
+            return
+        if not self.latest_scan:
+            self.get_logger().warn('No LIDAR data')
+            return
+        if not self.map_data is not None:
+            self.get_logger().warn('No map data')
             return
 
+        # Always try to publish waypoints
         self.publish_waypoints()
 
-        if not self.waypoints or self.current_waypoint_index >= len(self.waypoints):
+        # Check if we have waypoints
+        if not self.waypoints:
+            self.get_logger().warn('No waypoints available')
+            if self.current_pose and self.map_info:  # Try to generate waypoints
+                self.waypoints = self.generate_waypoints()
+            return
+
+        if self.current_waypoint_index >= len(self.waypoints):
+            self.get_logger().info('All waypoints reached')
             self.stop_robot()
             return
 
+        # Get current target
         current_target = self.waypoints[self.current_waypoint_index]
-        current_x = self.current_pose.position.x
-        current_y = self.current_pose.position.y
-
-        # Check for obstacles
-        is_blocked, obstacle_distance = self.check_obstacles()
         
-        if is_blocked:
-            if self.state != RobotState.BACKING:
-                self.state = RobotState.BACKING
-                self.get_logger().info('Obstacle detected, backing up')
-                self.send_velocity_command(-1.0, 0.0)
-            else:
-                # After backing up, find new path
-                path = self.find_path_monte_carlo(
-                    current_x, current_y,
-                    current_target.x, current_target.y
-                )
-                
-                if path:
-                    # Get next waypoint from path
-                    next_x, next_y = path[1]  # Use second point in path
-                    angle = math.atan2(next_y - current_y, next_x - current_x)
-                    current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
-                    angle_diff = angle - current_angle
-                    
-                    # Normalize angle
-                    while angle_diff > math.pi: angle_diff -= 2*math.pi
-                    while angle_diff < -math.pi: angle_diff += 2*math.pi
-                    
-                    if abs(angle_diff) > math.radians(20):
-                        # Turn towards clear path
-                        self.state = RobotState.ROTATING
-                        self.send_velocity_command(0.0, 1.0 if angle_diff > 0 else -1.0)
-                    else:
-                        # Move forward along path
-                        self.state = RobotState.MOVING
-                        self.send_velocity_command(1.0, 0.0)
-                else:
-                    # No path found, keep backing up
-                    self.send_velocity_command(-1.0, 0.0)
-        else:
-            # Normal waypoint following
-            # Calculate distance and angle to target
-            dx = current_target.x - self.current_pose.position.x
-            dy = current_target.y - self.current_pose.position.y
-            distance = math.sqrt(dx*dx + dy*dy)
-            target_angle = math.atan2(dy, dx)
-            current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
-            angle_diff = target_angle - current_angle
-            
-            # Normalize angle
-            while angle_diff > math.pi: angle_diff -= 2*math.pi
-            while angle_diff < -math.pi: angle_diff += 2*math.pi
+        # Calculate distance and angle to target
+        dx = current_target.x - self.current_pose.position.x
+        dy = current_target.y - self.current_pose.position.y
+        distance = math.sqrt(dx*dx + dy*dy)
+        target_angle = math.atan2(dy, dx)
+        current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
+        angle_diff = target_angle - current_angle
+        
+        # Normalize angle
+        while angle_diff > math.pi: angle_diff -= 2*math.pi
+        while angle_diff < -math.pi: angle_diff += 2*math.pi
 
-            # Debug info
-            self.get_logger().info(
-                f'State: {self.state.name}, Target: {self.current_waypoint_index}, '
-                f'Distance: {distance:.2f}, Angle diff: {math.degrees(angle_diff):.1f}°'
-            )
+        # Debug output
+        self.get_logger().info(
+            f'Navigation status:\n'
+            f'  Current pos: ({self.current_pose.position.x:.2f}, {self.current_pose.position.y:.2f})\n'
+            f'  Target: ({current_target.x:.2f}, {current_target.y:.2f})\n'
+            f'  Distance: {distance:.2f}m\n'
+            f'  Angle diff: {math.degrees(angle_diff):.1f}°'
+        )
 
-            # Check for obstacles
-            is_blocked, obstacle_distance = self.check_obstacles()
-            
-            # Create command message
-            cmd = Twist()
-
-            # State machine
-            if self.state == RobotState.BACKING:
-                # Continue backing up until we have enough space
-                if not is_blocked or (obstacle_distance and obstacle_distance > self.safety_radius * 2):
-                    self.state = RobotState.ROTATING
-                    clear_path = self.find_clear_path()
-                    if clear_path is not None:
-                        cmd.angular.z = 1.0 if clear_path > 0 else -1.0
-                    else:
-                        cmd.angular.z = 1.0  # Default to left if no clear path
-                else:
-                    # Keep backing up
-                    cmd.linear.x = -1.0
-            
-            elif is_blocked:
-                # Start backing up if too close to obstacle
-                self.state = RobotState.BACKING
-                cmd.linear.x = -1.0
-                self.get_logger().info('Obstacle detected, backing up')
-            
-            elif distance < self.waypoint_threshold:
-                self.get_logger().info(f'Reached waypoint {self.current_waypoint_index}')
-                self.current_waypoint_index += 1
-                self.state = RobotState.ROTATING
-                self.stop_robot()
-                return
-            
-            elif abs(angle_diff) > math.radians(20):
-                self.state = RobotState.ROTATING
-                cmd.angular.z = 1.0 if angle_diff > 0 else -1.0
-            
-            else:
-                # Move forward
-                self.state = RobotState.MOVING
-                cmd.linear.x = 1.0
-
-            # Publish command
+        # Send movement commands
+        cmd = Twist()
+        
+        if distance < self.waypoint_threshold:
+            self.get_logger().info(f'Reached waypoint {self.current_waypoint_index}')
+            self.current_waypoint_index += 1
+            self.stop_robot()
+        elif abs(angle_diff) > math.radians(20):
+            # Turn to face target
+            cmd.angular.z = 1.0 if angle_diff > 0 else -1.0
+            self.get_logger().info(f'Turning with angular.z = {cmd.angular.z}')
             self.cmd_vel_pub.publish(cmd)
-            self.get_logger().info(
-                f'Command sent - State: {self.state.name}, '
-                f'Linear: {cmd.linear.x}, Angular: {cmd.angular.z}'
-            )
+        else:
+            # Move forward
+            cmd.linear.x = 1.0
+            # Small angular correction while moving
+            if abs(angle_diff) > math.radians(5):
+                cmd.angular.z = 0.5 if angle_diff > 0 else -0.5
+            self.get_logger().info(f'Moving with linear.x = {cmd.linear.x}, angular.z = {cmd.angular.z}')
+            self.cmd_vel_pub.publish(cmd)
 
     def stop_robot(self):
         """Stop the robot."""
@@ -315,11 +276,13 @@ class NavigationController(Node):
         self.current_pose = msg.pose.pose
         
         # Generate waypoints once we get initial pose
-        if not self.initial_pose_received:
+        if not self.initial_pose_received and self.map_info is not None:
             self.initial_pose_received = True
             self.waypoints = self.generate_waypoints()
-            self.get_logger().info(f'Generated {len(self.waypoints)} waypoints from initial position')
-            self.publish_waypoints()
+            self.get_logger().info(
+                f'Generated {len(self.waypoints)} waypoints from initial position: '
+                f'({self.current_pose.position.x:.2f}, {self.current_pose.position.y:.2f})'
+            )
 
     def get_yaw_from_quaternion(self, q):
         """Extract yaw from quaternion."""

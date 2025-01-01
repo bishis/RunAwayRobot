@@ -22,11 +22,14 @@ class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
-        # Parameters - reduced distances for tighter pattern
-        self.declare_parameter('waypoint_threshold', 0.15)  # Reduced from 0.2
-        self.declare_parameter('leg_length', 0.2)          # Reduced from 0.3
-        self.declare_parameter('safety_radius', 0.25)      # Keep for robot safety
-        self.declare_parameter('num_waypoints', 8)         # Number of waypoints to generate
+        # Parameters
+        self.declare_parameter('waypoint_threshold', 0.3)
+        self.declare_parameter('leg_length', 0.4)  # Reduced from 2.0 to 0.4
+        self.declare_parameter('safety_radius', 0.5)
+        
+        self.waypoint_threshold = self.get_parameter('waypoint_threshold').value
+        self.leg_length = self.get_parameter('leg_length').value
+        self.safety_radius = self.get_parameter('safety_radius').value
         
         # Get robot parameters
         self.robot_radius = self.get_parameter('robot.radius').value
@@ -67,11 +70,12 @@ class NavigationController(Node):
         self.step_size = 0.5  # meters
 
     def generate_waypoints(self):
-        """Generate tight square wave pattern near the robot."""
-        if not self.current_pose or not self.map_info:
+        """Generate square wave waypoints starting from current position and orientation."""
+        if not self.current_pose:
             return []
         
         points = []
+        # Start from current position
         x = self.current_pose.position.x
         y = self.current_pose.position.y
         
@@ -84,33 +88,20 @@ class NavigationController(Node):
         right_x = math.cos(current_yaw + math.pi/2)
         right_y = math.sin(current_yaw + math.pi/2)
         
-        # Start closer to robot and make tighter pattern
-        x += forward_x * self.robot_radius * 1.5  # Start just in front of robot
-        y += forward_y * self.robot_radius * 1.5
-        
-        # Generate waypoints in a tighter pattern
-        for i in range(self.num_waypoints):
+        # Generate square wave pattern relative to robot's orientation
+        for i in range(6):  # Increased from 4 to 6 points
             point = Point()
             if i % 2 == 0:
-                # Shorter forward movement
+                # Move in robot's forward direction
                 x += forward_x * self.leg_length
                 y += forward_y * self.leg_length
             else:
-                # Shorter side movement
-                x += right_x * (self.leg_length * 0.7)  # Make side movements shorter
-                y += right_y * (self.leg_length * 0.7)
-            
-            # Create point
-            point.x = x
-            point.y = y
-            point.z = 0.0
-            
-            # Only add if it's in free space
-            if self.is_valid_point(x, y):
-                points.append(point)
-                self.get_logger().info(
-                    f'Waypoint {len(points)-1}: ({point.x:.2f}, {point.y:.2f})'
-                )
+                # Move in robot's right direction
+                x += right_x * self.leg_length
+                y += right_y * self.leg_length
+            point.x, point.y = x, y
+            points.append(point)
+            self.get_logger().info(f'Waypoint {i}: ({point.x:.2f}, {point.y:.2f})')
         
         return points
 

@@ -48,9 +48,11 @@ def generate_launch_description():
             name='navigation_controller',
             parameters=[{
                 'use_sim_time': False,
-                'safety_radius': 0.3,
-                'detection_distance': 0.5,
-                'leg_length': 2.0
+                'waypoint_threshold': 0.2,
+                'leg_length': 0.5,
+                'safety_radius': 0.25,
+                'num_waypoints': 8,
+                'robot.radius': 0.17
             }]
         ),
 

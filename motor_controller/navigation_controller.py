@@ -22,20 +22,16 @@ class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
-        # Parameters
-        self.declare_parameter('waypoint_threshold', 0.3)
-        self.declare_parameter('leg_length', 0.4)  # Reduced from 2.0 to 0.4
-        self.declare_parameter('safety_radius', 0.5)
+        # Parameters - reduced distances for tighter pattern
+        self.declare_parameter('waypoint_threshold', 0.2)
+        self.declare_parameter('leg_length', 0.5)        # Reduced from 2.0 to 0.5 meters
+        self.declare_parameter('safety_radius', 0.25)
+        self.declare_parameter('num_waypoints', 8)       # Number of waypoints to generate
         
+        # Get parameters
         self.waypoint_threshold = self.get_parameter('waypoint_threshold').value
         self.leg_length = self.get_parameter('leg_length').value
         self.safety_radius = self.get_parameter('safety_radius').value
-        
-        # Get robot parameters
-        self.robot_radius = self.get_parameter('robot.radius').value
-        self.safety_radius = self.get_parameter('robot.safety.min_obstacle_distance').value
-        self.waypoint_threshold = self.get_parameter('waypoint_threshold').value
-        self.leg_length = self.get_parameter('leg_length').value
         self.num_waypoints = self.get_parameter('num_waypoints').value
         
         # Robot state
@@ -71,11 +67,10 @@ class NavigationController(Node):
 
     def generate_waypoints(self):
         """Generate square wave waypoints starting from current position and orientation."""
-        if not self.current_pose:
+        if not self.current_pose or not self.map_info:
             return []
         
         points = []
-        # Start from current position
         x = self.current_pose.position.x
         y = self.current_pose.position.y
         
@@ -88,20 +83,45 @@ class NavigationController(Node):
         right_x = math.cos(current_yaw + math.pi/2)
         right_y = math.sin(current_yaw + math.pi/2)
         
-        # Generate square wave pattern relative to robot's orientation
-        for i in range(6):  # Increased from 4 to 6 points
+        # Map boundaries with safety margin
+        safety_margin = 0.3
+        map_min_x = self.map_info.origin.position.x + safety_margin
+        map_min_y = self.map_info.origin.position.y + safety_margin
+        map_max_x = map_min_x + (self.map_info.width * self.map_info.resolution) - safety_margin
+        map_max_y = map_min_y + (self.map_info.height * self.map_info.resolution) - safety_margin
+        
+        # Generate waypoints in a tighter pattern
+        for i in range(self.num_waypoints):
             point = Point()
+            
+            # Calculate new position
             if i % 2 == 0:
-                # Move in robot's forward direction
-                x += forward_x * self.leg_length
-                y += forward_y * self.leg_length
+                # Move forward
+                new_x = x + forward_x * self.leg_length
+                new_y = y + forward_y * self.leg_length
             else:
-                # Move in robot's right direction
-                x += right_x * self.leg_length
-                y += right_y * self.leg_length
-            point.x, point.y = x, y
-            points.append(point)
-            self.get_logger().info(f'Waypoint {i}: ({point.x:.2f}, {point.y:.2f})')
+                # Alternate between left and right
+                direction = 1 if (i // 2) % 2 == 0 else -1
+                new_x = x + (right_x * self.leg_length * direction)
+                new_y = y + (right_y * self.leg_length * direction)
+            
+            # Clamp to map boundaries
+            new_x = max(map_min_x, min(map_max_x, new_x))
+            new_y = max(map_min_y, min(map_max_y, new_y))
+            
+            # Only add point if it's in free space
+            if self.is_valid_point(new_x, new_y):
+                point.x = new_x
+                point.y = new_y
+                point.z = 0.0
+                points.append(point)
+                self.get_logger().info(
+                    f'Waypoint {len(points)-1}: ({point.x:.2f}, {point.y:.2f})'
+                )
+                # Update current position for next waypoint
+                x, y = new_x, new_y
+            else:
+                self.get_logger().warn(f'Skipping invalid waypoint at ({new_x:.2f}, {new_y:.2f})')
         
         return points
 
@@ -115,30 +135,28 @@ class NavigationController(Node):
         waypoint_marker.header.stamp = self.get_clock().now().to_msg()
         waypoint_marker.ns = 'waypoints'
         waypoint_marker.id = 0
-        waypoint_marker.type = Marker.POINTS
+        waypoint_marker.type = Marker.SPHERE_LIST
         waypoint_marker.action = Marker.ADD
-        waypoint_marker.scale = Vector3(x=0.05, y=0.05, z=0.05)  # Even smaller markers
+        waypoint_marker.scale = Vector3(x=0.2, y=0.2, z=0.2)
         waypoint_marker.color = ColorRGBA(r=1.0, g=0.0, b=0.0, a=1.0)
         waypoint_marker.pose.orientation.w = 1.0
+        waypoint_marker.points = self.waypoints
+        marker_array.markers.append(waypoint_marker)
         
-        if self.waypoints:
-            waypoint_marker.points = self.waypoints
-            marker_array.markers.append(waypoint_marker)
-            
-            # Current target
-            if self.current_waypoint_index < len(self.waypoints):
-                target_marker = Marker()
-                target_marker.header.frame_id = 'map'
-                target_marker.header.stamp = self.get_clock().now().to_msg()
-                target_marker.ns = 'current_target'
-                target_marker.id = 1
-                target_marker.type = Marker.SPHERE
-                target_marker.action = Marker.ADD
-                target_marker.pose.position = self.waypoints[self.current_waypoint_index]
-                target_marker.pose.orientation.w = 1.0
-                target_marker.scale = Vector3(x=0.1, y=0.1, z=0.1)  # Smaller target marker
-                target_marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0)
-                marker_array.markers.append(target_marker)
+        # Current target
+        if self.current_waypoint_index < len(self.waypoints):
+            target_marker = Marker()
+            target_marker.header.frame_id = 'map'
+            target_marker.header.stamp = self.get_clock().now().to_msg()
+            target_marker.ns = 'current_target'
+            target_marker.id = 1
+            target_marker.type = Marker.SPHERE
+            target_marker.action = Marker.ADD
+            target_marker.pose.position = self.waypoints[self.current_waypoint_index]
+            target_marker.pose.orientation.w = 1.0
+            target_marker.scale = Vector3(x=0.3, y=0.3, z=0.3)
+            target_marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0)
+            marker_array.markers.append(target_marker)
         
         self.waypoint_pub.publish(marker_array)
 

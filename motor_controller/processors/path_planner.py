@@ -144,3 +144,96 @@ class PathPlanner:
         
         # Convert distance to score (0 to 1)
         return min(1.0, min_distance / (self.safety_radius * 2)) 
+
+    def find_alternative_path(self, current_pos, target_pos):
+        """Find alternative path when obstacle detected."""
+        if not self.map_data is not None:
+            return None
+            
+        # Generate a set of candidate points in a semi-circle ahead
+        candidates = []
+        base_angle = math.atan2(
+            target_pos.y - current_pos.y,
+            target_pos.x - current_pos.x
+        )
+        
+        # Try points at different angles and distances
+        distances = [0.5, 0.75, 1.0]  # Try different distances
+        for distance in distances:
+            for angle_offset in np.linspace(-math.pi/2, math.pi/2, 8):
+                angle = base_angle + angle_offset
+                test_x = current_pos.x + distance * math.cos(angle)
+                test_y = current_pos.y + distance * math.sin(angle)
+                
+                if self.is_valid_point(test_x, test_y):
+                    # Score this point
+                    score = self.score_waypoint(
+                        test_x, test_y,
+                        current_pos, target_pos
+                    )
+                    candidates.append((test_x, test_y, score))
+        
+        # Sort by score and return best valid point
+        if candidates:
+            candidates.sort(key=lambda x: x[2], reverse=True)
+            best_x, best_y, _ = candidates[0]
+            return Point(x=best_x, y=best_y, z=0.0)
+        
+        return None
+
+    def score_waypoint(self, x, y, current_pos, target_pos):
+        """Score a potential waypoint based on multiple factors."""
+        # Distance to target
+        dx_target = target_pos.x - x
+        dy_target = target_pos.y - y
+        dist_to_target = math.sqrt(dx_target*dx_target + dy_target*dy_target)
+        target_score = 1.0 / (1.0 + dist_to_target)
+        
+        # Distance from current position
+        dx_current = x - current_pos.x
+        dy_current = y - current_pos.y
+        dist_from_current = math.sqrt(dx_current*dx_current + dy_current*dy_current)
+        
+        # Clearance score - check wider area in map
+        clearance_score = self.calculate_clearance(x, y)
+        
+        # Path directness score
+        direct_angle = math.atan2(target_pos.y - current_pos.y,
+                                target_pos.x - current_pos.x)
+        point_angle = math.atan2(y - current_pos.y,
+                               x - current_pos.x)
+        angle_diff = abs(direct_angle - point_angle)
+        while angle_diff > math.pi:
+            angle_diff -= 2*math.pi
+        directness_score = 1.0 - (abs(angle_diff) / math.pi)
+        
+        # Combine scores with weights
+        return (0.3 * target_score +
+                0.4 * clearance_score +
+                0.3 * directness_score)
+
+    def calculate_clearance(self, x, y):
+        """Calculate clearance score using map data."""
+        mx, my = self.world_to_map(x, y)
+        if mx is None or my is None:
+            return 0.0
+            
+        # Check wider area for obstacles
+        check_radius = int((self.robot_radius + self.safety_margin * 2) / 
+                         self.map_info.resolution)
+        total_cells = 0
+        free_cells = 0
+        
+        for dx in range(-check_radius, check_radius + 1):
+            for dy in range(-check_radius, check_radius + 1):
+                dist = math.sqrt(dx*dx + dy*dy)
+                if dist <= check_radius:
+                    check_x = mx + dx
+                    check_y = my + dy
+                    if (0 <= check_x < self.map_info.width and 
+                        0 <= check_y < self.map_info.height):
+                        total_cells += 1
+                        if self.map_data[check_y, check_x] < 50:  # Free space
+                            free_cells += 1
+        
+        return free_cells / total_cells if total_cells > 0 else 0.0 

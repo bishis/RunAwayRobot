@@ -5,7 +5,9 @@ from geometry_msgs.msg import Point
 
 class PathPlanner:
     def __init__(self, safety_radius=0.25, num_samples=20, step_size=0.2):
-        self.safety_radius = safety_radius
+        self.robot_radius = 0.17  # 17cm robot radius
+        self.safety_margin = 0.10  # 10cm safety margin
+        self.safety_radius = self.robot_radius + self.safety_margin
         self.num_samples = num_samples
         self.step_size = step_size
         self.map_data = None

@@ -23,16 +23,21 @@ class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
-        # Parameters - reduced distances for tighter pattern
+        # Robot physical parameters
+        self.declare_parameter('robot.radius', 0.17)  # 17cm robot radius
+        self.declare_parameter('robot.safety_margin', 0.10)  # 10cm additional safety margin
+        
+        # Navigation parameters
         self.declare_parameter('waypoint_threshold', 0.2)
-        self.declare_parameter('leg_length', 0.5)        # Reduced from 2.0 to 0.5 meters
-        self.declare_parameter('safety_radius', 0.25)
-        self.declare_parameter('num_waypoints', 8)       # Number of waypoints to generate
+        self.declare_parameter('leg_length', 0.5)
+        self.declare_parameter('num_waypoints', 8)
         
         # Get parameters
+        self.robot_radius = self.get_parameter('robot.radius').value
+        self.safety_margin = self.get_parameter('robot.safety_margin').value
+        self.safety_radius = self.robot_radius + self.safety_margin  # Total safety distance
         self.waypoint_threshold = self.get_parameter('waypoint_threshold').value
         self.leg_length = self.get_parameter('leg_length').value
-        self.safety_radius = self.get_parameter('safety_radius').value
         self.num_waypoints = self.get_parameter('num_waypoints').value
         
         # Robot state
@@ -362,28 +367,24 @@ class NavigationController(Node):
         )
 
     def find_clear_path(self):
-        """Find a clear direction to rotate towards."""
+        """Find a clear direction considering robot size."""
         if not self.latest_scan:
             return None
         
-        # Check 180-degree arc in front for clear paths
         scan_step = len(self.latest_scan.ranges) // 360
-        start_angle = 90  # Start checking from -90 degrees
-        end_angle = 270   # to +90 degrees
-        
-        max_gap = 0
+        best_gap = 0
         best_angle = None
+        min_gap_width = int(math.degrees(math.asin(self.robot_radius / self.safety_radius)))
         
-        for angle in range(start_angle, end_angle):
-            idx = angle * scan_step
-            if idx < len(self.latest_scan.ranges):
-                if self.latest_scan.ranges[idx] > self.safety_radius:
-                    gap_size = self.measure_gap(angle)
-                    if gap_size > max_gap:
-                        max_gap = gap_size
-                        best_angle = angle - 180  # Convert to robot-relative angle
+        # Check full 360 degrees
+        for angle in range(360):
+            if self.latest_scan.ranges[angle * scan_step] > (self.robot_radius + self.safety_margin):
+                gap_width = self.measure_gap(angle)
+                if gap_width > best_gap and gap_width >= min_gap_width:
+                    best_gap = gap_width
+                    best_angle = angle - 180  # Convert to robot-relative angle
         
-        return best_angle if max_gap > 30 else None  # Return None if no good gaps found
+        return best_angle if best_gap >= min_gap_width else None
 
     def measure_gap(self, center_angle):
         """Measure the size of a gap centered at the given angle."""
@@ -429,11 +430,26 @@ class NavigationController(Node):
         return x, y
 
     def is_valid_point(self, x, y):
-        """Check if point is valid and free in map."""
+        """Check if point is valid considering robot size."""
         mx, my = self.world_to_map(x, y)
         if mx is None or my is None:
             return False
-        return self.map_data[my, mx] == 0  # 0 indicates free space
+        
+        # Check area that covers entire robot plus safety margin
+        check_radius = int((self.robot_radius + self.safety_margin) / self.map_info.resolution)
+        
+        # Check circular area around point
+        for dx in range(-check_radius, check_radius + 1):
+            for dy in range(-check_radius, check_radius + 1):
+                # Only check points within circular radius
+                if dx*dx + dy*dy <= check_radius*check_radius:
+                    check_x = mx + dx
+                    check_y = my + dy
+                    if (0 <= check_x < self.map_info.width and 
+                        0 <= check_y < self.map_info.height):
+                        if self.map_data[check_y, check_x] > 50:  # Occupied
+                            return False
+        return True
 
     def find_path_monte_carlo(self, start_x, start_y, goal_x, goal_y):
         """Use Monte Carlo to find a clear path to goal."""
@@ -496,9 +512,9 @@ class NavigationController(Node):
         return best_path
 
     def check_path_to_target(self, target):
-        """Check if there's a clear path to the target."""
+        """Check if there's a clear path to the target considering robot size."""
         if not self.latest_scan:
-            return False  # Assume clear if no LIDAR data
+            return False
         
         # Calculate angle to target
         dx = target.x - self.current_pose.position.x
@@ -511,26 +527,27 @@ class NavigationController(Node):
         while angle_diff > math.pi: angle_diff -= 2*math.pi
         while angle_diff < -math.pi: angle_diff += 2*math.pi
         
-        # Convert angle to LIDAR index
-        angle_deg = math.degrees(angle_diff) + 180  # Convert to 0-360 range
+        # Check wider arc to account for robot width
+        arc_width = 45  # Increased from 30 to 45 degrees
+        angle_deg = math.degrees(angle_diff) + 180
         scan_idx = int(angle_deg * len(self.latest_scan.ranges) / 360)
         
-        # Check arc around direct path
-        arc_width = 30  # Check ±30 degrees around path
+        # Calculate indices for wider check
         start_idx = max(0, scan_idx - arc_width)
         end_idx = min(len(self.latest_scan.ranges), scan_idx + arc_width)
         
-        # Calculate distance to target
         distance_to_target = math.sqrt(dx*dx + dy*dy)
+        min_clearance = self.robot_radius + self.safety_margin
         
-        # Check if any obstacles are in the path
+        # Check each point in the arc
         for i in range(start_idx, end_idx):
             if i < len(self.latest_scan.ranges):
                 range_val = self.latest_scan.ranges[i]
-                if 0.1 < range_val < min(distance_to_target, self.safety_radius * 2):
-                    return True  # Path is blocked
+                if 0.1 < range_val < min(distance_to_target, min_clearance):
+                    self.get_logger().info(f'Obstacle detected at {range_val}m, need {min_clearance}m clearance')
+                    return True
         
-        return False  # Path is clear
+        return False
 
 def main(args=None):
     rclpy.init(args=args)

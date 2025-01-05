@@ -77,8 +77,15 @@ class NavigationController(Node):
             num_samples=20,
             step_size=0.3
         )
+        
+        # Add loop closure parameters
+        self.visited_positions = []
+        self.loop_closure_threshold = 0.5  # meters
+        self.min_travel_distance = 2.0  # minimum distance before considering loop closure
+        self.last_position = None
+        self.distance_traveled = 0.0
 
-    def generate_waypoints(self):
+    def generate_waypoints(self, preferred_angle=None):
         """Generate square wave waypoints starting from current position and orientation."""
         if not self.current_pose or not self.map_info:
             return []
@@ -87,12 +94,13 @@ class NavigationController(Node):
         x = self.current_pose.position.x
         y = self.current_pose.position.y
         
-        # Get current orientation
-        current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
-        
-        # Add small random rotation to create different patterns
-        pattern_rotation = random.uniform(-math.pi/4, math.pi/4)  # ±45 degrees
-        current_yaw += pattern_rotation
+        # Use preferred angle if provided, otherwise use current orientation
+        if preferred_angle is not None:
+            current_yaw = preferred_angle
+        else:
+            current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
+            pattern_rotation = random.uniform(-math.pi/4, math.pi/4)
+            current_yaw += pattern_rotation
         
         # Calculate forward and right vectors based on current orientation
         forward_x = math.cos(current_yaw)
@@ -306,17 +314,98 @@ class NavigationController(Node):
         self.send_velocity_command(0.0, 0.0)
 
     def odom_callback(self, msg):
-        """Handle odometry updates."""
+        """Handle odometry updates with loop closure detection."""
+        current_pos = msg.pose.pose.position
+        
+        # Update distance traveled
+        if self.last_position:
+            dx = current_pos.x - self.last_position.x
+            dy = current_pos.y - self.last_position.y
+            self.distance_traveled += math.sqrt(dx*dx + dy*dy)
+        
+        self.last_position = current_pos
         self.current_pose = msg.pose.pose
         
-        # Generate waypoints once we get initial pose
+        # Check for loop closure if we've traveled minimum distance
+        if self.distance_traveled > self.min_travel_distance:
+            if self.check_loop_closure(current_pos):
+                self.handle_loop_closure()
+                self.distance_traveled = 0.0  # Reset distance after loop closure
+        
+        # Store position for future loop closure detection
+        if not self.visited_positions or self.distance_from_last_stored(current_pos) > 0.5:
+            self.visited_positions.append(current_pos)
+        
+        # Generate initial waypoints if needed
         if not self.initial_pose_received and self.map_info is not None:
             self.initial_pose_received = True
             self.waypoints = self.generate_waypoints()
-            self.get_logger().info(
-                f'Generated {len(self.waypoints)} waypoints from initial position: '
-                f'({self.current_pose.position.x:.2f}, {self.current_pose.position.y:.2f})'
-            )
+
+    def check_loop_closure(self, current_pos):
+        """Check if we've returned to a previously visited location."""
+        if len(self.visited_positions) < 10:  # Need minimum number of positions
+            return False
+        
+        # Skip recent positions to ensure we've moved away
+        for old_pos in self.visited_positions[:-10]:
+            dx = current_pos.x - old_pos.x
+            dy = current_pos.y - old_pos.y
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            if distance < self.loop_closure_threshold:
+                self.get_logger().info(
+                    f'Loop closure detected! Distance to previous position: {distance:.2f}m'
+                )
+                return True
+        
+        return False
+
+    def handle_loop_closure(self):
+        """Handle loop closure by adjusting navigation strategy."""
+        self.get_logger().info('Handling loop closure')
+        
+        # Generate new waypoints in unexplored directions
+        current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
+        
+        # Find unexplored directions by checking visited positions
+        explored_angles = []
+        for pos in self.visited_positions:
+            dx = pos.x - self.current_pose.position.x
+            dy = pos.y - self.current_pose.position.y
+            if math.sqrt(dx*dx + dy*dy) > 1.0:  # Only consider points > 1m away
+                angle = math.atan2(dy, dx)
+                explored_angles.append(angle)
+        
+        # Find the largest unexplored angle gap
+        if explored_angles:
+            explored_angles.sort()
+            largest_gap = 0
+            best_angle = 0
+            
+            # Add the first angle again to check gap between last and first
+            explored_angles.append(explored_angles[0] + 2*math.pi)
+            
+            for i in range(len(explored_angles)-1):
+                gap = explored_angles[i+1] - explored_angles[i]
+                if gap > largest_gap:
+                    largest_gap = gap
+                    best_angle = explored_angles[i] + gap/2
+            
+            # Generate new waypoints in the unexplored direction
+            self.generate_waypoints(preferred_angle=best_angle)
+        else:
+            # If no explored angles, generate waypoints normally
+            self.generate_waypoints()
+
+    def distance_from_last_stored(self, current_pos):
+        """Calculate distance from last stored position."""
+        if not self.visited_positions:
+            return float('inf')
+        
+        last_pos = self.visited_positions[-1]
+        dx = current_pos.x - last_pos.x
+        dy = current_pos.y - last_pos.y
+        return math.sqrt(dx*dx + dy*dy)
 
     def get_yaw_from_quaternion(self, q):
         """Extract yaw from quaternion."""

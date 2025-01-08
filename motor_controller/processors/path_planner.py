@@ -49,93 +49,104 @@ class PathPlanner:
 
     def find_path(self, current_pos, target_pos):
         """Find best path using Monte Carlo sampling."""
-        if not self.map_data is not None:
+        if self.map_data is None or self.map_info is None:
+            print("No map data available for path planning")
             return None
-            
-        best_path = None
-        best_score = float('-inf')
-        direct_angle = math.atan2(
-            target_pos.y - current_pos.y,
-            target_pos.x - current_pos.x
-        )
         
-        # Generate multiple candidate paths
-        for _ in range(self.num_samples):
-            path = self._generate_candidate_path(
-                current_pos, target_pos, direct_angle
+        try:
+            best_path = None
+            best_score = float('-inf')
+            direct_angle = math.atan2(
+                target_pos.y - current_pos.y,
+                target_pos.x - current_pos.x
             )
-            if path:
-                score = self._evaluate_path(path, target_pos)
-                if score > best_score:
-                    best_score = score
-                    best_path = path
-        
-        return best_path
+            
+            # Generate multiple candidate paths
+            for _ in range(self.num_samples):
+                path = self._generate_candidate_path(
+                    current_pos, target_pos, direct_angle
+                )
+                if path:
+                    score = self._evaluate_path(path, target_pos)
+                    if score > best_score:
+                        best_score = score
+                        best_path = path
+            
+            if best_path is None:
+                print("Could not find valid path")
+            
+            return best_path
+            
+        except Exception as e:
+            print(f"Error in path planning: {str(e)}")
+            return None
 
     def _generate_candidate_path(self, start_pos, target_pos, direct_angle):
         """Generate a single candidate path."""
-        path = [(start_pos.x, start_pos.y)]
-        current_x, current_y = start_pos.x, start_pos.y
-        max_steps = 20  # Prevent infinite paths
-        
-        for _ in range(max_steps):
-            # Calculate distance to target
-            dx = target_pos.x - current_x
-            dy = target_pos.y - current_y
-            distance = math.sqrt(dx*dx + dy*dy)
+        try:
+            path = [(start_pos.x, start_pos.y)]
+            current_x, current_y = start_pos.x, start_pos.y
+            max_steps = 20  # Prevent infinite paths
+            min_step_size = self.step_size * 0.5  # Allow smaller steps if needed
             
-            if distance < self.step_size:
-                path.append((target_pos.x, target_pos.y))
-                return path
+            for _ in range(max_steps):
+                # Calculate distance to target
+                dx = target_pos.x - current_x
+                dy = target_pos.y - current_y
+                distance = math.sqrt(dx*dx + dy*dy)
                 
-            # Generate random angle within cone towards target
-            target_angle = math.atan2(dy, dx)
-            angle = random.uniform(
-                target_angle - self.max_angle_deviation,
-                target_angle + self.max_angle_deviation
-            )
-            
-            # Calculate next point
-            next_x = current_x + self.step_size * math.cos(angle)
-            next_y = current_y + self.step_size * math.sin(angle)
-            
-            # Check if point is valid
-            if not self._is_path_segment_valid(current_x, current_y, next_x, next_y):
-                return None
+                if distance < min_step_size:
+                    path.append((target_pos.x, target_pos.y))
+                    return path
+                    
+                # Use smaller steps when close to obstacles
+                current_clearance = self._calculate_clearance(current_x, current_y)
+                current_step = self.step_size * max(0.5, current_clearance)
                 
-            path.append((next_x, next_y))
-            current_x, current_y = next_x, next_y
-        
-        return None  # Path too long
+                # Generate random angle within cone towards target
+                target_angle = math.atan2(dy, dx)
+                angle = random.uniform(
+                    target_angle - self.max_angle_deviation,
+                    target_angle + self.max_angle_deviation
+                )
+                
+                # Calculate next point
+                next_x = current_x + current_step * math.cos(angle)
+                next_y = current_y + current_step * math.sin(angle)
+                
+                # Check if point is valid
+                if self._is_path_segment_valid(current_x, current_y, next_x, next_y):
+                    path.append((next_x, next_y))
+                    current_x, current_y = next_x, next_y
+                else:
+                    return None
+            
+            return None  # Path too long
+            
+        except Exception as e:
+            print(f"Error generating path: {str(e)}")
+            return None
 
     def _is_path_segment_valid(self, x1, y1, x2, y2):
         """Check if path segment is collision-free."""
-        # Check multiple points along the segment
-        steps = int(math.sqrt((x2-x1)**2 + (y2-y1)**2) / (self.safety_radius/2))
-        steps = max(steps, 5)  # Minimum number of checks
-        
-        for i in range(steps + 1):
-            t = i / steps
-            x = x1 + t*(x2-x1)
-            y = y1 + t*(y2-y1)
+        try:
+            # Check multiple points along the segment
+            steps = int(math.sqrt((x2-x1)**2 + (y2-y1)**2) / (self.safety_radius/2))
+            steps = max(steps, 5)  # Minimum number of checks
             
-            # Convert to map coordinates
-            mx, my = self.world_to_map(x, y)
-            if mx is None or my is None:
-                return False
+            for i in range(steps + 1):
+                t = i / steps
+                x = x1 + t*(x2-x1)
+                y = y1 + t*(y2-y1)
                 
-            # Check circle around point
-            radius_cells = int(self.safety_radius / self.map_info.resolution)
-            for dx in range(-radius_cells, radius_cells + 1):
-                for dy in range(-radius_cells, radius_cells + 1):
-                    if dx*dx + dy*dy <= radius_cells*radius_cells:
-                        check_x = mx + dx
-                        check_y = my + dy
-                        if (0 <= check_x < self.map_info.width and 
-                            0 <= check_y < self.map_info.height):
-                            if self.map_data[check_y, check_x] > 50:  # Obstacle
-                                return False
-        return True
+                if not self.is_valid_point(x, y):
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error checking path segment: {str(e)}")
+            return False
 
     def _evaluate_path(self, path, target_pos):
         """Score a path based on multiple criteria."""

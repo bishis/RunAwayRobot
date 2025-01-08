@@ -443,8 +443,13 @@ class NavigationController(Node):
 
     def map_callback(self, msg):
         """Process incoming map data."""
-        self.map_data = np.array(msg.data).reshape((msg.info.height, msg.info.width))
-        self.map_info = msg.info
+        try:
+            self.map_data = np.array(msg.data).reshape((msg.info.height, msg.info.width))
+            self.map_info = msg.info
+            self.path_planner.update_map(self.map_data, self.map_info)
+            self.get_logger().debug('Map data updated')
+        except Exception as e:
+            self.get_logger().error(f'Error processing map data: {str(e)}')
         
     def world_to_map(self, x, y):
         """Convert world coordinates to map coordinates."""

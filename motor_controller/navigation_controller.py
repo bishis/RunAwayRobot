@@ -12,6 +12,7 @@ from enum import Enum
 import random
 import numpy as np
 from .processors.path_planner import PathPlanner
+from .processors.waypoint_generator import WaypointGenerator
 
 class RobotState(Enum):
     ROTATING = 1
@@ -84,112 +85,22 @@ class NavigationController(Node):
         self.min_travel_distance = 2.0  # minimum distance before considering loop closure
         self.last_position = None
         self.distance_traveled = 0.0
+        
+        self.waypoint_generator = WaypointGenerator(
+            robot_radius=self.robot_radius,
+            safety_margin=self.safety_margin,
+            num_waypoints=self.num_waypoints
+        )
 
     def generate_waypoints(self, preferred_angle=None):
-        """Generate unique waypoints with minimum spacing."""
-        if not self.current_pose or not self.map_info:
-            return []
-        
-        points = []
-        x = self.current_pose.position.x
-        y = self.current_pose.position.y
-        
-        # Use preferred angle if provided, otherwise use current orientation
-        if preferred_angle is not None:
-            current_yaw = preferred_angle
-        else:
-            current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
-            pattern_rotation = random.uniform(-math.pi/4, math.pi/4)
-            current_yaw += pattern_rotation
-        
-        # Calculate forward and right vectors
-        forward_x = math.cos(current_yaw)
-        forward_y = math.sin(current_yaw)
-        right_x = math.cos(current_yaw + math.pi/2)
-        right_y = math.sin(current_yaw + math.pi/2)
-        
-        # Map boundaries
-        safety_margin = 0.3
-        map_min_x = self.map_info.origin.position.x + safety_margin
-        map_min_y = self.map_info.origin.position.y + safety_margin
-        map_max_x = map_min_x + (self.map_info.width * self.map_info.resolution) - safety_margin
-        map_max_y = map_min_y + (self.map_info.height * self.map_info.resolution) - safety_margin
-        
-        # Minimum distance between waypoints
-        min_waypoint_spacing = self.robot_radius * 3  # At least 3x robot radius apart
-        
-        def is_point_too_close(new_x, new_y, existing_points):
-            """Check if new point is too close to existing points."""
-            for point in existing_points:
-                dx = new_x - point.x
-                dy = new_y - point.y
-                if math.sqrt(dx*dx + dy*dy) < min_waypoint_spacing:
-                    return True
-            return False
-        
-        attempts = 0
-        max_attempts = 30  # Increased max attempts
-        
-        while len(points) < self.num_waypoints and attempts < max_attempts:
-            point = Point()
-            
-            # Calculate new position
-            if len(points) % 2 == 0:
-                # Move forward
-                new_x = x + forward_x * self.leg_length
-                new_y = y + forward_y * self.leg_length
-            else:
-                # Alternate between left and right
-                direction = 1 if (len(points) // 2) % 2 == 0 else -1
-                new_x = x + (right_x * self.leg_length * direction)
-                new_y = y + (right_y * self.leg_length * direction)
-            
-            # Clamp to map boundaries
-            new_x = max(map_min_x, min(map_max_x, new_x))
-            new_y = max(map_min_y, min(map_max_y, new_y))
-            
-            # Check if point is valid and not too close to existing points
-            if (self.is_valid_point(new_x, new_y) and 
-                not is_point_too_close(new_x, new_y, points)):
-                point.x = new_x
-                point.y = new_y
-                point.z = 0.0
-                points.append(point)
-                self.get_logger().info(
-                    f'Waypoint {len(points)-1}: ({point.x:.2f}, {point.y:.2f})'
-                )
-                # Update current position for next waypoint
-                x, y = new_x, new_y
-            else:
-                attempts += 1
-                # Try adjusting the direction slightly
-                angle_adjustment = (attempts / max_attempts) * math.pi/2
-                current_yaw += angle_adjustment
-                forward_x = math.cos(current_yaw)
-                forward_y = math.sin(current_yaw)
-                right_x = math.cos(current_yaw + math.pi/2)
-                right_y = math.sin(current_yaw + math.pi/2)
-                
-                if attempts % 5 == 0:
-                    # Every 5 failed attempts, try reducing leg length
-                    self.leg_length *= 0.8
-            
-        # Reset leg length if it was modified
-        self.leg_length = self.get_parameter('leg_length').value
-        
-        # Verify all waypoints are unique and properly spaced
-        if points:
-            self.get_logger().info("\nWaypoint spacing verification:")
-            for i in range(len(points)):
-                for j in range(i + 1, len(points)):
-                    dx = points[i].x - points[j].x
-                    dy = points[i].y - points[j].y
-                    distance = math.sqrt(dx*dx + dy*dy)
-                    self.get_logger().info(
-                        f'Distance between waypoints {i} and {j}: {distance:.2f}m'
-                    )
-        
-        return points
+        """Generate waypoints using WaypointGenerator."""
+        return self.waypoint_generator.generate_waypoints(
+            self.current_pose,
+            self.map_data,
+            self.map_info,
+            self.is_valid_point,
+            self.map_to_world
+        )
 
     def publish_waypoints(self):
         """Publish waypoints for visualization."""

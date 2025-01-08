@@ -20,6 +20,9 @@ class KeyboardController(Node):
         self.linear_speed = 1.0
         self.angular_speed = 1.0
         
+        # Warning flag
+        self.warning_shown = False
+        
         # Check if running in terminal
         if sys.stdin.isatty():
             # Start keyboard reading thread
@@ -34,10 +37,12 @@ class KeyboardController(Node):
             
     def _check_input(self):
         """Alternative input method when not running in terminal"""
-        self.get_logger().warn_once(
-            'For keyboard control, please run directly with: '
-            'ros2 run motor_controller keyboard_control'
-        )
+        if not self.warning_shown:
+            self.get_logger().warn(
+                'For keyboard control, please run directly with: '
+                'ros2 run motor_controller keyboard_control'
+            )
+            self.warning_shown = True
         
     def _read_keyboard(self):
         """Read keyboard input in terminal mode"""

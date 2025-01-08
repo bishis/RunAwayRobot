@@ -49,67 +49,27 @@ class WaypointGenerator:
         boundaries = []
         height, width = map_data.shape
         
-        # Convert robot radius to grid cells
-        robot_cells = int(self.robot_radius / map_info.resolution)
-        
-        for my in range(robot_cells, height-robot_cells):
-            for mx in range(robot_cells, width-robot_cells):
-                if map_data[my, mx] == 0:  # Free space
-                    # Check for wall following path with robot radius clearance
-                    if self._is_valid_wall_following_point(map_data, mx, my, height, width, robot_cells):
+        for my in range(1, height-1):
+            for mx in range(1, width-1):
+                if map_data[my, mx] == 0:
+                    if self._is_valid_boundary(map_data, mx, my, height, width):
                         wx, wy = map_to_world(mx, my)
                         if wx is not None and wy is not None:
                             boundaries.append((wx, wy))
         return boundaries
 
-    def _is_valid_wall_following_point(self, map_data, mx, my, height, width, robot_cells):
-        """Check if point is valid for wall following with robot radius clearance."""
-        # Check immediate surroundings for walls
-        has_wall = False
-        has_path = False
-        
-        # Check in all directions around the point
-        for angle in range(0, 360, 45):  # Check every 45 degrees
-            rad = math.radians(angle)
-            # Check at robot radius distance
-            check_x = int(mx + robot_cells * math.cos(rad))
-            check_y = int(my + robot_cells * math.sin(rad))
-            
-            if (0 <= check_x < width and 0 <= check_y < height):
-                if map_data[check_y, check_x] > 50:  # Wall found
-                    has_wall = True
-                elif map_data[check_y, check_x] == 0:  # Free space found
-                    has_path = True
-                
-                # If wall is found, ensure there's a clear path on the opposite side
-                if has_wall:
-                    opposite_x = int(mx - robot_cells * math.cos(rad))
-                    opposite_y = int(my - robot_cells * math.sin(rad))
-                    if (0 <= opposite_x < width and 0 <= opposite_y < height):
-                        if map_data[opposite_y, opposite_x] == 0:
-                            has_path = True
-        
-        # Point is valid if it has both a wall nearby and a clear path
-        return has_wall and has_path
-
     def _get_candidate_points(self, frontiers, boundaries, points, x, y):
         candidates = []
         
-        # Prioritize boundary points for wall following
-        for wx, wy in boundaries:
-            if not self._is_point_too_close(wx, wy, points):
-                candidates.append(('boundary', wx, wy))
-        
-        # Add frontier points as secondary targets
         for wx, wy in frontiers:
             if not self._is_point_too_close(wx, wy, points):
                 candidates.append(('frontier', wx, wy))
         
-        # Sort by distance but give preference to boundary points
-        candidates.sort(key=lambda p: (
-            0 if p[0] == 'boundary' else 1,  # Boundary points first
-            math.sqrt((p[1]-x)**2 + (p[2]-y)**2)  # Then by distance
-        ))
+        for wx, wy in boundaries:
+            if not self._is_point_too_close(wx, wy, points):
+                candidates.append(('boundary', wx, wy))
+        
+        candidates.sort(key=lambda p: math.sqrt((p[1]-x)**2 + (p[2]-y)**2))
         return candidates
 
     def _select_waypoints(self, candidates, points, is_valid_point):

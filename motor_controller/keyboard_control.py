@@ -8,6 +8,7 @@ import tty
 import termios
 import select
 import threading
+import os
 
 class KeyboardController(Node):
     def __init__(self):
@@ -19,18 +20,34 @@ class KeyboardController(Node):
         self.linear_speed = 1.0
         self.angular_speed = 1.0
         
-        # Start keyboard reading thread
-        self.keyboard_thread = threading.Thread(target=self._read_keyboard)
-        self.keyboard_thread.start()
-        
-        self.get_logger().info('Keyboard controller started. Use WASD to move, Q to quit')
+        # Check if running in terminal
+        if sys.stdin.isatty():
+            # Start keyboard reading thread
+            self.keyboard_thread = threading.Thread(target=self._read_keyboard)
+            self.keyboard_thread.start()
+            self.get_logger().info('Keyboard controller started. Use WASD to move, Q to quit')
+        else:
+            # If not running in terminal, use alternative input method
+            self.timer = self.create_timer(0.1, self._check_input)
+            self.get_logger().info('Keyboard controller started in non-terminal mode.')
+            self.get_logger().info('Please run: ros2 run motor_controller keyboard_control')
+            
+    def _check_input(self):
+        """Alternative input method when not running in terminal"""
+        self.get_logger().warn_once(
+            'For keyboard control, please run directly with: '
+            'ros2 run motor_controller keyboard_control'
+        )
         
     def _read_keyboard(self):
-        # Save terminal settings
-        old_settings = termios.tcgetattr(sys.stdin)
+        """Read keyboard input in terminal mode"""
         try:
+            # Save terminal settings
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            
             # Set terminal to raw mode
-            tty.setraw(sys.stdin.fileno())
+            tty.setraw(fd)
             
             while self.running:
                 # Check if key is available
@@ -55,9 +72,12 @@ class KeyboardController(Node):
                         
                     self.publisher.publish(msg)
                     
+        except Exception as e:
+            self.get_logger().error(f'Error reading keyboard: {str(e)}')
         finally:
             # Restore terminal settings
-            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+            if 'old_settings' in locals():
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
             
     def __del__(self):
         self.running = False

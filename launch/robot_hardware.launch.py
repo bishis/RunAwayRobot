@@ -2,6 +2,7 @@ from launch import LaunchDescription
 from launch.actions import SetEnvironmentVariable, IncludeLaunchDescription, DeclareLaunchArgument
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+from launch.conditions import IfCondition
 from launch_ros.actions import Node
 import os
 from ament_index_python.packages import get_package_share_directory
@@ -50,20 +51,15 @@ def generate_launch_description():
             executable='static_transform_publisher',
             name='base_link_to_laser',
             arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
+        ),
+
+        # Keyboard control node (conditionally launched)
+        Node(
+            package='motor_controller',
+            executable='keyboard_control',
+            name='keyboard_control',
+            condition=IfCondition(LaunchConfiguration('keyboard_control'))
         )
     ])
-    
-    # Conditionally add keyboard control node
-    keyboard_enabled = LaunchConfiguration('keyboard_control')
-    
-    # Add keyboard control node if enabled
-    keyboard_node = Node(
-        package='motor_controller',
-        executable='keyboard_control',
-        name='keyboard_control',
-        condition=launch.conditions.IfCondition(keyboard_enabled)
-    )
-    
-    ld.add_action(keyboard_node)
     
     return ld 

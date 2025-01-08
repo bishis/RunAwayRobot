@@ -12,23 +12,16 @@ def generate_launch_description():
     turtlebot4_dir = get_package_share_directory('turtlebot4_navigation')
     
     return LaunchDescription([
-        # 1. Launch RPLIDAR and wait for it to be ready
-        Node(
-            package='rplidar_ros',
-            executable='rplidar_node',
-            name='rplidar_node',
-            output='screen',
-            parameters=[{
-                'serial_port': '/dev/ttyUSB0',
-                'frame_id': 'laser',
-                'angle_compensate': True,
-                'scan_mode': 'Standard'
-            }]
+        # 1. Launch RPLIDAR
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(rplidar_dir, 'launch', 'rplidar_a1_launch.py')
+            )
         ),
 
-        # 2. Wait longer for LIDAR to start
+        # 2. Wait then launch RF2O Odometry
         TimerAction(
-            period=5.0,  # Increased delay
+            period=3.0,
             actions=[
                 Node(
                     package='rf2o_laser_odometry',
@@ -41,7 +34,9 @@ def generate_launch_description():
                         'publish_tf': True,
                         'base_frame_id': 'base_link',
                         'odom_frame_id': 'odom',
-                        'freq': 20.0
+                        'init_pose_from_topic': '',
+                        'freq': 10.0,
+                        'verbose': False
                     }]
                 )
             ]
@@ -69,7 +64,8 @@ def generate_launch_description():
                     ),
                     launch_arguments={
                         'use_sim_time': 'false',
-                        'sync': 'true'
+                        'sync': 'true',
+                        'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
                     }.items()
                 )
             ]

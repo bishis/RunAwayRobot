@@ -1,66 +1,71 @@
 from gpiozero import Servo
 import time
-import RPi.GPIO as GPIO
+import math
 
 class MotorController:
     """Handles low-level motor control operations using Servo controllers."""
     
-    def __init__(self, left_pin, right_pin):
-        """Initialize the motor controller."""
-        self.left_pin = left_pin
-        self.right_pin = right_pin
+    def __init__(self, left_pin=18, right_pin=12):
+        # Initialize Servo objects for motors
+        self.motor_left = Servo(
+            left_pin,
+            min_pulse_width=1.0/1000,
+            max_pulse_width=2.0/1000,
+            frame_width=20.0/1000
+        )
         
-        # Add direction pins
-        self.left_dir_pin = 23  # GPIO23
-        self.right_dir_pin = 24  # GPIO24
+        self.motor_right = Servo(
+            right_pin,
+            min_pulse_width=1.0/1000,
+            max_pulse_width=2.0/1000,
+            frame_width=20.0/1000
+        )
         
-        # Setup GPIO
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(self.left_pin, GPIO.OUT)
-        GPIO.setup(self.right_pin, GPIO.OUT)
-        GPIO.setup(self.left_dir_pin, GPIO.OUT)
-        GPIO.setup(self.right_dir_pin, GPIO.OUT)
+        # Speed constants
+        self.FULL_SPEED = 1.0
+        self.HALF_SPEED = 0.8
+        self.TURN_SPEED = 1.0
+        self.STOP = 0.0
         
-        # Setup PWM
-        self.left_pwm = GPIO.PWM(self.left_pin, 100)  # 100 Hz frequency
-        self.right_pwm = GPIO.PWM(self.right_pin, 100)
+        # Ensure motors are stopped at start
+        self.stop()
         
-        # Start PWM with 0% duty cycle
-        self.left_pwm.start(0)
-        self.right_pwm.start(0)
+    def forward(self, speed=None):
+        """Move forward at specified speed."""
+        speed = speed or self.HALF_SPEED
+        self.motor_left.value = speed
+        self.motor_right.value = speed
         
-    def set_speeds(self, left_speed, right_speed):
-        """Set motor speeds. Values should be between -1.0 and 1.0."""
-        # Convert speeds to PWM duty cycle (0-100)
-        left_duty = abs(left_speed) * 100
-        right_duty = abs(right_speed) * 100
+    def backward(self):
+        """Move backward."""
+        self.motor_left.value = -self.HALF_SPEED
+        self.motor_right.value = -self.HALF_SPEED
         
-        # Ensure duty cycle is within bounds
-        left_duty = min(100, max(0, left_duty))
-        right_duty = min(100, max(0, right_duty))
+    def turn_left(self):
+        """Turn left in place."""
+        self.motor_left.value = -self.TURN_SPEED
+        self.motor_right.value = self.TURN_SPEED
         
-        # Set GPIO direction pins based on speed sign
-        if left_speed >= 0:
-            GPIO.output(self.left_dir_pin, GPIO.HIGH)
-        else:
-            GPIO.output(self.left_dir_pin, GPIO.LOW)
-            
-        if right_speed >= 0:
-            GPIO.output(self.right_dir_pin, GPIO.HIGH)
-        else:
-            GPIO.output(self.right_dir_pin, GPIO.LOW)
-        
-        # Set PWM duty cycle
-        self.left_pwm.ChangeDutyCycle(left_duty)
-        self.right_pwm.ChangeDutyCycle(right_duty)
-        
-        print(f"Setting motor speeds - Left: {left_duty}% {'FWD' if left_speed >= 0 else 'REV'}, "
-              f"Right: {right_duty}% {'FWD' if right_speed >= 0 else 'REV'}")
+    def turn_right(self):
+        """Turn right in place."""
+        self.motor_left.value = self.TURN_SPEED
+        self.motor_right.value = -self.TURN_SPEED
         
     def stop(self):
         """Stop both motors."""
-        self.left_pwm.ChangeDutyCycle(0)
-        self.right_pwm.ChangeDutyCycle(0)
+        self.motor_left.value = self.STOP
+        self.motor_right.value = self.STOP
+        time.sleep(0.1)
+        
+    def set_speeds(self, left_speed, right_speed):
+        """Set speeds for both motors."""
+        # Clamp speeds to [-1, 1]
+        left_speed = max(-1.0, min(1.0, left_speed))
+        right_speed = max(-1.0, min(1.0, right_speed))
+        
+        # Apply speeds to motors
+        self.motor_left.value = left_speed
+        self.motor_right.value = right_speed
         
     def __del__(self):
         """Cleanup on object destruction."""

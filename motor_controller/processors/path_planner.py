@@ -4,14 +4,15 @@ import random
 from geometry_msgs.msg import Point
 
 class PathPlanner:
-    def __init__(self, safety_radius=0.25, num_samples=20, step_size=0.2):
-        self.robot_radius = 0.17  # 17cm robot radius
-        self.safety_margin = 0.10  # 10cm safety margin
-        self.safety_radius = self.robot_radius + self.safety_margin
+    def __init__(self, safety_radius=0.25, num_samples=200, step_size=0.2):
+        self.robot_radius = 0.17
+        self.safety_margin = 0.10
+        self.safety_radius = safety_radius
         self.num_samples = num_samples
         self.step_size = step_size
         self.map_data = None
         self.map_info = None
+        self.max_angle_deviation = math.pi/3  # Maximum angle deviation from direct path
         
     def update_map(self, map_data, map_info):
         """Update the map data used for planning."""
@@ -46,82 +47,124 @@ class PathPlanner:
                         return False
         return True
 
-    def find_next_point(self, current_pos, target_pos, scan_data):
-        """Find next best point to move to."""
+    def find_path(self, current_pos, target_pos):
+        """Find best path using Monte Carlo sampling."""
         if not self.map_data is not None:
             return None
             
-        best_point = None
+        best_path = None
         best_score = float('-inf')
-        
-        # Calculate base direction to target
-        dx = target_pos.x - current_pos.x
-        dy = target_pos.y - current_pos.y
-        target_angle = math.atan2(dy, dx)
-        
-        # Generate sample points in an arc
-        for _ in range(self.num_samples):
-            # Sample angle in forward 180-degree arc
-            angle_offset = random.uniform(-math.pi/2, math.pi/2)
-            sample_angle = target_angle + angle_offset
-            
-            # Generate point at step_size distance
-            sample_x = current_pos.x + self.step_size * math.cos(sample_angle)
-            sample_y = current_pos.y + self.step_size * math.sin(sample_angle)
-            
-            if not self.is_valid_point(sample_x, sample_y):
-                continue
-                
-            # Score the point based on multiple factors
-            score = self.score_point(
-                sample_x, sample_y,
-                current_pos, target_pos,
-                scan_data, sample_angle
-            )
-            
-            if score > best_score:
-                best_score = score
-                best_point = Point(x=sample_x, y=sample_y, z=0.0)
-        
-        return best_point
-
-    def score_point(self, x, y, current_pos, target_pos, scan_data, angle):
-        """Score a potential point based on multiple factors."""
-        # Distance to target (prefer points closer to target)
-        dx_target = target_pos.x - x
-        dy_target = target_pos.y - y
-        dist_to_target = math.sqrt(dx_target*dx_target + dy_target*dy_target)
-        target_score = 1.0 / (1.0 + dist_to_target)
-        
-        # Distance from current position (prefer points we can reach)
-        dx_current = x - current_pos.x
-        dy_current = y - current_pos.y
-        dist_from_current = math.sqrt(dx_current*dx_current + dy_current*dy_current)
-        distance_score = 1.0 if dist_from_current <= self.step_size else 0.0
-        
-        # Clearance from obstacles
-        clearance_score = self.calculate_clearance_score(x, y)
-        
-        # Direction score (prefer points in general direction of target)
-        target_angle = math.atan2(target_pos.y - current_pos.y, 
-                                target_pos.x - current_pos.x)
-        angle_diff = abs(target_angle - angle)
-        while angle_diff > math.pi:
-            angle_diff -= 2*math.pi
-        direction_score = 1.0 - (abs(angle_diff) / math.pi)
-        
-        # Combine scores with weights
-        total_score = (
-            0.4 * target_score +
-            0.3 * clearance_score +
-            0.2 * direction_score +
-            0.1 * distance_score
+        direct_angle = math.atan2(
+            target_pos.y - current_pos.y,
+            target_pos.x - current_pos.x
         )
         
-        return total_score
+        # Generate multiple candidate paths
+        for _ in range(self.num_samples):
+            path = self._generate_candidate_path(
+                current_pos, target_pos, direct_angle
+            )
+            if path:
+                score = self._evaluate_path(path, target_pos)
+                if score > best_score:
+                    best_score = score
+                    best_path = path
+        
+        return best_path
 
-    def calculate_clearance_score(self, x, y):
-        """Calculate how far the point is from obstacles."""
+    def _generate_candidate_path(self, start_pos, target_pos, direct_angle):
+        """Generate a single candidate path."""
+        path = [(start_pos.x, start_pos.y)]
+        current_x, current_y = start_pos.x, start_pos.y
+        max_steps = 20  # Prevent infinite paths
+        
+        for _ in range(max_steps):
+            # Calculate distance to target
+            dx = target_pos.x - current_x
+            dy = target_pos.y - current_y
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            if distance < self.step_size:
+                path.append((target_pos.x, target_pos.y))
+                return path
+                
+            # Generate random angle within cone towards target
+            target_angle = math.atan2(dy, dx)
+            angle = random.uniform(
+                target_angle - self.max_angle_deviation,
+                target_angle + self.max_angle_deviation
+            )
+            
+            # Calculate next point
+            next_x = current_x + self.step_size * math.cos(angle)
+            next_y = current_y + self.step_size * math.sin(angle)
+            
+            # Check if point is valid
+            if not self._is_path_segment_valid(current_x, current_y, next_x, next_y):
+                return None
+                
+            path.append((next_x, next_y))
+            current_x, current_y = next_x, next_y
+        
+        return None  # Path too long
+
+    def _is_path_segment_valid(self, x1, y1, x2, y2):
+        """Check if path segment is collision-free."""
+        # Check multiple points along the segment
+        steps = int(math.sqrt((x2-x1)**2 + (y2-y1)**2) / (self.safety_radius/2))
+        steps = max(steps, 5)  # Minimum number of checks
+        
+        for i in range(steps + 1):
+            t = i / steps
+            x = x1 + t*(x2-x1)
+            y = y1 + t*(y2-y1)
+            
+            # Convert to map coordinates
+            mx, my = self.world_to_map(x, y)
+            if mx is None or my is None:
+                return False
+                
+            # Check circle around point
+            radius_cells = int(self.safety_radius / self.map_info.resolution)
+            for dx in range(-radius_cells, radius_cells + 1):
+                for dy in range(-radius_cells, radius_cells + 1):
+                    if dx*dx + dy*dy <= radius_cells*radius_cells:
+                        check_x = mx + dx
+                        check_y = my + dy
+                        if (0 <= check_x < self.map_info.width and 
+                            0 <= check_y < self.map_info.height):
+                            if self.map_data[check_y, check_x] > 50:  # Obstacle
+                                return False
+        return True
+
+    def _evaluate_path(self, path, target_pos):
+        """Score a path based on multiple criteria."""
+        if len(path) < 2:
+            return float('-inf')
+            
+        # Path length score (shorter is better)
+        length = sum(
+            math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
+            for p1, p2 in zip(path[:-1], path[1:])
+        )
+        length_score = 1.0 / (1.0 + length)
+        
+        # Clearance score (further from obstacles is better)
+        clearance_score = sum(
+            self._calculate_clearance(x, y)
+            for x, y in path
+        ) / len(path)
+        
+        # Directness score (closer to straight line is better)
+        directness = self._calculate_directness(path, target_pos)
+        
+        # Combine scores with weights
+        return (0.4 * length_score + 
+                0.4 * clearance_score + 
+                0.2 * directness)
+
+    def _calculate_clearance(self, x, y):
+        """Calculate clearance from obstacles."""
         mx, my = self.world_to_map(x, y)
         if mx is None or my is None:
             return 0.0
@@ -135,105 +178,27 @@ class PathPlanner:
                 check_y = my + dy
                 if (0 <= check_x < self.map_info.width and 
                     0 <= check_y < self.map_info.height):
-                    if self.map_data[check_y, check_x] > 50:  # Occupied
+                    if self.map_data[check_y, check_x] > 50:
                         dist = math.sqrt(dx*dx + dy*dy) * self.map_info.resolution
                         min_distance = min(min_distance, dist)
         
-        if min_distance == float('inf'):
-            return 1.0
-        
-        # Convert distance to score (0 to 1)
-        return min(1.0, min_distance / (self.safety_radius * 2)) 
+        return 1.0 if min_distance == float('inf') else min(1.0, min_distance / (self.safety_radius * 2))
 
-    def find_alternative_path(self, current_pos, target_pos):
-        """Find alternative path when obstacle detected."""
-        if not self.map_data is not None:
-            return None
-            
-        # Generate a set of candidate points in a semi-circle ahead
-        candidates = []
-        base_angle = math.atan2(
-            target_pos.y - current_pos.y,
-            target_pos.x - current_pos.x
-        )
-        
-        # Try points at different angles and distances
-        distances = [0.5, 0.75, 1.0]  # Try different distances
-        for distance in distances:
-            for angle_offset in np.linspace(-math.pi/2, math.pi/2, 8):
-                angle = base_angle + angle_offset
-                test_x = current_pos.x + distance * math.cos(angle)
-                test_y = current_pos.y + distance * math.sin(angle)
-                
-                if self.is_valid_point(test_x, test_y):
-                    # Score this point
-                    score = self.score_waypoint(
-                        test_x, test_y,
-                        current_pos, target_pos
-                    )
-                    candidates.append((test_x, test_y, score))
-        
-        # Sort by score and return best valid point
-        if candidates:
-            candidates.sort(key=lambda x: x[2], reverse=True)
-            best_x, best_y, _ = candidates[0]
-            return Point(x=best_x, y=best_y, z=0.0)
-        
-        return None
-
-    def score_waypoint(self, x, y, current_pos, target_pos):
-        """Score a potential waypoint based on multiple factors."""
-        # Distance to target
-        dx_target = target_pos.x - x
-        dy_target = target_pos.y - y
-        dist_to_target = math.sqrt(dx_target*dx_target + dy_target*dy_target)
-        target_score = 1.0 / (1.0 + dist_to_target)
-        
-        # Distance from current position
-        dx_current = x - current_pos.x
-        dy_current = y - current_pos.y
-        dist_from_current = math.sqrt(dx_current*dx_current + dy_current*dy_current)
-        
-        # Clearance score - check wider area in map
-        clearance_score = self.calculate_clearance(x, y)
-        
-        # Path directness score
-        direct_angle = math.atan2(target_pos.y - current_pos.y,
-                                target_pos.x - current_pos.x)
-        point_angle = math.atan2(y - current_pos.y,
-                               x - current_pos.x)
-        angle_diff = abs(direct_angle - point_angle)
-        while angle_diff > math.pi:
-            angle_diff -= 2*math.pi
-        directness_score = 1.0 - (abs(angle_diff) / math.pi)
-        
-        # Combine scores with weights
-        return (0.3 * target_score +
-                0.4 * clearance_score +
-                0.3 * directness_score)
-
-    def calculate_clearance(self, x, y):
-        """Calculate clearance score using map data."""
-        mx, my = self.world_to_map(x, y)
-        if mx is None or my is None:
+    def _calculate_directness(self, path, target_pos):
+        """Calculate how direct the path is to the target."""
+        if len(path) < 2:
             return 0.0
             
-        # Check wider area for obstacles
-        check_radius = int((self.robot_radius + self.safety_margin * 2) / 
-                         self.map_info.resolution)
-        total_cells = 0
-        free_cells = 0
+        # Calculate total path length
+        path_length = sum(
+            math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
+            for p1, p2 in zip(path[:-1], path[1:])
+        )
         
-        for dx in range(-check_radius, check_radius + 1):
-            for dy in range(-check_radius, check_radius + 1):
-                dist = math.sqrt(dx*dx + dy*dy)
-                if dist <= check_radius:
-                    check_x = mx + dx
-                    check_y = my + dy
-                    if (0 <= check_x < self.map_info.width and 
-                        0 <= check_y < self.map_info.height):
-                        total_cells += 1
-                        if self.map_data[check_y, check_x] < 50:  # Free space
-                            free_cells += 1
+        # Calculate direct distance
+        direct_distance = math.sqrt(
+            (target_pos.x - path[0][0])**2 + 
+            (target_pos.y - path[0][1])**2
+        )
         
-        return free_cells / total_cells if total_cells > 0 else 0.0 
+        return direct_distance / path_length if path_length > 0 else 0.0 

@@ -28,6 +28,7 @@ setup(
             'wall_follower = motor_controller.wall_follower:main',
             'hardware_controller = motor_controller.hardware_controller:main',
             'navigation_controller = motor_controller.navigation_controller:main',
+            'keyboard_control = motor_controller.keyboard_control:main',
         ],
     },
 )

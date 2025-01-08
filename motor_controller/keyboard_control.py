@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, Vector3
 import sys
 import tty
 import termios
@@ -17,11 +17,8 @@ class KeyboardController(Node):
         self.running = True
         
         # Movement parameters
-        self.linear_speed = 1  # Reduced speed for safety
-        self.angular_speed = 1  # Reduced speed for safety
-        
-        # Warning flag
-        self.warning_shown = False
+        self.linear_speed = 1.0  # Make sure these are floats
+        self.angular_speed = 1.0
         
         self.get_logger().info('Initializing keyboard controller...')
         
@@ -35,21 +32,27 @@ class KeyboardController(Node):
                 self.get_logger().info('Keyboard controller started. Use WASD to move, Q to quit')
             else:
                 self.get_logger().warn('Not running in terminal mode')
-                # If not running in terminal, use alternative input method
-                self.timer = self.create_timer(0.1, self._check_input)
-                self.get_logger().info('Started in non-terminal mode.')
                 self.get_logger().info('Please run in a terminal with: ros2 run motor_controller keyboard_control')
         except Exception as e:
             self.get_logger().error(f'Error in initialization: {str(e)}')
             
-    def _check_input(self):
-        """Alternative input method when not running in terminal"""
-        if not self.warning_shown:
-            self.get_logger().warn(
-                'For keyboard control, please run directly in a terminal with: '
-                'ros2 run motor_controller keyboard_control'
-            )
-            self.warning_shown = True
+    def create_twist_message(self, linear_x=0.0, angular_z=0.0):
+        """Create a properly formatted Twist message"""
+        msg = Twist()
+        
+        # Create and set linear vector
+        msg.linear = Vector3()
+        msg.linear.x = float(linear_x)
+        msg.linear.y = 0.0
+        msg.linear.z = 0.0
+        
+        # Create and set angular vector
+        msg.angular = Vector3()
+        msg.angular.x = 0.0
+        msg.angular.y = 0.0
+        msg.angular.z = float(angular_z)
+        
+        return msg
         
     def _read_keyboard(self):
         """Read keyboard input in terminal mode"""
@@ -75,23 +78,27 @@ class KeyboardController(Node):
                         self.get_logger().info('Quit command received')
                         self.running = False
                         break
-                        
-                    msg = Twist()
+                    
+                    # Initialize velocities
+                    linear_x = 0.0
+                    angular_z = 0.0
                     
                     # Set velocities based on key
                     if key.lower() == 'w':
-                        msg.linear.x = self.linear_speed
-                        self.get_logger().debug('Forward')
+                        linear_x = self.linear_speed
+                        self.get_logger().info('Forward')
                     elif key.lower() == 's':
-                        msg.linear.x = -self.linear_speed
-                        self.get_logger().debug('Backward')
+                        linear_x = -self.linear_speed
+                        self.get_logger().info('Backward')
                     elif key.lower() == 'a':
-                        msg.angular.z = self.angular_speed
-                        self.get_logger().debug('Left')
+                        angular_z = self.angular_speed
+                        self.get_logger().info('Left')
                     elif key.lower() == 'd':
-                        msg.angular.z = -self.angular_speed
-                        self.get_logger().debug('Right')
-                        
+                        angular_z = -self.angular_speed
+                        self.get_logger().info('Right')
+                    
+                    # Create and publish message
+                    msg = self.create_twist_message(linear_x, angular_z)
                     self.publisher.publish(msg)
                     
         except Exception as e:

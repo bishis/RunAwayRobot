@@ -213,3 +213,54 @@ class PathPlanner:
         )
         
         return direct_distance / path_length if path_length > 0 else 0.0 
+
+    def find_alternative_path(self, current_pos, target_pos):
+        """Find alternative path when obstacle detected."""
+        if self.map_data is None or self.map_info is None:
+            print("No map data available for alternative path")
+            return None
+        
+        try:
+            # First try to find a direct path with Monte Carlo
+            path = self.find_path(current_pos, target_pos)
+            if path and len(path) > 1:
+                # Return the next point in the path as our next waypoint
+                return Point(x=path[1][0], y=path[1][1], z=0.0)
+            
+            # If no path found, try finding a clear direction
+            search_radius = self.step_size * 2
+            best_point = None
+            best_score = float('-inf')
+            
+            # Sample points in a semi-circle ahead
+            for _ in range(self.num_samples // 2):
+                # Generate point in semi-circle facing target
+                base_angle = math.atan2(
+                    target_pos.y - current_pos.y,
+                    target_pos.x - current_pos.x
+                )
+                angle = base_angle + random.uniform(-math.pi/2, math.pi/2)
+                distance = random.uniform(self.step_size, search_radius)
+                
+                test_x = current_pos.x + distance * math.cos(angle)
+                test_y = current_pos.y + distance * math.sin(angle)
+                
+                if self.is_valid_point(test_x, test_y):
+                    # Score based on clearance and direction to target
+                    clearance = self._calculate_clearance(test_x, test_y)
+                    dx_target = target_pos.x - test_x
+                    dy_target = target_pos.y - test_y
+                    dist_to_target = math.sqrt(dx_target*dx_target + dy_target*dy_target)
+                    direction_score = 1.0 / (1.0 + dist_to_target)
+                    
+                    score = 0.6 * clearance + 0.4 * direction_score
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_point = Point(x=test_x, y=test_y, z=0.0)
+            
+            return best_point
+            
+        except Exception as e:
+            print(f"Error finding alternative path: {str(e)}")
+            return None 

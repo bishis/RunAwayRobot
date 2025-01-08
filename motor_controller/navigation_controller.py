@@ -178,25 +178,20 @@ class NavigationController(Node):
         # Check if we need to generate new waypoints
         if not self.waypoints or self.current_waypoint_index >= len(self.waypoints):
             self.get_logger().info('Generating new set of waypoints')
-            # Save the last position as the new starting point
             self.waypoints = self.generate_waypoints()
             self.current_waypoint_index = 0
             if not self.waypoints:
                 self.get_logger().warn('Failed to generate new waypoints')
                 return
-            self.get_logger().info(f'Generated {len(self.waypoints)} new waypoints')
             return
 
         current_target = self.waypoints[self.current_waypoint_index]
         
-        # Check for obstacles in path
+        # Check if path is blocked
         is_blocked = self.check_path_to_target(current_target)
         
         if is_blocked:
             self.get_logger().info('Obstacle detected, finding alternative path')
-            # Update path planner's map
-            self.path_planner.update_map(self.map_data, self.map_info)
-            
             # Find alternative path
             alternative_point = self.path_planner.find_alternative_path(
                 self.current_pose.position,
@@ -208,7 +203,7 @@ class NavigationController(Node):
                     f'Found alternative path through ({alternative_point.x:.2f}, '
                     f'{alternative_point.y:.2f})'
                 )
-                # Calculate angle to alternative point
+                # Move towards alternative point
                 dx = alternative_point.x - self.current_pose.position.x
                 dy = alternative_point.y - self.current_pose.position.y
                 target_angle = math.atan2(dy, dx)
@@ -220,13 +215,11 @@ class NavigationController(Node):
                 while angle_diff < -math.pi: angle_diff += 2*math.pi
                 
                 if abs(angle_diff) > math.radians(20):
-                    # Turn towards alternative path
                     self.send_velocity_command(0.0, 1.0 if angle_diff > 0 else -1.0)
                 else:
-                    # Move towards alternative path
                     self.send_velocity_command(1.0, 0.0)
             else:
-                # No alternative found, back up and try again
+                # No alternative found, back up and rotate
                 self.get_logger().warn('No alternative path found, backing up')
                 self.send_velocity_command(-1.0, 0.0)
             return

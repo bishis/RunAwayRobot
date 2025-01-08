@@ -86,7 +86,7 @@ class NavigationController(Node):
         self.distance_traveled = 0.0
 
     def generate_waypoints(self, preferred_angle=None):
-        """Generate square wave waypoints starting from current position and orientation."""
+        """Generate unique waypoints with minimum spacing."""
         if not self.current_pose or not self.map_info:
             return []
         
@@ -102,22 +102,33 @@ class NavigationController(Node):
             pattern_rotation = random.uniform(-math.pi/4, math.pi/4)
             current_yaw += pattern_rotation
         
-        # Calculate forward and right vectors based on current orientation
+        # Calculate forward and right vectors
         forward_x = math.cos(current_yaw)
         forward_y = math.sin(current_yaw)
         right_x = math.cos(current_yaw + math.pi/2)
         right_y = math.sin(current_yaw + math.pi/2)
         
-        # Map boundaries with safety margin
+        # Map boundaries
         safety_margin = 0.3
         map_min_x = self.map_info.origin.position.x + safety_margin
         map_min_y = self.map_info.origin.position.y + safety_margin
         map_max_x = map_min_x + (self.map_info.width * self.map_info.resolution) - safety_margin
         map_max_y = map_min_y + (self.map_info.height * self.map_info.resolution) - safety_margin
         
-        # Generate waypoints in a tighter pattern
+        # Minimum distance between waypoints
+        min_waypoint_spacing = self.robot_radius * 3  # At least 3x robot radius apart
+        
+        def is_point_too_close(new_x, new_y, existing_points):
+            """Check if new point is too close to existing points."""
+            for point in existing_points:
+                dx = new_x - point.x
+                dy = new_y - point.y
+                if math.sqrt(dx*dx + dy*dy) < min_waypoint_spacing:
+                    return True
+            return False
+        
         attempts = 0
-        max_attempts = 20  # Prevent infinite loops
+        max_attempts = 30  # Increased max attempts
         
         while len(points) < self.num_waypoints and attempts < max_attempts:
             point = Point()
@@ -137,8 +148,9 @@ class NavigationController(Node):
             new_x = max(map_min_x, min(map_max_x, new_x))
             new_y = max(map_min_y, min(map_max_y, new_y))
             
-            # Only add point if it's in free space
-            if self.is_valid_point(new_x, new_y):
+            # Check if point is valid and not too close to existing points
+            if (self.is_valid_point(new_x, new_y) and 
+                not is_point_too_close(new_x, new_y, points)):
                 point.x = new_x
                 point.y = new_y
                 point.z = 0.0
@@ -150,13 +162,32 @@ class NavigationController(Node):
                 x, y = new_x, new_y
             else:
                 attempts += 1
-                self.get_logger().warn(f'Invalid waypoint at ({new_x:.2f}, {new_y:.2f}), attempt {attempts}')
-                # Try a different direction if point is invalid
-                current_yaw += math.pi/4  # Rotate 45 degrees
+                # Try adjusting the direction slightly
+                angle_adjustment = (attempts / max_attempts) * math.pi/2
+                current_yaw += angle_adjustment
                 forward_x = math.cos(current_yaw)
                 forward_y = math.sin(current_yaw)
                 right_x = math.cos(current_yaw + math.pi/2)
                 right_y = math.sin(current_yaw + math.pi/2)
+                
+                if attempts % 5 == 0:
+                    # Every 5 failed attempts, try reducing leg length
+                    self.leg_length *= 0.8
+            
+        # Reset leg length if it was modified
+        self.leg_length = self.get_parameter('leg_length').value
+        
+        # Verify all waypoints are unique and properly spaced
+        if points:
+            self.get_logger().info("\nWaypoint spacing verification:")
+            for i in range(len(points)):
+                for j in range(i + 1, len(points)):
+                    dx = points[i].x - points[j].x
+                    dy = points[i].y - points[j].y
+                    distance = math.sqrt(dx*dx + dy*dy)
+                    self.get_logger().info(
+                        f'Distance between waypoints {i} and {j}: {distance:.2f}m'
+                    )
         
         return points
 

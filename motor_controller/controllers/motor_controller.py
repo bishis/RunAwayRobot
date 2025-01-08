@@ -32,7 +32,7 @@ class MotorController:
         
     def forward(self, speed=None):
         """Move forward at specified speed."""
-        speed = speed or self.HALF_SPEED
+        speed = speed or self.FULL_SPEED
         self.motor_left.value = speed
         self.motor_right.value = speed
         

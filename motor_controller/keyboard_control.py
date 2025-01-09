@@ -33,9 +33,12 @@ class KeyboardController(Node):
                 self.get_logger().info('Running in terminal mode')
                 # Start keyboard reading thread
                 self.keyboard_thread = threading.Thread(target=self._read_keyboard)
-                self.movement_thread = threading.Thread(target=self._movement_loop)
                 self.keyboard_thread.start()
-                self.movement_thread.start()
+                
+                # Start motor control thread
+                self.motor_thread = threading.Thread(target=self._motor_control_loop)
+                self.motor_thread.start()
+                
                 self.get_logger().info('Keyboard controller started. Hold WASD to move, Q to quit')
             else:
                 self.get_logger().warn('Not running in terminal mode')
@@ -43,8 +46,8 @@ class KeyboardController(Node):
         except Exception as e:
             self.get_logger().error(f'Error in initialization: {str(e)}')
             
-    def _movement_loop(self):
-        """Continuous movement based on current key"""
+    def _motor_control_loop(self):
+        """Continuously control motors based on current key"""
         while self.running:
             if self.current_key:
                 if self.current_key == 'w':
@@ -58,7 +61,7 @@ class KeyboardController(Node):
             else:
                 self.motors.stop()
             
-            # Small sleep to prevent CPU overload
+            # Small delay to prevent CPU overuse
             time.sleep(0.01)
             
     def _read_keyboard(self):
@@ -91,11 +94,11 @@ class KeyboardController(Node):
                     # Update current key
                     if key.lower() in ['w', 'a', 's', 'd']:
                         self.current_key = key.lower()
-                        self.get_logger().info(f'{key.upper()} pressed')
+                        self.get_logger().info(f'Key pressed: {self.current_key}')
+                    else:
+                        self.current_key = None
                 else:
                     # No key being pressed
-                    if self.current_key:
-                        self.get_logger().info(f'{self.current_key.upper()} released')
                     self.current_key = None
                     
         except Exception as e:
@@ -123,12 +126,12 @@ class KeyboardController(Node):
                 self.get_logger().info('Keyboard thread joined successfully')
             except Exception as e:
                 self.get_logger().error(f'Error joining keyboard thread: {str(e)}')
-        if hasattr(self, 'movement_thread'):
+        if hasattr(self, 'motor_thread'):
             try:
-                self.movement_thread.join(timeout=1.0)
-                self.get_logger().info('Movement thread joined successfully')
+                self.motor_thread.join(timeout=1.0)
+                self.get_logger().info('Motor thread joined successfully')
             except Exception as e:
-                self.get_logger().error(f'Error joining movement thread: {str(e)}')
+                self.get_logger().error(f'Error joining motor thread: {str(e)}')
 
 def main(args=None):
     try:
@@ -146,7 +149,6 @@ def main(args=None):
         finally:
             print("Cleaning up")
             controller.running = False
-            controller.current_key = None
             if hasattr(controller, 'motors'):
                 controller.motors.stop()
             controller.destroy_node()

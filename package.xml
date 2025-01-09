@@ -31,4 +31,9 @@
   <!-- Add TurtleBot4 dependencies -->
   <depend>turtlebot4_navigation</depend>
   <depend>nav2_bringup</depend>
+
+  <!-- Add these dependencies -->
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>python3-opencv</depend>
 </package> 

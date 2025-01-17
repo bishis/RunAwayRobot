@@ -7,6 +7,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
+    nav2_dir = get_package_share_directory('nav2_bringup')
     
     return LaunchDescription([
         # Network setup
@@ -29,7 +30,7 @@ def generate_launch_description():
             }]
         ),
 
-        # SLAM Toolbox (using existing configuration)
+        # SLAM Toolbox
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(get_package_share_directory('slam_toolbox'),
@@ -38,6 +39,18 @@ def generate_launch_description():
             launch_arguments={
                 'use_sim_time': 'false',
                 'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
+            }.items()
+        ),
+
+        # Nav2
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource([
+                os.path.join(nav2_dir, 'launch', 'navigation_launch.py')
+            ]),
+            launch_arguments={
+                'use_sim_time': 'false',
+                'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
+                'map': os.path.join(pkg_dir, 'maps', 'map.yaml')
             }.items()
         ),
 

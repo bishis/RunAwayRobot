@@ -3,7 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from geometry_msgs.msg import Twist, Point, Vector3, PoseStamped
+from geometry_msgs.msg import Twist, Point, Vector3, PoseStamped, PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry, OccupancyGrid
 from sensor_msgs.msg import LaserScan
 from visualization_msgs.msg import Marker, MarkerArray
@@ -85,10 +85,55 @@ class NavigationController(Node):
         self.navigation_result = None
         self.is_navigating = False
 
+        # Add initial pose publisher
+        self.initial_pose_pub = self.create_publisher(
+            PoseWithCovarianceStamped,
+            'initialpose',
+            10
+        )
+
+        # Add lifecycle management
+        self.initial_pose_sent = False
+        self.nav2_initialized = False
+        self.create_timer(1.0, self.lifecycle_manager)
+
+    def lifecycle_manager(self):
+        """Manage Nav2 initialization and initial pose."""
+        if not self.initial_pose_sent and self.current_pose is not None:
+            self.publish_initial_pose()
+            self.initial_pose_sent = True
+            self.get_logger().info('Published initial pose')
+
+        # Wait for Nav2 to be ready
+        if not self.nav2_initialized:
+            if self.nav_to_pose_client.wait_for_server(timeout_sec=1.0):
+                self.nav2_initialized = True
+                self.get_logger().info('Nav2 is ready')
+            else:
+                self.get_logger().warn('Waiting for Nav2...')
+
+    def publish_initial_pose(self):
+        """Publish the initial pose to Nav2."""
+        msg = PoseWithCovarianceStamped()
+        msg.header.frame_id = 'map'
+        msg.header.stamp = self.get_clock().now().to_msg()
+        
+        # Use current odometry pose
+        msg.pose.pose = self.current_pose
+        
+        # Set a reasonable initial covariance
+        for i in range(36):
+            msg.pose.covariance[i] = 0.0
+        msg.pose.covariance[0] = 0.5  # x
+        msg.pose.covariance[7] = 0.5  # y
+        msg.pose.covariance[35] = 0.5 # yaw
+
+        self.initial_pose_pub.publish(msg)
+
     def navigate_to_pose(self, target_pose):
         """Send navigation goal to Nav2."""
-        if not self.nav_to_pose_client.wait_for_server(timeout_sec=1.0):
-            self.get_logger().warn('Navigation action server not available')
+        if not self.nav2_initialized:
+            self.get_logger().warn('Nav2 not initialized yet')
             return False
 
         goal_msg = NavigateToPose.Goal()
@@ -96,18 +141,28 @@ class NavigationController(Node):
         goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
         goal_msg.pose.pose.position.x = target_pose.x
         goal_msg.pose.pose.position.y = target_pose.y
-        goal_msg.pose.pose.orientation.w = 1.0
+        
+        # Add orientation towards goal
+        dx = target_pose.x - self.current_pose.position.x
+        dy = target_pose.y - self.current_pose.position.y
+        yaw = math.atan2(dy, dx)
+        goal_msg.pose.pose.orientation.z = math.sin(yaw/2.0)
+        goal_msg.pose.pose.orientation.w = math.cos(yaw/2.0)
 
         self.get_logger().info(f'Navigating to: ({target_pose.x:.2f}, {target_pose.y:.2f})')
         
         # Send goal and get future for result
-        self.current_goal_handle = self.nav_to_pose_client.send_goal_async(
-            goal_msg,
-            feedback_callback=self.navigation_feedback_callback
-        )
-        self.current_goal_handle.add_done_callback(self.navigation_response_callback)
-        self.is_navigating = True
-        return True
+        try:
+            self.current_goal_handle = self.nav_to_pose_client.send_goal_async(
+                goal_msg,
+                feedback_callback=self.navigation_feedback_callback
+            )
+            self.current_goal_handle.add_done_callback(self.navigation_response_callback)
+            self.is_navigating = True
+            return True
+        except Exception as e:
+            self.get_logger().error(f'Failed to send navigation goal: {str(e)}')
+            return False
 
     def navigation_response_callback(self, future):
         """Handle navigation goal response."""
@@ -142,7 +197,11 @@ class NavigationController(Node):
 
     def control_loop(self):
         """Main control loop using Nav2 for navigation."""
-        if not self.current_pose or not self.map_data is not None:
+        if not self.current_pose or self.map_data is None:
+            return
+
+        if not self.nav2_initialized:
+            self.get_logger().warn_throttle(5, 'Waiting for Nav2 to initialize...')
             return
 
         self.publish_waypoints()
@@ -164,6 +223,8 @@ class NavigationController(Node):
                 current_target = self.waypoints[self.current_waypoint_index]
                 if self.navigate_to_pose(current_target):
                     self.state = RobotState.NAVIGATING
+                else:
+                    self.get_logger().error('Failed to start navigation')
         
         elif self.state == RobotState.NAVIGATING:
             # Nav2 handles the navigation

@@ -6,7 +6,7 @@ from rclpy.action import ActionClient
 from nav2_msgs.action import NavigateToPose, ComputePathToPose
 from nav_msgs.msg import OccupancyGrid, Path, Odometry
 from sensor_msgs.msg import LaserScan
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Point, Vector3
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Point, Vector3, Twist
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 from lifecycle_msgs.srv import GetState
@@ -57,11 +57,13 @@ class NavigationController(Node):
             PoseWithCovarianceStamped, 'initialpose', 10)
         self.waypoint_pub = self.create_publisher(
             MarkerArray, 'waypoint_markers', 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
         
         # Subscribers
         self.create_subscription(Odometry, 'odom', self.odom_callback, 10)
         self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
+        self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
         
         # Timer for checking Nav2 state
         self.create_timer(1.0, self.check_nav2_servers_ready)
@@ -384,6 +386,12 @@ class NavigationController(Node):
                         if self.map_data[check_y, check_x] > 50:  # Occupied
                             return False
         return True
+
+    def cmd_vel_callback(self, msg):
+        """Forward velocity commands from Nav2 to the motors."""
+        # Republish the velocity command to the motors
+        self.cmd_vel_pub.publish(msg)
+        self.get_logger().debug(f'Forwarding velocity command: linear={msg.linear.x:.2f}, angular={msg.angular.z:.2f}')
 
 def main(args=None):
     rclpy.init(args=args)

@@ -58,13 +58,13 @@ class NavigationController(Node):
             PoseWithCovarianceStamped, 'initialpose', 10)
         self.waypoint_pub = self.create_publisher(
             MarkerArray, 'waypoint_markers', 10)
-        self.cmd_vel_pub = self.create_publisher(Twist, '/motor_controller/cmd_vel', 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
         
         # Subscribers
         self.create_subscription(Odometry, 'odom', self.odom_callback, 10)
         self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
-        self.create_subscription(Twist, '/nav2/cmd_vel', self.cmd_vel_callback, 10)
+        self.create_subscription(Twist, 'cmd_vel_nav', self.cmd_vel_callback, 10)
         
         # Timers
         self.create_timer(1.0, self.check_nav2_servers_ready)
@@ -411,9 +411,16 @@ class NavigationController(Node):
             motor_cmd.linear.x = msg.linear.x
             motor_cmd.angular.z = msg.angular.z
             
+            # Add more detailed logging
+            self.get_logger().info(
+                f'Forwarding velocity command to Pi - '
+                f'linear: {motor_cmd.linear.x:.2f} m/s, '
+                f'angular: {motor_cmd.angular.z:.2f} rad/s'
+            )
+            
             # Publish command to motors
             self.cmd_vel_pub.publish(motor_cmd)
-            self.get_logger().debug(f'Forwarding velocity command: linear={motor_cmd.linear.x:.2f}, angular={motor_cmd.angular.z:.2f}')
+            
         except Exception as e:
             self.get_logger().error(f'Error forwarding velocity command: {str(e)}')
 

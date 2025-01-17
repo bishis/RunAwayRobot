@@ -7,6 +7,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
+    nav2_dir = get_package_share_directory('nav2_bringup')
     
     return LaunchDescription([
         # Network setup
@@ -29,7 +30,7 @@ def generate_launch_description():
             }]
         ),
 
-        # SLAM Toolbox (using existing configuration)
+        # SLAM Toolbox
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(get_package_share_directory('slam_toolbox'),
@@ -41,26 +42,24 @@ def generate_launch_description():
             }.items()
         ),
 
-        # Navigation Controller
-        Node(
-            package='motor_controller',
-            executable='navigation_controller',
-            name='navigation_controller',
-            parameters=[{
-                'use_sim_time': False,
-                'waypoint_threshold': 0.2,
-                'leg_length': 0.5,
-                'safety_radius': 0.25,
-                'num_waypoints': 8,
-                'robot.radius': 0.17
-            }]
+        # Nav2 Stack
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource([
+                os.path.join(nav2_dir, 'launch', 'navigation_launch.py')
+            ]),
+            launch_arguments={
+                'use_sim_time': 'false',
+                'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
+                'use_composition': 'True',
+                'use_respawn': 'True',
+            }.items()
         ),
 
-        # RViz2 for visualization
+        # RViz2 for visualization with nav2 config
         Node(
             package='rviz2',
             executable='rviz2',
             name='rviz2',
-            arguments=['-d', os.path.join(pkg_dir, 'config', 'slam_view.rviz')]
+            arguments=['-d', os.path.join(pkg_dir, 'config', 'nav2_view.rviz')]
         )
     ]) 

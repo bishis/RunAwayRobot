@@ -3,103 +3,64 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from geometry_msgs.msg import Twist, Point, Vector3, PoseStamped, PoseWithCovarianceStamped
-from nav_msgs.msg import Odometry, OccupancyGrid, Path
+from nav2_msgs.action import NavigateToPose, ComputePathToPose
+from nav_msgs.msg import OccupancyGrid, Path, Odometry
 from sensor_msgs.msg import LaserScan
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Point, Vector3
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
-from nav2_msgs.action import NavigateToPose, ComputePathToPose
 from lifecycle_msgs.srv import GetState
-from std_srvs.srv import Trigger
-import math
-from enum import Enum
-import random
 import numpy as np
-from .processors.waypoint_generator import WaypointGenerator
+from enum import Enum, auto
+import math
+import time
 
 class RobotState(Enum):
-    INITIALIZING = 0
-    WAITING_FOR_NAV2 = 1
-    NAVIGATING = 2
-    STOPPED = 3
-    PLANNING = 4
+    INITIALIZING = auto()
+    WAITING_FOR_NAV2 = auto()
+    IDLE = auto()
+    PLANNING = auto()
+    NAVIGATING = auto()
+    RECOVERY = auto()
 
 class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
-        # Robot physical parameters
-        self.declare_parameter('robot.radius', 0.17)
-        self.declare_parameter('robot.safety_margin', 0.10)
-        self.declare_parameter('waypoint_threshold', 0.2)
-        self.declare_parameter('leg_length', 0.5)
-        self.declare_parameter('num_waypoints', 8)
+        # Parameters
+        self.robot_radius = 0.22  # meters
+        self.safety_margin = 0.1  # meters
+        self.nav2_timeout = 10.0  # seconds
         
-        # Get parameters
-        self.robot_radius = self.get_parameter('robot.radius').value
-        self.safety_margin = self.get_parameter('robot.safety_margin').value
-        self.safety_radius = self.robot_radius + self.safety_margin
-        self.waypoint_threshold = self.get_parameter('waypoint_threshold').value
-        self.leg_length = self.get_parameter('leg_length').value
-        self.num_waypoints = self.get_parameter('num_waypoints').value
-        
-        # Robot state
+        # State variables
         self.state = RobotState.INITIALIZING
         self.current_pose = None
         self.latest_scan = None
-        self.current_waypoint_index = 0
+        self.map_data = None
+        self.map_info = None
         self.waypoints = []
-        self.current_path = None
-        
-        # Publishers
-        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
-        self.waypoint_pub = self.create_publisher(MarkerArray, 'waypoints', 10)
-        self.initial_pose_pub = self.create_publisher(
-            PoseWithCovarianceStamped, 'initialpose', 10)
-        
-        # Subscribers
-        self.create_subscription(Odometry, 'odom_rf2o', self.odom_callback, 10)
-        self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
-        self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
-        self.create_subscription(Path, '/plan', self.path_callback, 10)
+        self.current_waypoint_index = 0
+        self.initial_pose_sent = False
         
         # Nav2 Action Clients
         self.nav_to_pose_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self.compute_path_client = ActionClient(self, ComputePathToPose, 'compute_path_to_pose')
         
-        # Nav2 Service Clients
-        self.nav_through_poses_client = None
-        self.clear_costmap_global_client = self.create_client(Trigger, 'clear_global_costmap')
-        self.clear_costmap_local_client = self.create_client(Trigger, 'clear_local_costmap')
+        # Publishers
+        self.initial_pose_pub = self.create_publisher(
+            PoseWithCovarianceStamped, 'initialpose', 10)
+        self.waypoint_pub = self.create_publisher(
+            MarkerArray, 'waypoint_markers', 10)
         
-        # Lifecycle Service Clients
-        self.get_state_client = {}
-        for server in ['amcl', 'controller_server', 'planner_server', 'bt_navigator']:
-            self.get_state_client[server] = self.create_client(
-                GetState, f'/{server}/get_state')
+        # Subscribers
+        self.create_subscription(Odometry, 'odom', self.odom_callback, 10)
+        self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
+        self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
         
-        # Map data
-        self.map_data = None
-        self.map_info = None
+        # Timer for checking Nav2 state
+        self.create_timer(1.0, self.check_nav2_servers)
         
-        # Navigation tracking
-        self.current_goal_handle = None
-        self.is_navigating = False
-        self.nav2_initialized = False
-        self.initial_pose_sent = False
-        
-        # Timers
-        self.create_timer(1.0, self.lifecycle_manager)
-        self.create_timer(0.1, self.control_loop)
-        
-        # Waypoint generator
-        self.waypoint_generator = WaypointGenerator(
-            robot_radius=self.robot_radius,
-            safety_margin=self.safety_margin,
-            num_waypoints=self.num_waypoints
-        )
-        
-        self.get_logger().info('Navigation controller initialized')
+        self.get_logger().info('Navigation Controller initialized')
 
     def lifecycle_manager(self):
         """Manage Nav2 initialization and lifecycle."""

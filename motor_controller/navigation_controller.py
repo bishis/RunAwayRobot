@@ -13,6 +13,7 @@ from lifecycle_msgs.srv import GetState
 import math
 from enum import Enum
 import numpy as np
+from .processors.waypoint_generator import WaypointGenerator
 
 class RobotState(Enum):
     INITIALIZING = 1
@@ -50,6 +51,13 @@ class NavigationController(Node):
         self.current_waypoint_index = 0
         self.initial_pose_sent = False
         
+        # Initialize waypoint generator
+        self.waypoint_generator = WaypointGenerator(
+            robot_radius=self.robot_radius,
+            safety_margin=self.safety_margin,
+            num_waypoints=self.num_waypoints
+        )
+        
         # Nav2 Action Clients
         self.nav_to_pose_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self.compute_path_client = ActionClient(self, ComputePathToPose, 'compute_path_to_pose')
@@ -71,11 +79,30 @@ class NavigationController(Node):
         self.create_subscription(Odometry, 'odom_rf2o', self.odom_callback, 10)
         self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
+        self.create_subscription(Twist, '/cmd_vel_nav', self.cmd_vel_callback, 10)  # Subscribe to Nav2's velocity commands
         
         # Timer
         self.create_timer(0.1, self.control_loop)
         
         self.get_logger().info('Navigation controller initialized')
+
+    def cmd_vel_callback(self, msg):
+        """Forward velocity commands from Nav2 to the motors."""
+        try:
+            # Create new Twist message for motors
+            motor_cmd = Twist()
+            motor_cmd.linear.x = msg.linear.x
+            motor_cmd.angular.z = msg.angular.z
+            
+            # Add detailed logging
+            self.get_logger().info(
+                f'Forwarding velocity command: linear={motor_cmd.linear.x:.2f}, angular={motor_cmd.angular.z:.2f}'
+            )
+            
+            # Publish command to motors
+            self.cmd_vel_pub.publish(motor_cmd)
+        except Exception as e:
+            self.get_logger().error(f'Error forwarding velocity command: {str(e)}')
 
     def publish_initial_pose(self):
         """Publish the initial pose to Nav2."""

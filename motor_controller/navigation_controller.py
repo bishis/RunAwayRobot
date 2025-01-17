@@ -4,13 +4,13 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from geometry_msgs.msg import Twist, Point, Vector3, PoseStamped, PoseWithCovarianceStamped
-from nav_msgs.msg import Odometry, OccupancyGrid
+from nav_msgs.msg import Odometry, OccupancyGrid, Path
 from sensor_msgs.msg import LaserScan
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
-from nav2_msgs.action import NavigateToPose
-from nav2_msgs.msg import SpeedLimit
-from rclpy.duration import Duration
+from nav2_msgs.action import NavigateToPose, ComputePathToPose
+from lifecycle_msgs.srv import GetState
+from std_srvs.srv import Trigger
 import math
 from enum import Enum
 import random
@@ -18,20 +18,19 @@ import numpy as np
 from .processors.waypoint_generator import WaypointGenerator
 
 class RobotState(Enum):
-    NAVIGATING = 1
-    ROTATING = 2
+    INITIALIZING = 0
+    WAITING_FOR_NAV2 = 1
+    NAVIGATING = 2
     STOPPED = 3
-    WAITING = 4
+    PLANNING = 4
 
 class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
         # Robot physical parameters
-        self.declare_parameter('robot.radius', 0.17)  # 17cm robot radius
-        self.declare_parameter('robot.safety_margin', 0.10)  # 10cm additional safety margin
-        
-        # Navigation parameters
+        self.declare_parameter('robot.radius', 0.17)
+        self.declare_parameter('robot.safety_margin', 0.10)
         self.declare_parameter('waypoint_threshold', 0.2)
         self.declare_parameter('leg_length', 0.5)
         self.declare_parameter('num_waypoints', 8)
@@ -45,90 +44,152 @@ class NavigationController(Node):
         self.num_waypoints = self.get_parameter('num_waypoints').value
         
         # Robot state
-        self.state = RobotState.STOPPED
+        self.state = RobotState.INITIALIZING
         self.current_pose = None
         self.latest_scan = None
         self.current_waypoint_index = 0
         self.waypoints = []
-        self.initial_pose_received = False
+        self.current_path = None
         
         # Publishers
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
         self.waypoint_pub = self.create_publisher(MarkerArray, 'waypoints', 10)
+        self.initial_pose_pub = self.create_publisher(
+            PoseWithCovarianceStamped, 'initialpose', 10)
         
         # Subscribers
         self.create_subscription(Odometry, 'odom_rf2o', self.odom_callback, 10)
         self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
+        self.create_subscription(Path, '/plan', self.path_callback, 10)
         
-        # Nav2 Action Client
+        # Nav2 Action Clients
         self.nav_to_pose_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        self.compute_path_client = ActionClient(self, ComputePathToPose, 'compute_path_to_pose')
         
-        # Timer
-        self.create_timer(0.1, self.control_loop)
+        # Nav2 Service Clients
+        self.nav_through_poses_client = None
+        self.clear_costmap_global_client = self.create_client(Trigger, 'clear_global_costmap')
+        self.clear_costmap_local_client = self.create_client(Trigger, 'clear_local_costmap')
         
-        self.get_logger().info('Navigation controller initialized')
+        # Lifecycle Service Clients
+        self.get_state_client = {}
+        for server in ['amcl', 'controller_server', 'planner_server', 'bt_navigator']:
+            self.get_state_client[server] = self.create_client(
+                GetState, f'/{server}/get_state')
         
         # Map data
         self.map_data = None
         self.map_info = None
         
-        # Add waypoint generator
+        # Navigation tracking
+        self.current_goal_handle = None
+        self.is_navigating = False
+        self.nav2_initialized = False
+        self.initial_pose_sent = False
+        
+        # Timers
+        self.create_timer(1.0, self.lifecycle_manager)
+        self.create_timer(0.1, self.control_loop)
+        
+        # Waypoint generator
         self.waypoint_generator = WaypointGenerator(
             robot_radius=self.robot_radius,
             safety_margin=self.safety_margin,
             num_waypoints=self.num_waypoints
         )
         
-        # Navigation goal tracking
-        self.current_goal_handle = None
-        self.navigation_result = None
-        self.is_navigating = False
-
-        # Add initial pose publisher
-        self.initial_pose_pub = self.create_publisher(
-            PoseWithCovarianceStamped,
-            'initialpose',
-            10
-        )
-
-        # Add lifecycle management
-        self.initial_pose_sent = False
-        self.nav2_initialized = False
-        self.create_timer(1.0, self.lifecycle_manager)
+        self.get_logger().info('Navigation controller initialized')
 
     def lifecycle_manager(self):
-        """Manage Nav2 initialization and initial pose."""
-        if not self.initial_pose_sent and self.current_pose is not None:
-            self.publish_initial_pose()
-            self.initial_pose_sent = True
-            self.get_logger().info('Published initial pose')
-
-        # Wait for Nav2 to be ready
-        if not self.nav2_initialized:
-            if self.nav_to_pose_client.wait_for_server(timeout_sec=1.0):
+        """Manage Nav2 initialization and lifecycle."""
+        if self.state == RobotState.INITIALIZING:
+            if self.current_pose is not None and not self.initial_pose_sent:
+                self.publish_initial_pose()
+                self.initial_pose_sent = True
+                self.state = RobotState.WAITING_FOR_NAV2
+                return
+                
+        elif self.state == RobotState.WAITING_FOR_NAV2:
+            if self.check_nav2_servers_ready():
                 self.nav2_initialized = True
+                self.state = RobotState.PLANNING
                 self.get_logger().info('Nav2 is ready')
-            else:
-                self.get_logger().warn('Waiting for Nav2...')
+                return
+            self.get_logger().warn('Waiting for Nav2 servers...')
+
+    def check_nav2_servers_ready(self):
+        """Check if all Nav2 servers are active."""
+        if not all(self.get_state_client.values()):
+            return False
+            
+        for server, client in self.get_state_client.items():
+            if not client.wait_for_service(timeout_sec=1.0):
+                self.get_logger().warn(f'{server} state service not available')
+                return False
+                
+            future = client.call_async(GetState.Request())
+            rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
+            
+            if future.result() is None or future.result().current_state.id != 3:
+                self.get_logger().warn(f'{server} not active')
+                return False
+                
+        return True
 
     def publish_initial_pose(self):
         """Publish the initial pose to Nav2."""
         msg = PoseWithCovarianceStamped()
         msg.header.frame_id = 'map'
         msg.header.stamp = self.get_clock().now().to_msg()
-        
-        # Use current odometry pose
         msg.pose.pose = self.current_pose
         
-        # Set a reasonable initial covariance
+        # Set initial covariance
         for i in range(36):
             msg.pose.covariance[i] = 0.0
-        msg.pose.covariance[0] = 0.5  # x
-        msg.pose.covariance[7] = 0.5  # y
-        msg.pose.covariance[35] = 0.5 # yaw
+        msg.pose.covariance[0] = 0.5   # x
+        msg.pose.covariance[7] = 0.5   # y
+        msg.pose.covariance[35] = 0.5  # yaw
 
         self.initial_pose_pub.publish(msg)
+        self.get_logger().info('Published initial pose')
+
+    def compute_path_to_pose(self, target_pose):
+        """Request a path plan from Nav2."""
+        if not self.nav2_initialized:
+            return None
+
+        goal_msg = ComputePathToPose.Goal()
+        goal_msg.goal = PoseStamped()
+        goal_msg.goal.header.frame_id = 'map'
+        goal_msg.goal.header.stamp = self.get_clock().now().to_msg()
+        goal_msg.goal.pose.position.x = target_pose.x
+        goal_msg.goal.pose.position.y = target_pose.y
+        
+        # Calculate goal orientation
+        dx = target_pose.x - self.current_pose.position.x
+        dy = target_pose.y - self.current_pose.position.y
+        yaw = math.atan2(dy, dx)
+        goal_msg.goal.pose.orientation.z = math.sin(yaw/2.0)
+        goal_msg.goal.pose.orientation.w = math.cos(yaw/2.0)
+
+        future = self.compute_path_client.send_goal_async(goal_msg)
+        rclpy.spin_until_future_complete(self, future)
+        goal_handle = future.result()
+        
+        if not goal_handle.accepted:
+            self.get_logger().error('Path computation rejected')
+            return None
+            
+        result_future = goal_handle.get_result_async()
+        rclpy.spin_until_future_complete(self, result_future)
+        result = result_future.result()
+        
+        if result.status != 0:  # NavigationResult.STATUS_SUCCEEDED
+            self.get_logger().error('Path computation failed')
+            return None
+            
+        return result.result.path
 
     def navigate_to_pose(self, target_pose):
         """Send navigation goal to Nav2."""
@@ -136,22 +197,26 @@ class NavigationController(Node):
             self.get_logger().warn('Nav2 not initialized yet')
             return False
 
+        # First compute path
+        path = self.compute_path_to_pose(target_pose)
+        if path is None:
+            self.get_logger().error('Failed to compute path')
+            return False
+
+        # If path is valid, send navigation goal
         goal_msg = NavigateToPose.Goal()
         goal_msg.pose.header.frame_id = 'map'
         goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
         goal_msg.pose.pose.position.x = target_pose.x
         goal_msg.pose.pose.position.y = target_pose.y
         
-        # Add orientation towards goal
+        # Set orientation towards goal
         dx = target_pose.x - self.current_pose.position.x
         dy = target_pose.y - self.current_pose.position.y
         yaw = math.atan2(dy, dx)
         goal_msg.pose.pose.orientation.z = math.sin(yaw/2.0)
         goal_msg.pose.pose.orientation.w = math.cos(yaw/2.0)
 
-        self.get_logger().info(f'Navigating to: ({target_pose.x:.2f}, {target_pose.y:.2f})')
-        
-        # Send goal and get future for result
         try:
             self.current_goal_handle = self.nav_to_pose_client.send_goal_async(
                 goal_msg,
@@ -159,10 +224,45 @@ class NavigationController(Node):
             )
             self.current_goal_handle.add_done_callback(self.navigation_response_callback)
             self.is_navigating = True
+            self.state = RobotState.NAVIGATING
             return True
         except Exception as e:
             self.get_logger().error(f'Failed to send navigation goal: {str(e)}')
             return False
+
+    def path_callback(self, msg):
+        """Handle planned path updates."""
+        self.current_path = msg
+        self.get_logger().debug('Received new path plan')
+
+    def control_loop(self):
+        """Main control loop using Nav2 for navigation."""
+        if not self.current_pose or self.map_data is None:
+            return
+
+        if self.state == RobotState.INITIALIZING or self.state == RobotState.WAITING_FOR_NAV2:
+            return
+
+        self.publish_waypoints()
+
+        if self.state == RobotState.PLANNING:
+            if not self.waypoints or self.current_waypoint_index >= len(self.waypoints):
+                self.get_logger().info('Generating new waypoints')
+                self.waypoints = self.generate_waypoints()
+                self.current_waypoint_index = 0
+                if not self.waypoints:
+                    self.get_logger().warn('Failed to generate waypoints')
+                    return
+            
+            current_target = self.waypoints[self.current_waypoint_index]
+            if self.navigate_to_pose(current_target):
+                self.state = RobotState.NAVIGATING
+            else:
+                self.get_logger().error('Failed to start navigation')
+
+        elif self.state == RobotState.NAVIGATING:
+            # Nav2 handles the navigation
+            pass
 
     def navigation_response_callback(self, future):
         """Handle navigation goal response."""
@@ -170,6 +270,7 @@ class NavigationController(Node):
         if not goal_handle.accepted:
             self.get_logger().warn('Navigation goal rejected')
             self.is_navigating = False
+            self.state = RobotState.PLANNING
             return
 
         self.get_logger().info('Navigation goal accepted')
@@ -178,189 +279,23 @@ class NavigationController(Node):
 
     def navigation_result_callback(self, future):
         """Handle navigation result."""
-        self.navigation_result = future.result().result
-        self.is_navigating = False
-        self.get_logger().info('Navigation completed')
-        
-        # Move to next waypoint
-        self.current_waypoint_index += 1
-        if self.current_waypoint_index >= len(self.waypoints):
-            self.get_logger().info('All waypoints visited')
-            self.state = RobotState.STOPPED
+        status = future.result().status
+        if status == 4:  # SUCCEEDED
+            self.get_logger().info('Navigation succeeded')
+            self.current_waypoint_index += 1
         else:
-            self.state = RobotState.WAITING
+            self.get_logger().warn(f'Navigation failed with status: {status}')
+            
+        self.is_navigating = False
+        self.state = RobotState.PLANNING
 
     def navigation_feedback_callback(self, feedback_msg):
         """Handle navigation feedback."""
         feedback = feedback_msg.feedback
         self.get_logger().debug(f'Distance remaining: {feedback.distance_remaining:.2f}m')
 
-    def control_loop(self):
-        """Main control loop using Nav2 for navigation."""
-        if not self.current_pose or self.map_data is None:
-            return
-
-        if not self.nav2_initialized:
-            self.get_logger().warn_throttle(5, 'Waiting for Nav2 to initialize...')
-            return
-
-        self.publish_waypoints()
-
-        # Check if we need to generate new waypoints
-        if not self.waypoints or self.current_waypoint_index >= len(self.waypoints):
-            self.get_logger().info('Generating new set of waypoints')
-            self.waypoints = self.generate_waypoints()
-            self.current_waypoint_index = 0
-            if not self.waypoints:
-                self.get_logger().warn('Failed to generate new waypoints')
-                return
-            self.state = RobotState.WAITING
-            return
-
-        # State machine for navigation
-        if self.state == RobotState.WAITING:
-            if not self.is_navigating:
-                current_target = self.waypoints[self.current_waypoint_index]
-                if self.navigate_to_pose(current_target):
-                    self.state = RobotState.NAVIGATING
-                else:
-                    self.get_logger().error('Failed to start navigation')
-        
-        elif self.state == RobotState.NAVIGATING:
-            # Nav2 handles the navigation
-            pass
-        
-        elif self.state == RobotState.STOPPED:
-            # Robot is stopped
-            pass
-
-    def stop_robot(self):
-        """Stop the robot and cancel any active navigation."""
-        if self.is_navigating and self.current_goal_handle is not None:
-            self.get_logger().info('Canceling current navigation goal')
-            self.current_goal_handle.cancel_goal_async()
-        self.send_velocity_command(0.0, 0.0)
-        self.state = RobotState.STOPPED
-
-    # Keep existing methods for waypoint generation and visualization
-    def generate_waypoints(self, preferred_angle=None):
-        return self.waypoint_generator.generate_waypoints(
-            self.current_pose,
-            self.map_data,
-            self.map_info,
-            self.is_valid_point,
-            self.map_to_world
-        )
-
-    def publish_waypoints(self):
-        if not self.waypoints:
-            self.get_logger().warn('No waypoints to publish')
-            return
-        
-        marker_array = MarkerArray()
-        
-        # All waypoints as red spheres
-        waypoint_marker = Marker()
-        waypoint_marker.header.frame_id = 'map'
-        waypoint_marker.header.stamp = self.get_clock().now().to_msg()
-        waypoint_marker.ns = 'waypoints'
-        waypoint_marker.id = 0
-        waypoint_marker.type = Marker.POINTS
-        waypoint_marker.action = Marker.ADD
-        waypoint_marker.pose.orientation.w = 1.0
-        waypoint_marker.scale = Vector3(x=0.1, y=0.1, z=0.1)
-        waypoint_marker.color = ColorRGBA(r=1.0, g=0.0, b=0.0, a=1.0)
-        
-        for point in self.waypoints:
-            waypoint_marker.points.append(point)
-        
-        marker_array.markers.append(waypoint_marker)
-        
-        # Current target as green sphere
-        if self.current_waypoint_index < len(self.waypoints):
-            target_marker = Marker()
-            target_marker.header.frame_id = 'map'
-            target_marker.header.stamp = self.get_clock().now().to_msg()
-            target_marker.ns = 'current_target'
-            target_marker.id = 1
-            target_marker.type = Marker.SPHERE
-            target_marker.action = Marker.ADD
-            target_marker.pose.position = self.waypoints[self.current_waypoint_index]
-            target_marker.pose.orientation.w = 1.0
-            target_marker.scale = Vector3(x=0.2, y=0.2, z=0.2)
-            target_marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0)
-            marker_array.markers.append(target_marker)
-        
-        self.waypoint_pub.publish(marker_array)
-
-    def scan_callback(self, msg):
-        self.latest_scan = msg
-
-    def odom_callback(self, msg):
-        self.current_pose = msg.pose.pose
-        
-        if not self.initial_pose_received and self.map_info is not None:
-            self.initial_pose_received = True
-            self.waypoints = self.generate_waypoints()
-
-    def map_callback(self, msg):
-        try:
-            self.map_data = np.array(msg.data).reshape((msg.info.height, msg.info.width))
-            self.map_info = msg.info
-            self.get_logger().debug('Map data updated')
-        except Exception as e:
-            self.get_logger().error(f'Error processing map data: {str(e)}')
-
-    def world_to_map(self, x, y):
-        """Convert world coordinates to map coordinates."""
-        if not self.map_info:
-            return None, None
-        mx = int((x - self.map_info.origin.position.x) / self.map_info.resolution)
-        my = int((y - self.map_info.origin.position.y) / self.map_info.resolution)
-        if 0 <= mx < self.map_info.width and 0 <= my < self.map_info.height:
-            return mx, my
-        return None, None
-        
-    def map_to_world(self, mx, my):
-        """Convert map coordinates to world coordinates."""
-        if not self.map_info:
-            return None, None
-        x = mx * self.map_info.resolution + self.map_info.origin.position.x
-        y = my * self.map_info.resolution + self.map_info.origin.position.y
-        return x, y
-
-    def is_valid_point(self, x, y):
-        """Check if point is valid considering robot size."""
-        mx, my = self.world_to_map(x, y)
-        if mx is None or my is None:
-            return False
-        
-        # Check area that covers entire robot plus safety margin
-        check_radius = int((self.robot_radius + self.safety_margin) / self.map_info.resolution)
-        
-        # Check circular area around point
-        for dx in range(-check_radius, check_radius + 1):
-            for dy in range(-check_radius, check_radius + 1):
-                # Only check points within circular radius
-                if dx*dx + dy*dy <= check_radius*check_radius:
-                    check_x = mx + dx
-                    check_y = my + dy
-                    if (0 <= check_x < self.map_info.width and 
-                        0 <= check_y < self.map_info.height):
-                        if self.map_data[check_y, check_x] > 50:  # Occupied
-                            return False
-        return True
-
-    def send_velocity_command(self, linear_x, angular_z):
-        cmd = Twist()
-        cmd.linear.x = linear_x
-        cmd.angular.z = angular_z
-        self.cmd_vel_pub.publish(cmd)
-
-    def get_yaw_from_quaternion(self, q):
-        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
-        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
-        return math.atan2(siny_cosp, cosy_cosp)
+    # Keep existing helper methods (generate_waypoints, publish_waypoints, etc.)
+    # ... rest of the existing code ...
 
 def main(args=None):
     rclpy.init(args=args)
@@ -371,7 +306,6 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
-        controller.stop_robot()
         controller.destroy_node()
         rclpy.shutdown()
 

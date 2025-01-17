@@ -98,98 +98,152 @@ class NavigationController(Node):
                 
         return True
 
+    def check_nav2_servers(self):
+        """Check if Nav2 servers are ready."""
+        if self.state == RobotState.INITIALIZING:
+            if self.current_pose is not None and not self.initial_pose_sent:
+                self.publish_initial_pose()
+                self.state = RobotState.WAITING_FOR_NAV2
+                return
+
+        if self.state == RobotState.WAITING_FOR_NAV2:
+            if self.nav_to_pose_client.wait_for_server(timeout_sec=1.0):
+                if self.compute_path_client.wait_for_server(timeout_sec=1.0):
+                    self.get_logger().info('Nav2 servers are ready')
+                    self.state = RobotState.IDLE
+            return
+
     def publish_initial_pose(self):
         """Publish the initial pose to Nav2."""
         msg = PoseWithCovarianceStamped()
         msg.header.frame_id = 'map'
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.pose.pose = self.current_pose
-        
-        # Set initial covariance
-        for i in range(36):
-            msg.pose.covariance[i] = 0.0
-        msg.pose.covariance[0] = 0.5   # x
-        msg.pose.covariance[7] = 0.5   # y
-        msg.pose.covariance[35] = 0.5  # yaw
-
+        msg.pose.covariance = [0.25, 0.0, 0.0, 0.0, 0.0, 0.0,
+                             0.0, 0.25, 0.0, 0.0, 0.0, 0.0,
+                             0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                             0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                             0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                             0.0, 0.0, 0.0, 0.0, 0.0, 0.06853891945200942]
         self.initial_pose_pub.publish(msg)
+        self.initial_pose_sent = True
         self.get_logger().info('Published initial pose')
 
-    def compute_path_to_pose(self, target_pose):
-        """Request a path plan from Nav2."""
-        if not self.nav2_initialized:
+    def compute_path_to_pose(self, goal_pose):
+        """Compute a path to the goal pose using Nav2."""
+        if self.state not in [RobotState.IDLE, RobotState.PLANNING]:
             return None
 
+        self.state = RobotState.PLANNING
         goal_msg = ComputePathToPose.Goal()
-        goal_msg.goal = PoseStamped()
-        goal_msg.goal.header.frame_id = 'map'
-        goal_msg.goal.header.stamp = self.get_clock().now().to_msg()
-        goal_msg.goal.pose.position.x = target_pose.x
-        goal_msg.goal.pose.position.y = target_pose.y
-        
-        # Calculate goal orientation
-        dx = target_pose.x - self.current_pose.position.x
-        dy = target_pose.y - self.current_pose.position.y
-        yaw = math.atan2(dy, dx)
-        goal_msg.goal.pose.orientation.z = math.sin(yaw/2.0)
-        goal_msg.goal.pose.orientation.w = math.cos(yaw/2.0)
+        goal_msg.goal = goal_pose
+        goal_msg.start = PoseStamped()
+        goal_msg.start.header.frame_id = 'map'
+        goal_msg.start.header.stamp = self.get_clock().now().to_msg()
+        goal_msg.start.pose = self.current_pose
 
+        self.get_logger().info('Computing path to goal')
         future = self.compute_path_client.send_goal_async(goal_msg)
         rclpy.spin_until_future_complete(self, future)
         goal_handle = future.result()
-        
+
         if not goal_handle.accepted:
             self.get_logger().error('Path computation rejected')
+            self.state = RobotState.IDLE
             return None
-            
+
         result_future = goal_handle.get_result_async()
         rclpy.spin_until_future_complete(self, result_future)
-        result = result_future.result()
-        
-        if result.status != 0:  # NavigationResult.STATUS_SUCCEEDED
-            self.get_logger().error('Path computation failed')
+        result = result_future.result().result
+
+        if not result.path.poses:
+            self.get_logger().error('No path found')
+            self.state = RobotState.IDLE
             return None
-            
-        return result.result.path
 
-    def navigate_to_pose(self, target_pose):
-        """Send navigation goal to Nav2."""
-        if not self.nav2_initialized:
-            self.get_logger().warn('Nav2 not initialized yet')
+        self.get_logger().info('Path computed successfully')
+        return result.path
+
+    def navigate_to_pose(self, goal_pose):
+        """Navigate to a goal pose using Nav2."""
+        if self.state not in [RobotState.IDLE, RobotState.PLANNING]:
+            self.get_logger().warn('Cannot start navigation in current state')
             return False
 
-        # First compute path
-        path = self.compute_path_to_pose(target_pose)
-        if path is None:
-            self.get_logger().error('Failed to compute path')
+        # First compute a path
+        path = self.compute_path_to_pose(goal_pose)
+        if not path:
             return False
 
-        # If path is valid, send navigation goal
+        # Send navigation goal
         goal_msg = NavigateToPose.Goal()
-        goal_msg.pose.header.frame_id = 'map'
-        goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
-        goal_msg.pose.pose.position.x = target_pose.x
-        goal_msg.pose.pose.position.y = target_pose.y
-        
-        # Set orientation towards goal
-        dx = target_pose.x - self.current_pose.position.x
-        dy = target_pose.y - self.current_pose.position.y
-        yaw = math.atan2(dy, dx)
-        goal_msg.pose.pose.orientation.z = math.sin(yaw/2.0)
-        goal_msg.pose.pose.orientation.w = math.cos(yaw/2.0)
+        goal_msg.pose = goal_pose
 
-        try:
-            self.current_goal_handle = self.nav_to_pose_client.send_goal_async(
-                goal_msg,
-                feedback_callback=self.navigation_feedback_callback
-            )
-            self.current_goal_handle.add_done_callback(self.navigation_response_callback)
-            self.is_navigating = True
-            self.state = RobotState.NAVIGATING
-            return True
-        except Exception as e:
-            self.get_logger().error(f'Failed to send navigation goal: {str(e)}')
+        self.get_logger().info('Sending navigation goal')
+        future = self.nav_to_pose_client.send_goal_async(
+            goal_msg,
+            feedback_callback=self.navigation_feedback_callback
+        )
+        rclpy.spin_until_future_complete(self, future)
+        goal_handle = future.result()
+
+        if not goal_handle.accepted:
+            self.get_logger().error('Navigation goal rejected')
+            self.state = RobotState.IDLE
             return False
+
+        self.state = RobotState.NAVIGATING
+        self._current_goal_handle = goal_handle
+
+        # Start monitoring the result
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(self.navigation_result_callback)
+        return True
+
+    def navigation_result_callback(self, future):
+        """Handle navigation result."""
+        result = future.result().result
+        if result.result == True:
+            self.get_logger().info('Navigation succeeded')
+            self.current_waypoint_index += 1
+            if self.current_waypoint_index < len(self.waypoints):
+                self.navigate_to_next_waypoint()
+            else:
+                self.get_logger().info('All waypoints reached')
+                self.state = RobotState.IDLE
+        else:
+            self.get_logger().error('Navigation failed')
+            self.state = RobotState.RECOVERY
+
+    def navigate_to_next_waypoint(self):
+        """Navigate to the next waypoint in the sequence."""
+        if not self.waypoints or self.current_waypoint_index >= len(self.waypoints):
+            self.get_logger().warn('No more waypoints to navigate to')
+            self.state = RobotState.IDLE
+            return
+
+        goal_pose = PoseStamped()
+        goal_pose.header.frame_id = 'map'
+        goal_pose.header.stamp = self.get_clock().now().to_msg()
+        goal_pose.pose.position = self.waypoints[self.current_waypoint_index]
+        
+        # Calculate orientation towards the next waypoint or final orientation
+        if self.current_waypoint_index < len(self.waypoints) - 1:
+            next_point = self.waypoints[self.current_waypoint_index + 1]
+            dx = next_point.x - goal_pose.pose.position.x
+            dy = next_point.y - goal_pose.pose.position.y
+            yaw = math.atan2(dy, dx)
+        else:
+            # Use current orientation for final waypoint
+            yaw = 0.0  # You might want to use a specific final orientation
+            
+        # Convert yaw to quaternion
+        goal_pose.pose.orientation.z = math.sin(yaw / 2.0)
+        goal_pose.pose.orientation.w = math.cos(yaw / 2.0)
+        
+        if not self.navigate_to_pose(goal_pose):
+            self.get_logger().error(f'Failed to start navigation to waypoint {self.current_waypoint_index}')
+            self.state = RobotState.RECOVERY
 
     def path_callback(self, msg):
         """Handle planned path updates."""
@@ -224,31 +278,6 @@ class NavigationController(Node):
         elif self.state == RobotState.NAVIGATING:
             # Nav2 handles the navigation
             pass
-
-    def navigation_response_callback(self, future):
-        """Handle navigation goal response."""
-        goal_handle = future.result()
-        if not goal_handle.accepted:
-            self.get_logger().warn('Navigation goal rejected')
-            self.is_navigating = False
-            self.state = RobotState.PLANNING
-            return
-
-        self.get_logger().info('Navigation goal accepted')
-        self._get_result_future = goal_handle.get_result_async()
-        self._get_result_future.add_done_callback(self.navigation_result_callback)
-
-    def navigation_result_callback(self, future):
-        """Handle navigation result."""
-        status = future.result().status
-        if status == 4:  # SUCCEEDED
-            self.get_logger().info('Navigation succeeded')
-            self.current_waypoint_index += 1
-        else:
-            self.get_logger().warn(f'Navigation failed with status: {status}')
-            
-        self.is_navigating = False
-        self.state = RobotState.PLANNING
 
     def navigation_feedback_callback(self, feedback_msg):
         """Handle navigation feedback."""

@@ -250,6 +250,46 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error processing map data: {str(e)}')
 
+    def world_to_map(self, x, y):
+        """Convert world coordinates to map coordinates."""
+        if not self.map_info:
+            return None, None
+        mx = int((x - self.map_info.origin.position.x) / self.map_info.resolution)
+        my = int((y - self.map_info.origin.position.y) / self.map_info.resolution)
+        if 0 <= mx < self.map_info.width and 0 <= my < self.map_info.height:
+            return mx, my
+        return None, None
+        
+    def map_to_world(self, mx, my):
+        """Convert map coordinates to world coordinates."""
+        if not self.map_info:
+            return None, None
+        x = mx * self.map_info.resolution + self.map_info.origin.position.x
+        y = my * self.map_info.resolution + self.map_info.origin.position.y
+        return x, y
+
+    def is_valid_point(self, x, y):
+        """Check if point is valid considering robot size."""
+        mx, my = self.world_to_map(x, y)
+        if mx is None or my is None:
+            return False
+        
+        # Check area that covers entire robot plus safety margin
+        check_radius = int((self.robot_radius + self.safety_margin) / self.map_info.resolution)
+        
+        # Check circular area around point
+        for dx in range(-check_radius, check_radius + 1):
+            for dy in range(-check_radius, check_radius + 1):
+                # Only check points within circular radius
+                if dx*dx + dy*dy <= check_radius*check_radius:
+                    check_x = mx + dx
+                    check_y = my + dy
+                    if (0 <= check_x < self.map_info.width and 
+                        0 <= check_y < self.map_info.height):
+                        if self.map_data[check_y, check_x] > 50:  # Occupied
+                            return False
+        return True
+
     def send_velocity_command(self, linear_x, angular_z):
         cmd = Twist()
         cmd.linear.x = linear_x

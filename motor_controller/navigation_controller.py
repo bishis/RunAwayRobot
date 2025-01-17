@@ -294,8 +294,115 @@ class NavigationController(Node):
         feedback = feedback_msg.feedback
         self.get_logger().debug(f'Distance remaining: {feedback.distance_remaining:.2f}m')
 
-    # Keep existing helper methods (generate_waypoints, publish_waypoints, etc.)
-    # ... rest of the existing code ...
+    def scan_callback(self, msg):
+        """Handle LIDAR scan updates."""
+        self.latest_scan = msg
+
+    def odom_callback(self, msg):
+        """Handle odometry updates."""
+        self.current_pose = msg.pose.pose
+        if self.state == RobotState.INITIALIZING and not self.initial_pose_sent:
+            self.get_logger().info('Received initial odometry')
+
+    def map_callback(self, msg):
+        """Process incoming map data."""
+        try:
+            self.map_data = np.array(msg.data).reshape((msg.info.height, msg.info.width))
+            self.map_info = msg.info
+            self.get_logger().debug('Map data updated')
+        except Exception as e:
+            self.get_logger().error(f'Error processing map data: {str(e)}')
+
+    def generate_waypoints(self, preferred_angle=None):
+        """Generate waypoints using WaypointGenerator."""
+        return self.waypoint_generator.generate_waypoints(
+            self.current_pose,
+            self.map_data,
+            self.map_info,
+            self.is_valid_point,
+            self.map_to_world
+        )
+
+    def publish_waypoints(self):
+        """Publish waypoints for visualization."""
+        if not self.waypoints:
+            return
+
+        marker_array = MarkerArray()
+        
+        # All waypoints as red spheres
+        waypoint_marker = Marker()
+        waypoint_marker.header.frame_id = 'map'
+        waypoint_marker.header.stamp = self.get_clock().now().to_msg()
+        waypoint_marker.ns = 'waypoints'
+        waypoint_marker.id = 0
+        waypoint_marker.type = Marker.POINTS
+        waypoint_marker.action = Marker.ADD
+        waypoint_marker.pose.orientation.w = 1.0
+        waypoint_marker.scale = Vector3(x=0.1, y=0.1, z=0.1)
+        waypoint_marker.color = ColorRGBA(r=1.0, g=0.0, b=0.0, a=1.0)
+        
+        for point in self.waypoints:
+            waypoint_marker.points.append(point)
+        
+        marker_array.markers.append(waypoint_marker)
+        
+        # Current target as green sphere
+        if self.current_waypoint_index < len(self.waypoints):
+            target_marker = Marker()
+            target_marker.header.frame_id = 'map'
+            target_marker.header.stamp = self.get_clock().now().to_msg()
+            target_marker.ns = 'current_target'
+            target_marker.id = 1
+            target_marker.type = Marker.SPHERE
+            target_marker.action = Marker.ADD
+            target_marker.pose.position = self.waypoints[self.current_waypoint_index]
+            target_marker.pose.orientation.w = 1.0
+            target_marker.scale = Vector3(x=0.2, y=0.2, z=0.2)
+            target_marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0)
+            marker_array.markers.append(target_marker)
+        
+        self.waypoint_pub.publish(marker_array)
+
+    def world_to_map(self, x, y):
+        """Convert world coordinates to map coordinates."""
+        if not self.map_info:
+            return None, None
+        mx = int((x - self.map_info.origin.position.x) / self.map_info.resolution)
+        my = int((y - self.map_info.origin.position.y) / self.map_info.resolution)
+        if 0 <= mx < self.map_info.width and 0 <= my < self.map_info.height:
+            return mx, my
+        return None, None
+        
+    def map_to_world(self, mx, my):
+        """Convert map coordinates to world coordinates."""
+        if not self.map_info:
+            return None, None
+        x = mx * self.map_info.resolution + self.map_info.origin.position.x
+        y = my * self.map_info.resolution + self.map_info.origin.position.y
+        return x, y
+
+    def is_valid_point(self, x, y):
+        """Check if point is valid considering robot size."""
+        mx, my = self.world_to_map(x, y)
+        if mx is None or my is None:
+            return False
+        
+        # Check area that covers entire robot plus safety margin
+        check_radius = int((self.robot_radius + self.safety_margin) / self.map_info.resolution)
+        
+        # Check circular area around point
+        for dx in range(-check_radius, check_radius + 1):
+            for dy in range(-check_radius, check_radius + 1):
+                # Only check points within circular radius
+                if dx*dx + dy*dy <= check_radius*check_radius:
+                    check_x = mx + dx
+                    check_y = my + dy
+                    if (0 <= check_x < self.map_info.width and 
+                        0 <= check_y < self.map_info.height):
+                        if self.map_data[check_y, check_x] > 50:  # Occupied
+                            return False
+        return True
 
 def main(args=None):
     rclpy.init(args=args)

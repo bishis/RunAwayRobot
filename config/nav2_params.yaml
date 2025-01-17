@@ -203,7 +203,17 @@ planner_server:
     use_sim_time: False
 
     GridBased:
-      plugin: 'nav2_navfn_planner/NavfnPlanner'
+      plugin: 'nav2_smac_planner/SmacPlanner2D'
       tolerance: 0.5
-      use_astar: false
-      allow_unknown: true 
+      use_astar: true
+      allow_unknown: true
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+      max_planning_time: 5.0
+      motion_model_for_search: "MOORE"  # MOORE, VON_NEUMANN, DUBIN, REEDS_SHEPP
+      angle_quantization_bins: 72
+      minimum_turning_radius: 0.4
+      reverse_penalty: 2.1
+      change_penalty: 0.15
+      non_straight_penalty: 1.05
+      cost_penalty: 2.0 

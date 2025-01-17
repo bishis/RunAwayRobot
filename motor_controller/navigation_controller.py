@@ -41,6 +41,7 @@ class NavigationController(Node):
         self.waypoints = []
         self.current_waypoint_index = 0
         self.initial_pose_sent = False
+        self.last_cmd_vel_time = self.get_clock().now()
         
         # Nav2 Action Clients
         self.nav_to_pose_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -57,16 +58,17 @@ class NavigationController(Node):
             PoseWithCovarianceStamped, 'initialpose', 10)
         self.waypoint_pub = self.create_publisher(
             MarkerArray, 'waypoint_markers', 10)
-        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, '/motor_controller/cmd_vel', 10)
         
         # Subscribers
         self.create_subscription(Odometry, 'odom', self.odom_callback, 10)
         self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
-        self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
+        self.create_subscription(Twist, '/nav2/cmd_vel', self.cmd_vel_callback, 10)
         
-        # Timer for checking Nav2 state
+        # Timers
         self.create_timer(1.0, self.check_nav2_servers_ready)
+        self.create_timer(0.1, self.control_loop)
         
         self.get_logger().info('Navigation Controller initialized')
 
@@ -248,6 +250,17 @@ class NavigationController(Node):
         if not self.current_pose or self.map_data is None:
             return
 
+        # Check if we haven't received velocity commands for a while
+        time_since_last_cmd = self.get_clock().now() - self.last_cmd_vel_time
+        if time_since_last_cmd.nanoseconds > 500000000:  # 0.5 seconds
+            # Send stop command
+            stop_cmd = Twist()
+            stop_cmd.linear.x = 0.0
+            stop_cmd.angular.z = 0.0
+            self.cmd_vel_pub.publish(stop_cmd)
+            if self.state == RobotState.NAVIGATING:
+                self.get_logger().warn('No velocity commands received, stopping robot')
+
         if self.state == RobotState.INITIALIZING or self.state == RobotState.WAITING_FOR_NAV2:
             return
 
@@ -389,9 +402,20 @@ class NavigationController(Node):
 
     def cmd_vel_callback(self, msg):
         """Forward velocity commands from Nav2 to the motors."""
-        # Republish the velocity command to the motors
-        self.cmd_vel_pub.publish(msg)
-        self.get_logger().debug(f'Forwarding velocity command: linear={msg.linear.x:.2f}, angular={msg.angular.z:.2f}')
+        try:
+            # Update timestamp for command tracking
+            self.last_cmd_vel_time = self.get_clock().now()
+            
+            # Create new Twist message for motors
+            motor_cmd = Twist()
+            motor_cmd.linear.x = msg.linear.x
+            motor_cmd.angular.z = msg.angular.z
+            
+            # Publish command to motors
+            self.cmd_vel_pub.publish(motor_cmd)
+            self.get_logger().debug(f'Forwarding velocity command: linear={motor_cmd.linear.x:.2f}, angular={motor_cmd.angular.z:.2f}')
+        except Exception as e:
+            self.get_logger().error(f'Error forwarding velocity command: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)

@@ -46,6 +46,12 @@ class NavigationController(Node):
         self.nav_to_pose_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self.compute_path_client = ActionClient(self, ComputePathToPose, 'compute_path_to_pose')
         
+        # Nav2 Service Clients
+        self.get_state_client = {}
+        for server in ['amcl', 'controller_server', 'planner_server', 'bt_navigator']:
+            self.get_state_client[server] = self.create_client(
+                GetState, f'/{server}/get_state')
+        
         # Publishers
         self.initial_pose_pub = self.create_publisher(
             PoseWithCovarianceStamped, 'initialpose', 10)
@@ -58,7 +64,7 @@ class NavigationController(Node):
         self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
         
         # Timer for checking Nav2 state
-        self.create_timer(1.0, self.check_nav2_servers)
+        self.create_timer(1.0, self.check_nav2_servers_ready)
         
         self.get_logger().info('Navigation Controller initialized')
 
@@ -97,21 +103,6 @@ class NavigationController(Node):
                 return False
                 
         return True
-
-    def check_nav2_servers(self):
-        """Check if Nav2 servers are ready."""
-        if self.state == RobotState.INITIALIZING:
-            if self.current_pose is not None and not self.initial_pose_sent:
-                self.publish_initial_pose()
-                self.state = RobotState.WAITING_FOR_NAV2
-                return
-
-        if self.state == RobotState.WAITING_FOR_NAV2:
-            if self.nav_to_pose_client.wait_for_server(timeout_sec=1.0):
-                if self.compute_path_client.wait_for_server(timeout_sec=1.0):
-                    self.get_logger().info('Nav2 servers are ready')
-                    self.state = RobotState.IDLE
-            return
 
     def publish_initial_pose(self):
         """Publish the initial pose to Nav2."""

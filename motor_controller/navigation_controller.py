@@ -13,7 +13,6 @@ from lifecycle_msgs.srv import GetState
 import math
 from enum import Enum
 import numpy as np
-from .processors.waypoint_generator import WaypointGenerator
 
 class RobotState(Enum):
     INITIALIZING = 1
@@ -51,13 +50,6 @@ class NavigationController(Node):
         self.current_waypoint_index = 0
         self.initial_pose_sent = False
         
-        # Initialize waypoint generator
-        self.waypoint_generator = WaypointGenerator(
-            robot_radius=self.robot_radius,
-            safety_margin=self.safety_margin,
-            num_waypoints=self.num_waypoints
-        )
-        
         # Nav2 Action Clients
         self.nav_to_pose_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self.compute_path_client = ActionClient(self, ComputePathToPose, 'compute_path_to_pose')
@@ -79,30 +71,12 @@ class NavigationController(Node):
         self.create_subscription(Odometry, 'odom_rf2o', self.odom_callback, 10)
         self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
-        self.create_subscription(Twist, '/cmd_vel_nav', self.cmd_vel_callback, 10)  # Subscribe to Nav2's velocity commands
+        self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         
         # Timer
         self.create_timer(0.1, self.control_loop)
         
         self.get_logger().info('Navigation controller initialized')
-
-    def cmd_vel_callback(self, msg):
-        """Forward velocity commands from Nav2 to the motors."""
-        try:
-            # Create new Twist message for motors
-            motor_cmd = Twist()
-            motor_cmd.linear.x = msg.linear.x
-            motor_cmd.angular.z = msg.angular.z
-            
-            # Add detailed logging
-            self.get_logger().info(
-                f'Forwarding velocity command: linear={motor_cmd.linear.x:.2f}, angular={motor_cmd.angular.z:.2f}'
-            )
-            
-            # Publish command to motors
-            self.cmd_vel_pub.publish(motor_cmd)
-        except Exception as e:
-            self.get_logger().error(f'Error forwarding velocity command: {str(e)}')
 
     def publish_initial_pose(self):
         """Publish the initial pose to Nav2."""
@@ -123,9 +97,11 @@ class NavigationController(Node):
     def check_nav2_servers_ready(self):
         """Check if Nav2 servers are ready."""
         if not all(self.get_state_client.values()):
+            self.get_logger().warn('Not all Nav2 service clients are initialized')
             return False
             
         for server, client in self.get_state_client.items():
+            self.get_logger().info(f'Checking {server} server...')
             if not client.wait_for_service(timeout_sec=1.0):
                 self.get_logger().warn(f'{server} state service not available')
                 return False
@@ -133,10 +109,17 @@ class NavigationController(Node):
             future = client.call_async(GetState.Request())
             rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
             
-            if future.result() is None or future.result().current_state.id != 3:
-                self.get_logger().warn(f'{server} not active')
+            if future.result() is None:
+                self.get_logger().warn(f'{server} state check returned None')
+                return False
+            
+            state = future.result().current_state.id
+            self.get_logger().info(f'{server} state: {state}')
+            if state != 3:  # 3 is active state
+                self.get_logger().warn(f'{server} not active (state: {state})')
                 return False
                 
+        self.get_logger().info('All Nav2 servers are ready and active')
         return True
 
     def navigate_to_pose(self, goal_pose):

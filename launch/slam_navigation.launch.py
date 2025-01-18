@@ -107,7 +107,7 @@ def generate_launch_description():
             parameters=[configured_params]
         ),
 
-        # Start lifecycle manager after all nodes
+        # Start lifecycle manager first
         Node(
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
@@ -117,12 +117,12 @@ def generate_launch_description():
                 'use_sim_time': False,
                 'autostart': True,
                 'bond_timeout': 0.0,
-                'node_names': ['map_server',
+                'node_names': ['bt_navigator',  # Changed order to match startup
+                             'map_server',
                              'amcl',
                              'controller_server',
                              'planner_server',
-                             'behavior_server',
-                             'bt_navigator'],
+                             'behavior_server'],
                 'activate_lifecycle_nodes': True,
                 'manage_lifecycle_nodes': True,
                 'attempt_respawn_on_failure': True,
@@ -133,7 +133,7 @@ def generate_launch_description():
 
         # Add delay before starting navigation controller
         TimerAction(
-            period=30.0,
+            period=40.0,  # Increased delay to ensure Nav2 is fully initialized
             actions=[
                 Node(
                     package='motor_controller',

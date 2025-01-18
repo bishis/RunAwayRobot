@@ -389,10 +389,6 @@ class NavigationController(Node):
 
     def init_nav_client(self):
         """Initialize Nav2 action client with retry."""
-        # First check if bt_navigator node exists
-        from rclpy.node import Node
-        import subprocess
-        
         try:
             # Check if bt_navigator node is running
             result = subprocess.run(['ros2', 'node', 'list'], capture_output=True, text=True)
@@ -401,38 +397,52 @@ class NavigationController(Node):
                 self.get_logger().info('Available nodes: \n' + result.stdout)
                 return
                 
-            # Check if the service exists
-            result = subprocess.run(['ros2', 'service', 'list'], capture_output=True, text=True)
-            if '/bt_navigator/get_state' not in result.stdout:
-                self.get_logger().error('bt_navigator services not available!')
-                self.get_logger().info('Available services: \n' + result.stdout)
+            # Create service client to check state
+            state_client = self.create_client(GetState, '/bt_navigator/get_state')
+            if not state_client.wait_for_service(timeout_sec=1.0):
+                self.get_logger().warn('BT Navigator state service not available, waiting...')
                 return
                 
-            self.get_logger().info('bt_navigator node and services found')
+            # Request state
+            future = state_client.call_async(GetState.Request())
+            rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
+            
+            if future.result() is None:
+                self.get_logger().warn('Failed to get BT Navigator state')
+                return
+                
+            state = future.result().current_state.id
+            self.get_logger().info(f'BT Navigator state: {state}')
+            
+            # Wait for active state (3)
+            if state != 3:
+                self.get_logger().warn('BT Navigator not active yet, waiting...')
+                return
+                
+            # Create action client if needed
+            if self.nav_client is None:
+                self.get_logger().info('Creating new Nav2 action client...')
+                self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
+                
+            # Check if the action server is available
+            self.get_logger().info('Waiting for Nav2 action server...')
+            server_available = self.nav_client.wait_for_server(timeout_sec=2.0)  # Increased timeout
+            
+            if not server_available:
+                self.get_logger().warn('Nav2 action server not available, will retry...')
+                # Check what actions are available
+                from rclpy.action import get_action_names_and_types
+                actions = get_action_names_and_types(self)
+                self.get_logger().info(f'Available actions: {actions}')
+                return
+                
+            # Successfully initialized
+            self.get_logger().info('Successfully connected to Nav2 action server')
+            self.destroy_timer(self.init_nav_client)  # Stop retry timer
             
         except Exception as e:
-            self.get_logger().error(f'Error checking bt_navigator: {str(e)}')
+            self.get_logger().error(f'Error in init_nav_client: {str(e)}')
             return
-
-        if self.nav_client is None:
-            self.get_logger().info('Creating new Nav2 action client...')
-            self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
-            
-        # Check if the action server is available
-        self.get_logger().info('Waiting for Nav2 action server...')
-        server_available = self.nav_client.wait_for_server(timeout_sec=1.0)
-        
-        if not server_available:
-            self.get_logger().warn('Nav2 action server not available, will retry...')
-            # Check what actions are available
-            from rclpy.action import get_action_names_and_types
-            actions = get_action_names_and_types(self)
-            self.get_logger().info(f'Available actions: {actions}')
-            return
-            
-        # Successfully initialized
-        self.get_logger().info('Successfully connected to Nav2 action server')
-        self.destroy_timer(self.init_nav_client)  # Stop retry timer
 
 def main(args=None):
     rclpy.init(args=args)

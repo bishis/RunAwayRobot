@@ -11,7 +11,7 @@ def generate_launch_description():
     
     # Get the nav2 launch file
     nav2_launch_dir = os.path.join(nav2_dir, 'launch')
-    nav2_bringup_path = os.path.join(nav2_launch_dir, 'bringup_launch.py')
+    nav2_bringup_path = os.path.join(nav2_launch_dir, 'navigation_launch.py')
 
     return LaunchDescription([
         # Network setup
@@ -52,14 +52,14 @@ def generate_launch_description():
             launch_arguments={
                 'use_sim_time': 'false',
                 'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
-                'map': '',
-                'use_composition': 'True'
+                'use_composition': 'True',
+                'autostart': 'True'
             }.items()
         ),
 
         # Add delay before starting navigation controller
         TimerAction(
-            period=5.0,
+            period=10.0,
             actions=[
                 Node(
                     package='motor_controller',

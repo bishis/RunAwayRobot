@@ -10,11 +10,11 @@ from launch.actions import DeclareLaunchArgument
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
     nav2_dir = get_package_share_directory('nav2_bringup')
+    slam_toolbox_dir = get_package_share_directory('slam_toolbox')
     
     # Launch Arguments
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
-    map_yaml_file = LaunchConfiguration('map')
-    params_file = LaunchConfiguration('params_file')
+    slam_params_file = os.path.join(pkg_dir, 'config', 'slam_params.yaml')
     
     # Declare launch arguments
     declare_use_sim_time = DeclareLaunchArgument(
@@ -23,23 +23,9 @@ def generate_launch_description():
         description='Use simulation time'
     )
     
-    declare_params_file = DeclareLaunchArgument(
-        'params_file',
-        default_value=os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
-        description='Nav2 parameters file'
-    )
-    
-    declare_map = DeclareLaunchArgument(
-        'map',
-        default_value=os.path.join(pkg_dir, 'maps', 'map.yaml'),
-        description='Map file to load'
-    )
-    
     return LaunchDescription([
         # Launch Arguments
         declare_use_sim_time,
-        declare_params_file,
-        declare_map,
         
         # Network setup
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
@@ -62,27 +48,15 @@ def generate_launch_description():
         ),
 
         # SLAM Toolbox
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([
-                os.path.join(get_package_share_directory('slam_toolbox'),
-                           'launch', 'online_async_launch.py')
-            ]),
-            launch_arguments={
-                'use_sim_time': use_sim_time,
-                'slam_params_file': os.path.join(pkg_dir, 'config', 'slam_params.yaml')
-            }.items()
-        ),
-
-        # Nav2
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([
-                os.path.join(nav2_dir, 'launch', 'navigation_launch.py')
-            ]),
-            launch_arguments={
-                'use_sim_time': use_sim_time,
-                'params_file': params_file,
-                'map': map_yaml_file
-            }.items()
+        Node(
+            package='slam_toolbox',
+            executable='async_slam_toolbox_node',
+            name='slam_toolbox',
+            output='screen',
+            parameters=[
+                slam_params_file,
+                {'use_sim_time': use_sim_time}
+            ]
         ),
 
         # Twist Mux

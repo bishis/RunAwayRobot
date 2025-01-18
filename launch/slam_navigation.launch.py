@@ -124,15 +124,13 @@ def generate_launch_description():
                              'behavior_server',
                              'bt_navigator'],
                 'activate_lifecycle_nodes': True,
-                'manage_lifecycle_nodes': True,
-                'attempt_respawn_reconnection': True,
-                'bond_respawn_max_duration': 10.0,
+                'manage_lifecycle_nodes': True
             }]
         ),
 
         # Add delay before starting navigation controller
         TimerAction(
-            period=15.0,
+            period=30.0,
             actions=[
                 Node(
                     package='motor_controller',
@@ -141,8 +139,8 @@ def generate_launch_description():
                     output='screen',
                     parameters=[{
                         'use_sim_time': False,
-                        'robot.radius': 0.27,
-                        'robot.safety_margin': 0.15
+                        'robot.radius': 0.17,
+                        'robot.safety_margin': 0.10
                     }]
                 )
             ]

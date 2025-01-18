@@ -392,53 +392,34 @@ class NavigationController(Node):
             self.get_logger().info('Creating new Nav2 action client...')
             self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
             
-        # First check if Nav2 nodes are active
-        from lifecycle_msgs.srv import GetState
-        try:
-            # Check bt_navigator state first
-            bt_state_client = self.create_client(GetState, '/bt_navigator/get_state')
-            if not bt_state_client.wait_for_service(timeout_sec=1.0):
-                self.get_logger().warn('BT Navigator state service not available yet')
-                return
-                
-            # Request bt_navigator state
-            future = bt_state_client.call_async(GetState.Request())
-            rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
-            if future.result() is None:
-                self.get_logger().warn('Failed to get BT Navigator state')
-                return
-                
-            state = future.result().current_state.id
-            if state != 3:  # 3 is ACTIVE state
-                self.get_logger().warn(f'BT Navigator not active yet (state: {state})')
-                return
-                
-            self.get_logger().info('BT Navigator is active')
+        # Check if the action server is available
+        self.get_logger().info('Waiting for Nav2 action server...')
+        server_available = self.nav_client.wait_for_server(timeout_sec=1.0)
+        
+        if not server_available:
+            self.get_logger().warn('Nav2 action server not available, will retry...')
+            # Check what actions are available
+            from rclpy.action import get_action_names_and_types
+            actions = get_action_names_and_types(self)
+            self.get_logger().info(f'Available actions: {actions}')
             
-        except Exception as e:
-            self.get_logger().warn(f'Error checking Nav2 states: {e}')
+            # Check Nav2 node states
+            from lifecycle_msgs.srv import GetState
+            try:
+                # Check multiple Nav2 components
+                for node in ['bt_navigator', 'planner_server', 'controller_server']:
+                    state_client = self.create_client(GetState, f'/{node}/get_state')
+                    if state_client.wait_for_service(timeout_sec=1.0):
+                        self.get_logger().info(f'{node} service is available')
+                    else:
+                        self.get_logger().warn(f'{node} service not available')
+            except Exception as e:
+                self.get_logger().warn(f'Error checking Nav2 states: {e}')
             return
             
-        # Now check if the action server is available
-        self.get_logger().info('Checking Nav2 action server...')
-        try:
-            server_available = self.nav_client.wait_for_server(timeout_sec=2.0)  # Increased timeout
-            
-            if not server_available:
-                self.get_logger().warn('Nav2 action server not available, will retry...')
-                # Check what actions are available
-                from rclpy.action import get_action_names_and_types
-                actions = get_action_names_and_types(self)
-                self.get_logger().info(f'Available actions: {actions}')
-                return
-                
-            # Successfully initialized
-            self.get_logger().info('Successfully connected to Nav2 action server')
-            self.destroy_timer(self.init_nav_client)  # Stop retry timer
-            
-        except Exception as e:
-            self.get_logger().error(f'Error waiting for action server: {e}')
-            return
+        # Successfully initialized
+        self.get_logger().info('Successfully connected to Nav2 action server')
+        self.destroy_timer(self.init_nav_client)  # Stop retry timer
 
 def main(args=None):
     rclpy.init(args=args)

@@ -392,8 +392,36 @@ class NavigationController(Node):
             self.get_logger().info('Creating new Nav2 action client...')
             self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
             
-        # Check if the action server is available
-        self.get_logger().info('Waiting for Nav2 action server...')
+        # First check if Nav2 nodes are active
+        from lifecycle_msgs.srv import GetState
+        try:
+            # Create service client
+            state_client = self.create_client(GetState, '/bt_navigator/get_state')
+            if not state_client.wait_for_service(timeout_sec=1.0):
+                self.get_logger().warn('BT Navigator state service not available, waiting...')
+                return
+                
+            # Request state
+            future = state_client.call_async(GetState.Request())
+            rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
+            if future.result() is None:
+                self.get_logger().warn('Failed to get BT Navigator state')
+                return
+                
+            state = future.result().current_state.id
+            self.get_logger().info(f'BT Navigator state: {state}')
+            
+            # If not active (state 3), try to activate
+            if state != 3:  # 3 is ACTIVE state
+                self.get_logger().warn('BT Navigator not active, waiting for activation...')
+                return
+                
+        except Exception as e:
+            self.get_logger().warn(f'Error checking Nav2 state: {e}')
+            return
+            
+        # Now check if the action server is available
+        self.get_logger().info('Checking Nav2 action server...')
         server_available = self.nav_client.wait_for_server(timeout_sec=1.0)
         
         if not server_available:
@@ -402,19 +430,6 @@ class NavigationController(Node):
             from rclpy.action import get_action_names_and_types
             actions = get_action_names_and_types(self)
             self.get_logger().info(f'Available actions: {actions}')
-            
-            # Check Nav2 node states
-            from lifecycle_msgs.srv import GetState
-            try:
-                # Check multiple Nav2 components
-                for node in ['bt_navigator', 'planner_server', 'controller_server']:
-                    state_client = self.create_client(GetState, f'/{node}/get_state')
-                    if state_client.wait_for_service(timeout_sec=1.0):
-                        self.get_logger().info(f'{node} service is available')
-                    else:
-                        self.get_logger().warn(f'{node} service not available')
-            except Exception as e:
-                self.get_logger().warn(f'Error checking Nav2 states: {e}')
             return
             
         # Successfully initialized

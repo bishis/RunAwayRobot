@@ -124,7 +124,9 @@ def generate_launch_description():
                              'behavior_server',
                              'bt_navigator'],
                 'activate_lifecycle_nodes': True,
-                'manage_lifecycle_nodes': True
+                'manage_lifecycle_nodes': True,
+                'attempt_respawn_on_failure': True,
+                'attempt_respawn_max_tries': 3
             }]
         ),
 

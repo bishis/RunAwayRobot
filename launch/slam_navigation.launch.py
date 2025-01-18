@@ -60,6 +60,14 @@ def generate_launch_description():
 
         # Nav2 Core (in this specific order)
         Node(
+            package='nav2_bt_navigator',
+            executable='bt_navigator',
+            name='bt_navigator',
+            output='screen',
+            parameters=[configured_params]
+        ),
+
+        Node(
             package='nav2_map_server',
             executable='map_server',
             name='map_server',
@@ -95,14 +103,6 @@ def generate_launch_description():
             package='nav2_behaviors',
             executable='behavior_server',
             name='behavior_server',
-            output='screen',
-            parameters=[configured_params]
-        ),
-
-        Node(
-            package='nav2_bt_navigator',
-            executable='bt_navigator',
-            name='bt_navigator',
             output='screen',
             parameters=[configured_params]
         ),

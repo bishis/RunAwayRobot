@@ -252,9 +252,12 @@ class NavigationController(Node):
         # Double check server is still available
         if not self.nav_client.wait_for_server(timeout_sec=1.0):
             self.get_logger().warn('Navigation server not available, reinitializing...')
-            self.nav_client = None  # Reset client to trigger reinitialization
-            self.create_timer(1.0, self.init_nav_client)  # Restart initialization timer
+            self.nav_client = None
+            self.create_timer(1.0, self.init_nav_client)
             return False
+
+        # Debug print
+        self.get_logger().info('Preparing to send navigation goal...')
 
         goal_msg = NavigateToPose.Goal()
         goal_msg.pose.header.frame_id = 'map'
@@ -271,22 +274,24 @@ class NavigationController(Node):
                 next_waypoint.x - current_waypoint.x
             )
         else:
-            yaw = 0.0  # Default orientation for final waypoint
+            yaw = 0.0
             
         goal_msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
         goal_msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
 
         self.get_logger().info(
-            f'Navigating to waypoint {self.current_waypoint_index + 1}/{len(self.waypoints)}: '
+            f'Sending navigation goal for waypoint {self.current_waypoint_index + 1}/{len(self.waypoints)}: '
             f'({current_waypoint.x:.2f}, {current_waypoint.y:.2f})'
         )
         
         try:
-            future = self.nav_client.send_goal_async(
+            # Send goal with explicit feedback callback
+            send_goal_future = self.nav_client.send_goal_async(
                 goal_msg,
                 feedback_callback=self.navigation_feedback_callback
             )
-            future.add_done_callback(self.navigation_response_callback)
+            self.get_logger().info('Navigation goal sent, waiting for response...')
+            send_goal_future.add_done_callback(self.navigation_response_callback)
             self.state = RobotState.WAITING_FOR_NAV2
             return True
         except Exception as e:
@@ -301,7 +306,7 @@ class NavigationController(Node):
             self.state = RobotState.NAVIGATING
             return
 
-        self.get_logger().info('Navigation goal accepted')
+        self.get_logger().info('Navigation goal accepted, waiting for feedback...')
         self._get_result_future = goal_handle.get_result_async()
         self._get_result_future.add_done_callback(self.navigation_result_callback)
 
@@ -322,6 +327,8 @@ class NavigationController(Node):
 
     def navigation_feedback_callback(self, feedback_msg):
         """Handle navigation feedback from Nav2."""
+        self.get_logger().info('Received navigation feedback!')  # Debug print
+        
         feedback = feedback_msg.feedback
         
         # Get current commanded velocities

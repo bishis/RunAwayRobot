@@ -7,21 +7,11 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
-    nav2_dir = get_package_share_directory('nav2_bringup')
     
     return LaunchDescription([
         # Network setup
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
-
-        # Static TF
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='static_tf_pub_laser',
-            arguments=['0', '0', '0', '0', '0', '0', 'base_link', 'laser'],
-            output='screen'
-        ),
 
         # RF2O Odometry
         Node(
@@ -39,42 +29,15 @@ def generate_launch_description():
             }]
         ),
 
-        # SLAM Toolbox
-        Node(
-            package='slam_toolbox',
-            executable='async_slam_toolbox_node',
-            name='slam_toolbox',
-            output='screen',
-            parameters=[{
-                'use_sim_time': "false",
-                'base_frame': 'base_link',
-                'odom_frame': 'odom',
-                'map_frame': 'map',
-                'resolution': 0.05,
-                'map_update_interval': 5.0,
-                'max_laser_range': 20.0,
-                'minimum_time_interval': 0.5,
-                'transform_timeout': 0.2,
-                'update_timing': True,
-                'publish_period': 0.5,
-                'max_update_rate': 10.0,
-                'enable_interactive_mode': "false",
-                'transform_publish_period': 0.05,
-                'use_pose_graph_backend': "true",
-                'scan_topic': 'scan',
-                'mode': 'mapping'  # Change to 'localization' if you have a map
-            }]
-        ),
-
-        # Nav2
+        # SLAM Toolbox (using existing configuration)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
-                os.path.join(nav2_dir, 'launch', 'navigation_launch.py')
+                os.path.join(get_package_share_directory('slam_toolbox'),
+                           'launch', 'online_async_launch.py')
             ]),
             launch_arguments={
                 'use_sim_time': 'false',
-                'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
-                'map': os.path.join(pkg_dir, 'maps', 'map.yaml')
+                'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
             }.items()
         ),
 
@@ -85,20 +48,15 @@ def generate_launch_description():
             name='navigation_controller',
             parameters=[{
                 'use_sim_time': False,
+                'waypoint_threshold': 0.2,
+                'leg_length': 0.5,
+                'safety_radius': 0.25,
+                'num_waypoints': 8,
                 'robot.radius': 0.17
             }]
         ),
 
-        # Twist Mux
-        Node(
-            package='twist_mux',
-            executable='twist_mux',
-            name='twist_mux',
-            parameters=[os.path.join(pkg_dir, 'config', 'twist_mux.yaml')],
-            remappings=[('cmd_vel_out', 'cmd_vel')]
-        ),
-
-        # RViz2
+        # RViz2 for visualization
         Node(
             package='rviz2',
             executable='rviz2',

@@ -14,6 +14,7 @@ import numpy as np
 from enum import Enum
 from lifecycle_msgs.srv import GetState
 import subprocess
+import os
 
 class RobotState(Enum):
     INITIALIZING = 1
@@ -397,10 +398,23 @@ class NavigationController(Node):
                 self.get_logger().info('Available nodes: \n' + result.stdout)
                 return
                 
+            # Check if the behavior tree XML file exists
+            bt_xml_path = os.path.join(
+                get_package_share_directory('nav2_bt_navigator'),
+                'behavior_trees',
+                'navigate_w_replanning_and_recovery.xml'
+            )
+            if not os.path.exists(bt_xml_path):
+                self.get_logger().error(f'Behavior tree XML file not found: {bt_xml_path}')
+                return
+
             # Create service client to check state
             state_client = self.create_client(GetState, '/bt_navigator/get_state')
             if not state_client.wait_for_service(timeout_sec=1.0):
                 self.get_logger().warn('BT Navigator state service not available, waiting...')
+                # Check all available services
+                result = subprocess.run(['ros2', 'service', 'list'], capture_output=True, text=True)
+                self.get_logger().info('Available services: \n' + result.stdout)
                 return
                 
             # Request state

@@ -83,7 +83,11 @@ class NavigationController(Node):
         if not (0 <= mx < self.map_info.width and 0 <= my < self.map_info.height):
             return False
             
-        # Check if point and surrounding area is free
+        # First check if the point is in known space (not -1/unknown)
+        if self.map_data[my, mx] == -1:  # Unknown space
+            return False
+            
+        # Check if point and surrounding area is free and mapped
         radius = int(0.3 / self.map_info.resolution)  # 30cm safety radius
         for dx in range(-radius, radius + 1):
             for dy in range(-radius, radius + 1):
@@ -91,39 +95,61 @@ class NavigationController(Node):
                 check_y = my + dy
                 if (0 <= check_x < self.map_info.width and 
                     0 <= check_y < self.map_info.height):
-                    if self.map_data[check_y, check_x] > 50:  # Occupied
+                    cell_value = self.map_data[check_y, check_x]
+                    # Check if cell is unknown or occupied
+                    if cell_value == -1 or cell_value > 50:
                         return False
         return True
 
     def generate_waypoints(self):
-        """Generate random valid waypoints across the map."""
+        """Generate random valid waypoints across the mapped area."""
         self.waypoints = []
         attempts = 0
         max_attempts = 1000
         
+        # Find the bounds of the mapped area
+        mapped_points = np.where(self.map_data != -1)
+        if len(mapped_points[0]) == 0:
+            self.get_logger().warn('No mapped areas found')
+            return
+            
+        # Get the bounds of the mapped area
+        min_y, max_y = np.min(mapped_points[0]), np.max(mapped_points[0])
+        min_x, max_x = np.min(mapped_points[1]), np.max(mapped_points[1])
+        
+        # Convert to world coordinates
+        world_min_x = min_x * self.map_info.resolution + self.map_info.origin.position.x
+        world_max_x = max_x * self.map_info.resolution + self.map_info.origin.position.x
+        world_min_y = min_y * self.map_info.resolution + self.map_info.origin.position.y
+        world_max_y = max_y * self.map_info.resolution + self.map_info.origin.position.y
+        
+        self.get_logger().info(
+            f'Generating waypoints in mapped area: '
+            f'X: [{world_min_x:.2f}, {world_max_x:.2f}], '
+            f'Y: [{world_min_y:.2f}, {world_max_y:.2f}]'
+        )
+        
         while len(self.waypoints) < self.num_waypoints and attempts < max_attempts:
-            # Generate random point in map
-            x = random.uniform(
-                self.map_info.origin.position.x,
-                self.map_info.origin.position.x + self.map_info.width * self.map_info.resolution
-            )
-            y = random.uniform(
-                self.map_info.origin.position.y,
-                self.map_info.origin.position.y + self.map_info.height * self.map_info.resolution
-            )
+            # Generate random point within mapped bounds
+            x = random.uniform(world_min_x, world_max_x)
+            y = random.uniform(world_min_y, world_max_y)
             
             # Check if point is valid and far enough from other waypoints
             if self.is_valid_point(x, y) and self.is_point_far_enough(x, y):
                 self.waypoints.append(Point(x=x, y=y, z=0.0))
-                self.get_logger().info(f'Added waypoint {len(self.waypoints)}: ({x:.2f}, {y:.2f})')
+                self.get_logger().info(
+                    f'Added waypoint {len(self.waypoints)}: ({x:.2f}, {y:.2f})'
+                )
             
             attempts += 1
         
-        self.publish_waypoints()
-        if self.waypoints:
-            self.state = RobotState.NAVIGATING
-        else:
+        if not self.waypoints:
             self.get_logger().error('Failed to generate valid waypoints')
+            return
+            
+        self.get_logger().info(f'Generated {len(self.waypoints)} waypoints')
+        self.publish_waypoints()
+        self.state = RobotState.NAVIGATING
 
     def is_point_far_enough(self, x, y):
         """Check if point is far enough from existing waypoints."""

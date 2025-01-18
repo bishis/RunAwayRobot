@@ -126,7 +126,8 @@ def generate_launch_description():
                 'activate_lifecycle_nodes': True,
                 'manage_lifecycle_nodes': True,
                 'attempt_respawn_on_failure': True,
-                'attempt_respawn_max_tries': 3
+                'attempt_respawn_max_tries': 3,
+                'bond_disable_heartbeat_timeout': True
             }]
         ),
 

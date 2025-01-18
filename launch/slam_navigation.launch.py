@@ -8,7 +8,6 @@ from launch_ros.actions import Node
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
     nav2_dir = get_package_share_directory('nav2_bringup')
-    slam_dir = get_package_share_directory('slam_toolbox')
     
     return LaunchDescription([
         # Network setup
@@ -31,57 +30,27 @@ def generate_launch_description():
             }]
         ),
 
-        # Transform publishers
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='base_link_to_laser',
-            arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
-        ),
-
         # SLAM Toolbox
-        Node(
-            package='slam_toolbox',
-            executable='async_slam_toolbox_node',
-            name='slam_toolbox',
-            output='screen',
-            parameters=[{
-                'use_sim_time': False,
-                'base_frame': 'base_link',
-                'odom_frame': 'odom',
-                'map_frame': 'map',
-                'resolution': 0.05,
-                'map_update_interval': 5.0,
-                'max_laser_range': 12.0,
-                'minimum_time_interval': 0.5,
-                'transform_timeout': 0.2,
-                'scan_topic': '/scan',
-                'mode': 'mapping',
-                'debug_logging': True,
-                'throttle_scans': 1,
-                'transform_publish_period': 0.05,
-                'map_update_interval': 5.0,
-                'resolution': 0.05,
-                'max_laser_range': 12.0,
-                'minimum_time_interval': 0.5,
-                'enable_interactive_mode': False,
-                'transform_timeout': 0.2,
-                'publish_period': 5.0
-            }]
-        ),
-
-        # Nav2 Stack
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
-                os.path.join(nav2_dir, 'launch', 'bringup_launch.py')
+                os.path.join(get_package_share_directory('slam_toolbox'),
+                           'launch', 'online_async_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': 'False',
+                'use_sim_time': 'false',
+                'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
+            }.items()
+        ),
+
+        # Nav2
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource([
+                os.path.join(nav2_dir, 'launch', 'navigation_launch.py')
+            ]),
+            launch_arguments={
+                'use_sim_time': 'false',
                 'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
-                'autostart': 'True',
-                'use_composition': 'False',
-                'use_respawn': 'False',
-                'map': ''
+                'map': os.path.join(pkg_dir, 'maps', 'map.yaml')
             }.items()
         ),
 

@@ -65,13 +65,13 @@ class NavigationController(Node):
             PoseWithCovarianceStamped, 'initialpose', 10)
         self.waypoint_pub = self.create_publisher(
             MarkerArray, 'waypoint_markers', 10)
-        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel_nav', 10)
         
         # Subscribers
         self.create_subscription(Odometry, 'odom_rf2o', self.odom_callback, 10)
         self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
-        self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
+        self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
         
         # Timer
         self.create_timer(0.1, self.control_loop)
@@ -339,7 +339,7 @@ class NavigationController(Node):
         return True
 
     def cmd_vel_callback(self, msg):
-        """Forward velocity commands from Nav2 to the motors."""
+        """Forward velocity commands from Nav2 to the motors through twist_mux."""
         try:
             # Create new Twist message for motors
             motor_cmd = Twist()
@@ -348,10 +348,10 @@ class NavigationController(Node):
             
             # Add detailed logging
             self.get_logger().info(
-                f'Received velocity command: linear={msg.linear.x:.2f}, angular={msg.angular.z:.2f}'
+                f'Forwarding velocity command: linear={msg.linear.x:.2f}, angular={msg.angular.z:.2f}'
             )
             
-            # Publish command to motors
+            # Publish command to twist_mux
             self.cmd_vel_pub.publish(motor_cmd)
         except Exception as e:
             self.get_logger().error(f'Error in cmd_vel_callback: {str(e)}')

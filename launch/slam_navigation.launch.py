@@ -40,15 +40,34 @@ def generate_launch_description():
         ),
 
         # SLAM Toolbox
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([
-                os.path.join(slam_dir, 'launch', 'online_async_launch.py')
-            ]),
-            launch_arguments={
-                'use_sim_time': 'False',
-                'publish_period': '5.0',
-                'scan_topic': '/scan'
-            }.items()
+        Node(
+            package='slam_toolbox',
+            executable='async_slam_toolbox_node',
+            name='slam_toolbox',
+            output='screen',
+            parameters=[{
+                'use_sim_time': False,
+                'base_frame': 'base_link',
+                'odom_frame': 'odom',
+                'map_frame': 'map',
+                'resolution': 0.05,
+                'map_update_interval': 5.0,
+                'max_laser_range': 12.0,
+                'minimum_time_interval': 0.5,
+                'transform_timeout': 0.2,
+                'scan_topic': '/scan',
+                'mode': 'mapping',
+                'debug_logging': True,
+                'throttle_scans': 1,
+                'transform_publish_period': 0.05,
+                'map_update_interval': 5.0,
+                'resolution': 0.05,
+                'max_laser_range': 12.0,
+                'minimum_time_interval': 0.5,
+                'enable_interactive_mode': False,
+                'transform_timeout': 0.2,
+                'publish_period': 5.0
+            }]
         ),
 
         # Nav2 Stack

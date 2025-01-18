@@ -11,6 +11,8 @@ from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 from enum import Enum
 import math
+from .processors.path_planner import PathPlanner
+from .processors.waypoint_generator import WaypointGenerator
 
 class RobotState(Enum):
     INITIALIZING = 1

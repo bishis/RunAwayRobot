@@ -216,8 +216,15 @@ class NavigationController(Node):
 
     def navigate_to_waypoint(self):
         """Send navigation goal to Nav2."""
-        if self.nav_client is None or not self.nav_client.wait_for_server(timeout_sec=0.1):
-            self.get_logger().warn('Navigation server not available, skipping waypoint')
+        if self.nav_client is None:
+            self.get_logger().warn('Navigation client not initialized')
+            return False
+            
+        # Double check server is still available
+        if not self.nav_client.wait_for_server(timeout_sec=1.0):
+            self.get_logger().warn('Navigation server not available, reinitializing...')
+            self.nav_client = None  # Reset client to trigger reinitialization
+            self.create_timer(1.0, self.init_nav_client)  # Restart initialization timer
             return False
 
         goal_msg = NavigateToPose.Goal()
@@ -333,14 +340,22 @@ class NavigationController(Node):
             return
             
         elif self.state == RobotState.NAVIGATING:
+            # Add diagnostic info
+            self.get_logger().info(
+                f'\nNavigation Status:'
+                f'\n  Current State: {self.state}'
+                f'\n  Nav Client Ready: {self.nav_client is not None}'
+                f'\n  Waypoints Generated: {len(self.waypoints)}'
+                f'\n  Current Waypoint: {self.current_waypoint_index}/{len(self.waypoints)}'
+            )
+            
             if self.current_waypoint_index < len(self.waypoints):
                 self.navigate_to_waypoint()
             else:
                 self.generate_waypoints()
                 
         elif self.state == RobotState.WAITING_FOR_NAV2:
-            # Nav2 callbacks will handle state transitions
-            pass
+            self.get_logger().info('Waiting for Nav2 to process goal...')
             
         # Always publish waypoints for visualization
         self.publish_waypoints()
@@ -350,11 +365,28 @@ class NavigationController(Node):
         if self.nav_client is None:
             self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
             
-        if self.nav_client.wait_for_server(timeout_sec=0.5):
-            self.get_logger().info('Successfully connected to Nav2 action server')
-            self.destroy_timer(self.init_nav_client)  # Stop retry timer
-        else:
+        # Check if the action server is available
+        if not self.nav_client.wait_for_server(timeout_sec=1.0):
             self.get_logger().warn('Waiting for Nav2 action server...')
+            return
+            
+        # Check if the required transforms are available
+        try:
+            from tf2_ros import Buffer, TransformListener
+            tf_buffer = Buffer()
+            TransformListener(tf_buffer, self)
+            
+            # Wait for the transform between map and base_link
+            if not tf_buffer.can_transform('map', 'base_link', rclpy.time.Time()):
+                self.get_logger().warn('Waiting for transform between map and base_link...')
+                return
+                
+        except Exception as e:
+            self.get_logger().warn(f'Transform error: {str(e)}')
+            return
+            
+        self.get_logger().info('Successfully connected to Nav2 action server')
+        self.destroy_timer(self.init_nav_client)  # Stop retry timer
 
 def main(args=None):
     rclpy.init(args=args)

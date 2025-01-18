@@ -399,14 +399,39 @@ class NavigationController(Node):
                 self.get_logger().info('Available nodes: \n' + result.stdout)
                 return
                 
-            # Check if the behavior tree XML file exists
-            bt_xml_path = os.path.join(
-                get_package_share_directory('nav2_bt_navigator'),
-                'behavior_trees',
-                'navigate_w_replanning_and_recovery.xml'
-            )
-            if not os.path.exists(bt_xml_path):
-                self.get_logger().error(f'Behavior tree XML file not found: {bt_xml_path}')
+            # Try different possible locations for the behavior tree file
+            possible_paths = [
+                os.path.join(get_package_share_directory('nav2_bt_navigator'),
+                            'behavior_trees',
+                            'navigate_w_replanning_and_recovery.xml'),
+                os.path.join(get_package_share_directory('nav2_behavior_tree'),
+                            'trees',
+                            'navigate_w_replanning_and_recovery.xml'),
+                os.path.join(get_package_share_directory('nav2_bt_navigator'),
+                            'bt_xml',
+                            'navigate_w_replanning_and_recovery.xml')
+            ]
+            
+            bt_xml_path = None
+            for path in possible_paths:
+                if os.path.exists(path):
+                    bt_xml_path = path
+                    self.get_logger().info(f'Found behavior tree XML at: {path}')
+                    break
+                else:
+                    self.get_logger().warn(f'Behavior tree not found at: {path}')
+            
+            if bt_xml_path is None:
+                self.get_logger().error('Could not find behavior tree XML file in any expected location')
+                # List contents of nav2 package directories
+                for pkg in ['nav2_bt_navigator', 'nav2_behavior_tree']:
+                    try:
+                        pkg_dir = get_package_share_directory(pkg)
+                        self.get_logger().info(f'Contents of {pkg} directory:')
+                        result = subprocess.run(['ls', '-R', pkg_dir], capture_output=True, text=True)
+                        self.get_logger().info(result.stdout)
+                    except Exception as e:
+                        self.get_logger().warn(f'Could not list contents of {pkg}: {e}')
                 return
 
             # Create service client to check state

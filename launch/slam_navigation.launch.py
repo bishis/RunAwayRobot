@@ -70,10 +70,16 @@ def generate_launch_description():
                     'global_frame': 'map',
                     'robot_base_frame': 'base_link',
                     'transform_tolerance': 0.1,
+                    # Try the default Nav2 behavior tree
                     'default_nav_to_pose_bt_xml': os.path.join(
                         get_package_share_directory('nav2_bt_navigator'),
                         'behavior_trees',
                         'navigate_w_replanning_and_recovery.xml'
+                    ),
+                    'default_nav_through_poses_bt_xml': os.path.join(
+                        get_package_share_directory('nav2_bt_navigator'),
+                        'behavior_trees',
+                        'navigate_through_poses_w_replanning_and_recovery.xml'
                     ),
                     'plugin_lib_names': [
                         'nav2_compute_path_to_pose_action_bt_node',

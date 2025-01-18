@@ -215,6 +215,16 @@ class NavigationController(Node):
         left_speed = (linear_x - (wheel_separation / 2) * angular_z) / wheel_radius
         right_speed = (linear_x + (wheel_separation / 2) * angular_z) / wheel_radius
         
+        # Debug print raw speeds
+        self.get_logger().info(
+            f'\nRaw velocities:'
+            f'\n  Linear X: {linear_x:.3f} m/s'
+            f'\n  Angular Z: {angular_z:.3f} rad/s'
+            f'\nCalculated wheel speeds:'
+            f'\n  Left: {left_speed:.3f} rad/s'
+            f'\n  Right: {right_speed:.3f} rad/s'
+        )
+        
         # Convert to binary commands (-1, 0, 1)
         binary_left = 1.0 if left_speed > 0.1 else (-1.0 if left_speed < -0.1 else 0.0)
         binary_right = 1.0 if right_speed > 0.1 else (-1.0 if right_speed < -0.1 else 0.0)
@@ -224,11 +234,11 @@ class NavigationController(Node):
         cmd.linear.x = binary_left   # Left wheel
         cmd.angular.z = binary_right # Right wheel
         
-        # Log the commands being sent
+        # Log the final commands being sent
         self.get_logger().info(
-            f'Sending wheel commands:'
-            f'\n  Left: {binary_left}'
-            f'\n  Right: {binary_right}'
+            f'Publishing cmd_vel:'
+            f'\n  cmd_vel.linear.x (LEFT): {cmd.linear.x}'
+            f'\n  cmd_vel.angular.z (RIGHT): {cmd.angular.z}'
         )
         
         self.cmd_vel_pub.publish(cmd)
@@ -319,22 +329,11 @@ class NavigationController(Node):
         linear_x = current_vel.linear.x
         angular_z = current_vel.angular.z
         
-        # Calculate wheel speeds based on differential drive kinematics
-        wheel_separation = 0.3  # Distance between wheels in meters
-        wheel_radius = 0.05    # Wheel radius in meters
-        
-        # Convert linear and angular velocities to wheel speeds
-        left_speed = (linear_x - (wheel_separation / 2) * angular_z) / wheel_radius
-        right_speed = (linear_x + (wheel_separation / 2) * angular_z) / wheel_radius
-        
-        # Log the velocities and wheel speeds
+        # Log the raw Nav2 velocities
         self.get_logger().info(
-            f'\nNavigation Velocities:'
-            f'\n  Linear X: {linear_x:.2f} m/s'
-            f'\n  Angular Z: {angular_z:.2f} rad/s'
-            f'\nCalculated Wheel Speeds:'
-            f'\n  Left: {left_speed:.2f} rad/s'
-            f'\n  Right: {right_speed:.2f} rad/s'
+            f'\nReceived Nav2 velocities:'
+            f'\n  Linear X: {linear_x:.3f} m/s'
+            f'\n  Angular Z: {angular_z:.3f} rad/s'
             f'\nDistance remaining: {feedback.distance_remaining:.2f}m'
         )
         

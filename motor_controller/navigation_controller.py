@@ -251,51 +251,52 @@ class NavigationController(Node):
             
         # Double check server is still available
         if not self.nav_client.wait_for_server(timeout_sec=1.0):
-            self.get_logger().warn('Navigation server not available, reinitializing...')
-            self.nav_client = None
-            self.create_timer(1.0, self.init_nav_client)
+            self.get_logger().warn('Navigation server not available')
             return False
 
         # Debug print
         self.get_logger().info('Preparing to send navigation goal...')
 
-        goal_msg = NavigateToPose.Goal()
-        goal_msg.pose.header.frame_id = 'map'
-        goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
-        
-        current_waypoint = self.waypoints[self.current_waypoint_index]
-        goal_msg.pose.pose.position = current_waypoint
-        
-        # Set orientation to face the direction of movement
-        if self.current_waypoint_index < len(self.waypoints) - 1:
-            next_waypoint = self.waypoints[self.current_waypoint_index + 1]
-            yaw = math.atan2(
-                next_waypoint.y - current_waypoint.y,
-                next_waypoint.x - current_waypoint.x
-            )
-        else:
-            yaw = 0.0
-            
-        goal_msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
-        goal_msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
-
-        self.get_logger().info(
-            f'Sending navigation goal for waypoint {self.current_waypoint_index + 1}/{len(self.waypoints)}: '
-            f'({current_waypoint.x:.2f}, {current_waypoint.y:.2f})'
-        )
-        
         try:
+            goal_msg = NavigateToPose.Goal()
+            goal_msg.pose.header.frame_id = 'map'
+            goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
+            
+            current_waypoint = self.waypoints[self.current_waypoint_index]
+            goal_msg.pose.pose.position = current_waypoint
+            
+            # Set orientation to face the direction of movement
+            if self.current_waypoint_index < len(self.waypoints) - 1:
+                next_waypoint = self.waypoints[self.current_waypoint_index + 1]
+                yaw = math.atan2(
+                    next_waypoint.y - current_waypoint.y,
+                    next_waypoint.x - current_waypoint.x
+                )
+            else:
+                yaw = 0.0
+                
+            goal_msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
+            goal_msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
+
+            self.get_logger().info(
+                f'Sending navigation goal for waypoint {self.current_waypoint_index + 1}/{len(self.waypoints)}: '
+                f'({current_waypoint.x:.2f}, {current_waypoint.y:.2f})'
+            )
+            
             # Send goal with explicit feedback callback
-            self.get_logger().info('Creating goal request...')  # Debug print
+            self.get_logger().info('Creating goal request...')
             send_goal_future = self.nav_client.send_goal_async(
                 goal_msg,
                 feedback_callback=self.navigation_feedback_callback
             )
-            self.get_logger().info('Goal request created, adding callback...')  # Debug print
+            
+            self.get_logger().info('Goal request created, adding callback...')
             send_goal_future.add_done_callback(self.navigation_response_callback)
-            self.get_logger().info('Callback added, changing state...')  # Debug print
+            
+            self.get_logger().info('Callback added, changing state...')
             self.state = RobotState.WAITING_FOR_NAV2
             return True
+            
         except Exception as e:
             self.get_logger().error(f'Failed to send navigation goal: {str(e)}')
             return False
@@ -370,11 +371,12 @@ class NavigationController(Node):
             )
             
             if self.current_waypoint_index < len(self.waypoints):
-                self.get_logger().info('Attempting to navigate to waypoint...')  # Debug print
-                success = self.navigate_to_waypoint()
-                self.get_logger().info(f'Navigation attempt result: {success}')  # Debug print
+                self.get_logger().info('Attempting to navigate to waypoint...')
+                if not self.navigate_to_waypoint():
+                    self.get_logger().warn('Navigation failed, retrying in 1 second...')
+                    return  # Wait for next control loop iteration
             else:
-                self.get_logger().info('No more waypoints, generating new ones...')  # Debug print
+                self.get_logger().info('No more waypoints, generating new ones...')
                 self.generate_waypoints()
                 
         elif self.state == RobotState.WAITING_FOR_NAV2:
@@ -393,33 +395,7 @@ class NavigationController(Node):
             self.get_logger().warn('Waiting for Nav2 action server...')
             return
             
-        # Check if the required transforms are available
-        try:
-            from tf2_ros import Buffer, TransformListener
-            tf_buffer = Buffer()
-            tf_listener = TransformListener(tf_buffer, self)
-            
-            # Debug transform tree
-            frames = tf_buffer.all_frames_as_string()
-            self.get_logger().info(f'Available transforms:\n{frames}')
-            
-            # Wait for the transform between map and base_link with timeout
-            try:
-                transform = tf_buffer.lookup_transform(
-                    'map',
-                    'base_link',
-                    rclpy.time.Time(),
-                    rclpy.duration.Duration(seconds=1.0)
-                )
-                self.get_logger().info('Transform found between map and base_link')
-            except Exception as e:
-                self.get_logger().warn(f'Transform not ready: {str(e)}')
-                return
-                
-        except Exception as e:
-            self.get_logger().warn(f'Transform setup error: {str(e)}')
-            return
-            
+        # Successfully initialized
         self.get_logger().info('Successfully connected to Nav2 action server')
         self.destroy_timer(self.init_nav_client)  # Stop retry timer
 

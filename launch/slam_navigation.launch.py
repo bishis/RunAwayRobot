@@ -38,19 +38,15 @@ def generate_launch_description():
             arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
         ),
 
-        # SLAM Toolbox
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([
-                os.path.join(get_package_share_directory('slam_toolbox'),
-                           'launch', 'online_async_launch.py')
-            ]),
-            launch_arguments={
-                'use_sim_time': 'false',
-                'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
-            }.items()
+        # Map to Odom Transform
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='map_to_odom',
+            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
         ),
 
-        # Nav2 (without map requirement)
+        # Nav2 (local planning only)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(nav2_dir, 'launch', 'navigation_launch.py')

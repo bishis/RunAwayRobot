@@ -42,6 +42,11 @@ class NavigationController(Node):
         self.nav2_initialized = False
         self.initial_pose_sent = False
         
+        # Waypoint variables
+        self.waypoints = []
+        self.current_waypoint_index = 0
+        self.num_waypoints = 5  # Number of random waypoints to generate
+        
         # Nav2 Action Clients
         self.nav_to_pose_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self.compute_path_client = ActionClient(self, ComputePathToPose, 'compute_path_to_pose')
@@ -158,6 +163,10 @@ class NavigationController(Node):
         if status == 4:  # SUCCEEDED
             self.get_logger().info('Navigation succeeded')
             self.state = RobotState.IDLE
+            
+            # Move to next waypoint
+            self.current_waypoint_index = (self.current_waypoint_index + 1) % len(self.waypoints)
+            self.create_timer(2.0, self.navigate_to_next_waypoint, oneshot=True)
         else:
             self.get_logger().warn(f'Navigation failed with status: {status}')
             self.state = RobotState.RECOVERY
@@ -269,6 +278,68 @@ class NavigationController(Node):
         
         self.state = RobotState.IDLE
 
+    def generate_random_waypoints(self):
+        """Generate random waypoints in free space."""
+        if self.map_data is None or self.map_info is None:
+            self.get_logger().warn('Map not available for waypoint generation')
+            return
+
+        self.waypoints = []
+        attempts = 0
+        max_attempts = 1000
+
+        while len(self.waypoints) < self.num_waypoints and attempts < max_attempts:
+            # Generate random map coordinates
+            x = np.random.randint(0, self.map_info.width)
+            y = np.random.randint(0, self.map_info.height)
+            
+            # Check if point is in free space
+            if self.map_data[y, x] == 0:  # Free space
+                # Convert to world coordinates
+                world_x = x * self.map_info.resolution + self.map_info.origin.position.x
+                world_y = y * self.map_info.resolution + self.map_info.origin.position.y
+                
+                # Create pose
+                pose = PoseStamped()
+                pose.header.frame_id = 'map'
+                pose.header.stamp = self.get_clock().now().to_msg()
+                pose.pose.position.x = world_x
+                pose.pose.position.y = world_y
+                pose.pose.position.z = 0.0
+                
+                # Random orientation
+                yaw = np.random.uniform(-math.pi, math.pi)
+                pose.pose.orientation.x = 0.0
+                pose.pose.orientation.y = 0.0
+                pose.pose.orientation.z = math.sin(yaw / 2.0)
+                pose.pose.orientation.w = math.cos(yaw / 2.0)
+                
+                self.waypoints.append(pose)
+                self.get_logger().info(f'Generated waypoint {len(self.waypoints)}: ({world_x:.2f}, {world_y:.2f})')
+            
+            attempts += 1
+
+        if self.waypoints:
+            self.get_logger().info(f'Generated {len(self.waypoints)} waypoints')
+            self.current_waypoint_index = 0
+        else:
+            self.get_logger().error('Failed to generate any valid waypoints')
+
+    def navigate_to_next_waypoint(self):
+        """Navigate to the next waypoint in the list."""
+        if not self.waypoints:
+            self.generate_random_waypoints()
+            return
+
+        if self.state == RobotState.IDLE:
+            current_waypoint = self.waypoints[self.current_waypoint_index]
+            self.get_logger().info(f'Navigating to waypoint {self.current_waypoint_index + 1}/{len(self.waypoints)}')
+            
+            if self.navigate_to_pose(current_waypoint):
+                self.get_logger().info('Navigation started')
+            else:
+                self.get_logger().error('Failed to start navigation')
+
     def control_loop(self):
         """Main control loop."""
         if not self.current_pose or self.map_data is None:
@@ -276,6 +347,14 @@ class NavigationController(Node):
 
         if self.state == RobotState.INITIALIZING or self.state == RobotState.WAITING_FOR_NAV2:
             self.lifecycle_manager()
+        elif self.state == RobotState.IDLE and not self.waypoints:
+            # Generate waypoints if we don't have any
+            self.generate_random_waypoints()
+            if self.waypoints:
+                self.navigate_to_next_waypoint()
+        elif self.state == RobotState.IDLE and self.waypoints:
+            # Continue with next waypoint
+            self.navigate_to_next_waypoint()
 
 def main(args=None):
     rclpy.init(args=args)

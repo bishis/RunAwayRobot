@@ -176,6 +176,18 @@ planner_server:
       tolerance: 0.5
       use_astar: false
       allow_unknown: true
+      visualize_potential: false
+      use_final_approach_orientation: true
+      use_interpolation: true
+      publish_potential: true
+      publish_scale: 100
+      lethal_cost: 253
+      neutral_cost: 50
+      cost_factor: 3.0
+      publish_potential: true
+      outline_map: true
+      orientation_mode: 1
+      cost_travel_multiplier: 2.0
 
 local_costmap:
   local_costmap:

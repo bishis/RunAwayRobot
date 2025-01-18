@@ -12,6 +12,7 @@ import random
 import math
 import numpy as np
 from enum import Enum
+from lifecycle_msgs.srv import GetState
 
 class RobotState(Enum):
     INITIALIZING = 1
@@ -389,7 +390,7 @@ class NavigationController(Node):
         """Initialize Nav2 action client with retry."""
         if self.nav_client is None:
             self.get_logger().info('Creating new Nav2 action client...')
-            self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+            self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose/_action')
             
         # Check if the action server is available
         self.get_logger().info('Waiting for Nav2 action server...')
@@ -401,6 +402,16 @@ class NavigationController(Node):
             from rclpy.action import get_action_names_and_types
             actions = get_action_names_and_types(self)
             self.get_logger().info(f'Available actions: {actions}')
+            
+            # Also check if Nav2 nodes are ready
+            try:
+                bt_navigator_state = self.create_client(GetState, '/bt_navigator/get_state')
+                if bt_navigator_state.wait_for_service(timeout_sec=1.0):
+                    self.get_logger().info('BT Navigator service is available')
+                else:
+                    self.get_logger().warn('BT Navigator service not available')
+            except Exception as e:
+                self.get_logger().warn(f'Error checking BT Navigator state: {e}')
             return
             
         # Successfully initialized

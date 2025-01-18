@@ -207,12 +207,31 @@ class NavigationController(Node):
 
     def send_velocity_command(self, linear_x, angular_z):
         """Send binary velocity command to the robot."""
+        # Calculate wheel speeds based on differential drive kinematics
+        wheel_separation = 0.20  # Distance between wheels in meters
+        wheel_radius = 0.05    # Wheel radius in meters
+        
+        # Convert linear and angular velocities to wheel speeds
+        left_speed = (linear_x - (wheel_separation / 2) * angular_z) / wheel_radius
+        right_speed = (linear_x + (wheel_separation / 2) * angular_z) / wheel_radius
+        
+        # Convert to binary commands (-1, 0, 1)
+        binary_left = 1.0 if left_speed > 0.1 else (-1.0 if left_speed < -0.1 else 0.0)
+        binary_right = 1.0 if right_speed > 0.1 else (-1.0 if right_speed < -0.1 else 0.0)
+        
+        # Create Twist message with binary wheel speeds
         cmd = Twist()
-        # Convert to binary values (-1, 0, 1)
-        cmd.linear.x = 1.0 if linear_x > 0.1 else (-1.0 if linear_x < -0.1 else 0.0)
-        cmd.angular.z = 1.0 if angular_z > 0.1 else (-1.0 if angular_z < -0.1 else 0.0)
+        cmd.linear.x = binary_left   # Left wheel
+        cmd.angular.z = binary_right # Right wheel
+        
+        # Log the commands being sent
+        self.get_logger().info(
+            f'Sending wheel commands:'
+            f'\n  Left: {binary_left}'
+            f'\n  Right: {binary_right}'
+        )
+        
         self.cmd_vel_pub.publish(cmd)
-        self.get_logger().debug(f'Sent command - linear: {cmd.linear.x}, angular: {cmd.angular.z}')
 
     def navigate_to_waypoint(self):
         """Send navigation goal to Nav2."""
@@ -308,25 +327,18 @@ class NavigationController(Node):
         left_speed = (linear_x - (wheel_separation / 2) * angular_z) / wheel_radius
         right_speed = (linear_x + (wheel_separation / 2) * angular_z) / wheel_radius
         
-        # Convert to binary commands (-1, 0, 1)
-        binary_left = 1.0 if left_speed > 0.1 else (-1.0 if left_speed < -0.1 else 0.0)
-        binary_right = 1.0 if right_speed > 0.1 else (-1.0 if right_speed < -0.1 else 0.0)
-        
         # Log the velocities and wheel speeds
         self.get_logger().info(
             f'\nNavigation Velocities:'
             f'\n  Linear X: {linear_x:.2f} m/s'
             f'\n  Angular Z: {angular_z:.2f} rad/s'
             f'\nCalculated Wheel Speeds:'
-            f'\n  Left: {left_speed:.2f} rad/s (binary: {binary_left})'
-            f'\n  Right: {right_speed:.2f} rad/s (binary: {binary_right})'
+            f'\n  Left: {left_speed:.2f} rad/s'
+            f'\n  Right: {right_speed:.2f} rad/s'
             f'\nDistance remaining: {feedback.distance_remaining:.2f}m'
         )
         
         # Send the binary velocity command
-        cmd = Twist()
-        cmd.linear.x = linear_x
-        cmd.angular.z = angular_z
         self.send_velocity_command(linear_x, angular_z)
 
     def control_loop(self):

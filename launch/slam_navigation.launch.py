@@ -78,11 +78,18 @@ def generate_launch_description():
             package='motor_controller',
             executable='navigation_controller',
             name='navigation_controller',
+            output='screen',
             parameters=[{
                 'use_sim_time': False,
                 'robot.radius': 0.17,
                 'robot.safety_margin': 0.10
-            }]
+            }],
+            remappings=[
+                ('cmd_vel', '/cmd_vel'),
+                ('scan', '/scan'),
+                ('map', '/map'),
+                ('odom', '/odom')
+            ]
         ),
 
         # RViz2 for visualization

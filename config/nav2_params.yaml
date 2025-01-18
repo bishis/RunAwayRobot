@@ -64,3 +64,21 @@ controller_server:
       RotateToGoal.slowing_factor: 5.0
       RotateToGoal.lookahead_time: -1.0
       cmd_vel_topic: "cmd_vel"  # Use default cmd_vel topic
+
+collision_monitor:
+  ros__parameters:
+    use_sim_time: false
+    observation_sources: ['scan']
+    scan:
+      type: "scan"
+      topic: "/scan"
+      min_height: 0.0
+      max_height: 0.5
+      obstacle_max_range: 1.0
+      obstacle_min_range: 0.2
+      raytrace_max_range: 6.0
+      raytrace_min_range: 0.0
+      clearing: True
+      marking: True
+      data_type: "LaserScan"
+      inf_is_valid: false

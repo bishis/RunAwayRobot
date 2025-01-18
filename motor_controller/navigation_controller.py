@@ -286,12 +286,14 @@ class NavigationController(Node):
         
         try:
             # Send goal with explicit feedback callback
+            self.get_logger().info('Creating goal request...')  # Debug print
             send_goal_future = self.nav_client.send_goal_async(
                 goal_msg,
                 feedback_callback=self.navigation_feedback_callback
             )
-            self.get_logger().info('Navigation goal sent, waiting for response...')
+            self.get_logger().info('Goal request created, adding callback...')  # Debug print
             send_goal_future.add_done_callback(self.navigation_response_callback)
+            self.get_logger().info('Callback added, changing state...')  # Debug print
             self.state = RobotState.WAITING_FOR_NAV2
             return True
         except Exception as e:
@@ -368,8 +370,11 @@ class NavigationController(Node):
             )
             
             if self.current_waypoint_index < len(self.waypoints):
-                self.navigate_to_waypoint()
+                self.get_logger().info('Attempting to navigate to waypoint...')  # Debug print
+                success = self.navigate_to_waypoint()
+                self.get_logger().info(f'Navigation attempt result: {success}')  # Debug print
             else:
+                self.get_logger().info('No more waypoints, generating new ones...')  # Debug print
                 self.generate_waypoints()
                 
         elif self.state == RobotState.WAITING_FOR_NAV2:

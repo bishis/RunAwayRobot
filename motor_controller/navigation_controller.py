@@ -13,6 +13,7 @@ from lifecycle_msgs.srv import GetState
 import math
 from enum import Enum
 import numpy as np
+from motor_controller.processors.waypoint_generator import WaypointGenerator
 
 class RobotState(Enum):
     INITIALIZING = 1
@@ -41,11 +42,15 @@ class NavigationController(Node):
         self.map_info = None
         self.nav2_initialized = False
         self.initial_pose_sent = False
-        
-        # Waypoint variables
+        self.current_waypoint = None
         self.waypoints = []
-        self.current_waypoint_index = 0
-        self.num_waypoints = 5  # Number of random waypoints to generate
+        
+        # Initialize waypoint generator
+        self.waypoint_generator = WaypointGenerator(
+            robot_radius=self.robot_radius,
+            safety_margin=self.safety_margin,
+            num_waypoints=5  # Generate 5 waypoints at a time
+        )
         
         # Nav2 Action Clients
         self.nav_to_pose_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -162,11 +167,8 @@ class NavigationController(Node):
         status = future.result().status
         if status == 4:  # SUCCEEDED
             self.get_logger().info('Navigation succeeded')
+            self.current_waypoint += 1  # Move to next waypoint
             self.state = RobotState.IDLE
-            
-            # Move to next waypoint
-            self.current_waypoint_index = (self.current_waypoint_index + 1) % len(self.waypoints)
-            self.create_timer(2.0, self.navigate_to_next_waypoint, oneshot=True)
         else:
             self.get_logger().warn(f'Navigation failed with status: {status}')
             self.state = RobotState.RECOVERY
@@ -278,67 +280,61 @@ class NavigationController(Node):
         
         self.state = RobotState.IDLE
 
-    def generate_random_waypoints(self):
-        """Generate random waypoints in free space."""
-        if self.map_data is None or self.map_info is None:
-            self.get_logger().warn('Map not available for waypoint generation')
+    def generate_waypoints(self):
+        """Generate new waypoints using the waypoint generator."""
+        if not self.current_pose or not self.map_data is not None:
             return
-
-        self.waypoints = []
-        attempts = 0
-        max_attempts = 1000
-
-        while len(self.waypoints) < self.num_waypoints and attempts < max_attempts:
-            # Generate random map coordinates
-            x = np.random.randint(0, self.map_info.width)
-            y = np.random.randint(0, self.map_info.height)
             
-            # Check if point is in free space
-            if self.map_data[y, x] == 0:  # Free space
-                # Convert to world coordinates
-                world_x = x * self.map_info.resolution + self.map_info.origin.position.x
-                world_y = y * self.map_info.resolution + self.map_info.origin.position.y
-                
-                # Create pose
-                pose = PoseStamped()
-                pose.header.frame_id = 'map'
-                pose.header.stamp = self.get_clock().now().to_msg()
-                pose.pose.position.x = world_x
-                pose.pose.position.y = world_y
-                pose.pose.position.z = 0.0
-                
-                # Random orientation
-                yaw = np.random.uniform(-math.pi, math.pi)
-                pose.pose.orientation.x = 0.0
-                pose.pose.orientation.y = 0.0
-                pose.pose.orientation.z = math.sin(yaw / 2.0)
-                pose.pose.orientation.w = math.cos(yaw / 2.0)
-                
-                self.waypoints.append(pose)
-                self.get_logger().info(f'Generated waypoint {len(self.waypoints)}: ({world_x:.2f}, {world_y:.2f})')
-            
-            attempts += 1
-
+        self.waypoints = self.waypoint_generator.generate_waypoints(
+            self.current_pose,
+            self.map_data,
+            self.map_info,
+            self.is_valid_point,
+            self.map_to_world
+        )
+        
         if self.waypoints:
-            self.get_logger().info(f'Generated {len(self.waypoints)} waypoints')
-            self.current_waypoint_index = 0
+            self.get_logger().info(f'Generated {len(self.waypoints)} new waypoints')
+            self.current_waypoint = 0
         else:
-            self.get_logger().error('Failed to generate any valid waypoints')
+            self.get_logger().warn('No valid waypoints generated')
 
     def navigate_to_next_waypoint(self):
         """Navigate to the next waypoint in the list."""
-        if not self.waypoints:
-            self.generate_random_waypoints()
+        if not self.waypoints or self.current_waypoint >= len(self.waypoints):
+            self.generate_waypoints()
             return
-
-        if self.state == RobotState.IDLE:
-            current_waypoint = self.waypoints[self.current_waypoint_index]
-            self.get_logger().info(f'Navigating to waypoint {self.current_waypoint_index + 1}/{len(self.waypoints)}')
             
-            if self.navigate_to_pose(current_waypoint):
-                self.get_logger().info('Navigation started')
-            else:
-                self.get_logger().error('Failed to start navigation')
+        if self.state != RobotState.IDLE:
+            return
+            
+        target = self.waypoints[self.current_waypoint]
+        
+        # Create goal pose
+        goal_pose = PoseStamped()
+        goal_pose.header.frame_id = 'map'
+        goal_pose.header.stamp = self.get_clock().now().to_msg()
+        goal_pose.pose.position = target
+        
+        # Calculate orientation towards the next waypoint or final orientation
+        if self.current_waypoint < len(self.waypoints) - 1:
+            next_point = self.waypoints[self.current_waypoint + 1]
+            dx = next_point.x - target.x
+            dy = next_point.y - target.y
+            yaw = math.atan2(dy, dx)
+        else:
+            yaw = 0.0  # Face forward at final waypoint
+            
+        # Convert yaw to quaternion
+        goal_pose.pose.orientation.z = math.sin(yaw / 2.0)
+        goal_pose.pose.orientation.w = math.cos(yaw / 2.0)
+        
+        # Start navigation
+        if self.navigate_to_pose(goal_pose):
+            self.get_logger().info(f'Navigating to waypoint {self.current_waypoint + 1}/{len(self.waypoints)}')
+        else:
+            self.get_logger().warn('Failed to start navigation to waypoint')
+            self.current_waypoint = len(self.waypoints)  # Force new waypoint generation
 
     def control_loop(self):
         """Main control loop."""
@@ -347,14 +343,48 @@ class NavigationController(Node):
 
         if self.state == RobotState.INITIALIZING or self.state == RobotState.WAITING_FOR_NAV2:
             self.lifecycle_manager()
-        elif self.state == RobotState.IDLE and not self.waypoints:
-            # Generate waypoints if we don't have any
-            self.generate_random_waypoints()
-            if self.waypoints:
-                self.navigate_to_next_waypoint()
-        elif self.state == RobotState.IDLE and self.waypoints:
-            # Continue with next waypoint
+            
+        elif self.state == RobotState.IDLE:
             self.navigate_to_next_waypoint()
+            
+        elif self.state == RobotState.NAVIGATING:
+            # Navigation is handled by Nav2
+            pass
+            
+        elif self.state == RobotState.RECOVERY:
+            self.handle_recovery()
+
+    def is_valid_point(self, x, y):
+        """Check if a point is valid and free of obstacles."""
+        if not self.map_info:
+            return False
+            
+        # Convert to map coordinates
+        mx = int((x - self.map_info.origin.position.x) / self.map_info.resolution)
+        my = int((y - self.map_info.origin.position.y) / self.map_info.resolution)
+        
+        if not (0 <= mx < self.map_info.width and 0 <= my < self.map_info.height):
+            return False
+            
+        # Check area around point for obstacles
+        radius_cells = int((self.robot_radius + self.safety_margin) / self.map_info.resolution)
+        for dx in range(-radius_cells, radius_cells + 1):
+            for dy in range(-radius_cells, radius_cells + 1):
+                check_x = mx + dx
+                check_y = my + dy
+                if (0 <= check_x < self.map_info.width and 
+                    0 <= check_y < self.map_info.height):
+                    if self.map_data[check_y, check_x] > 50:  # Occupied
+                        return False
+        return True
+
+    def map_to_world(self, mx, my):
+        """Convert map coordinates to world coordinates."""
+        if not self.map_info:
+            return None, None
+        x = mx * self.map_info.resolution + self.map_info.origin.position.x
+        y = my * self.map_info.resolution + self.map_info.origin.position.y
+        return x, y
 
 def main(args=None):
     rclpy.init(args=args)

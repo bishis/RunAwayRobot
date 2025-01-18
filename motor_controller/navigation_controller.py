@@ -41,8 +41,9 @@ class NavigationController(Node):
         self.map_info = None
         self.navigation_succeeded = False
         
-        # Nav2 Action Client
-        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        # Nav2 Action Client with retry
+        self.nav_client = None
+        self.create_timer(1.0, self.init_nav_client)  # Try to connect every second
         
         # Publishers
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
@@ -215,8 +216,8 @@ class NavigationController(Node):
 
     def navigate_to_waypoint(self):
         """Send navigation goal to Nav2."""
-        if not self.nav_client.wait_for_server(timeout_sec=1.0):
-            self.get_logger().error('Navigation action server not available')
+        if self.nav_client is None or not self.nav_client.wait_for_server(timeout_sec=0.1):
+            self.get_logger().warn('Navigation server not available, skipping waypoint')
             return False
 
         goal_msg = NavigateToPose.Goal()
@@ -343,6 +344,17 @@ class NavigationController(Node):
             
         # Always publish waypoints for visualization
         self.publish_waypoints()
+
+    def init_nav_client(self):
+        """Initialize Nav2 action client with retry."""
+        if self.nav_client is None:
+            self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+            
+        if self.nav_client.wait_for_server(timeout_sec=0.5):
+            self.get_logger().info('Successfully connected to Nav2 action server')
+            self.destroy_timer(self.init_nav_client)  # Stop retry timer
+        else:
+            self.get_logger().warn('Waiting for Nav2 action server...')
 
 def main(args=None):
     rclpy.init(args=args)

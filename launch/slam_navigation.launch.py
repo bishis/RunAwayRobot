@@ -1,7 +1,7 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import SetEnvironmentVariable, IncludeLaunchDescription
+from launch.actions import SetEnvironmentVariable, IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 
@@ -11,7 +11,7 @@ def generate_launch_description():
     
     # Get the nav2 launch file
     nav2_launch_dir = os.path.join(nav2_dir, 'launch')
-    nav2_launch_path = os.path.join(nav2_launch_dir, 'navigation_launch.py')
+    nav2_bringup_path = os.path.join(nav2_launch_dir, 'bringup_launch.py')
 
     return LaunchDescription([
         # Network setup
@@ -48,24 +48,30 @@ def generate_launch_description():
 
         # Nav2
         IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(nav2_launch_path),
+            PythonLaunchDescriptionSource(nav2_bringup_path),
             launch_arguments={
                 'use_sim_time': 'false',
                 'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
-                'map': ''
+                'map': '',
+                'use_composition': 'True'
             }.items()
         ),
 
-        # Navigation Controller
-        Node(
-            package='motor_controller',
-            executable='navigation_controller',
-            name='navigation_controller',
-            parameters=[{
-                'use_sim_time': False,
-                'robot.radius': 0.17,
-                'robot.safety_margin': 0.10
-            }]
+        # Add delay before starting navigation controller
+        TimerAction(
+            period=5.0,
+            actions=[
+                Node(
+                    package='motor_controller',
+                    executable='navigation_controller',
+                    name='navigation_controller',
+                    parameters=[{
+                        'use_sim_time': False,
+                        'robot.radius': 0.17,
+                        'robot.safety_margin': 0.10
+                    }]
+                )
+            ]
         ),
 
         # RViz2 for visualization

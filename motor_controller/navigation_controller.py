@@ -125,6 +125,16 @@ class NavigationController(Node):
         feedback = feedback_msg.feedback
         self.get_logger().debug(f'Distance remaining: {feedback.distance_remaining:.2f}m')
 
+    def map_callback(self, msg):
+        """Process incoming map data."""
+        try:
+            self.map_data = np.array(msg.data).reshape((msg.info.height, msg.info.width))
+            self.map_info = msg.info
+            self.path_planner.update_map(self.map_data, self.map_info)
+            self.get_logger().debug('Map data updated')
+        except Exception as e:
+            self.get_logger().error(f'Error processing map data: {str(e)}')
+
     def scan_callback(self, msg):
         """Store latest scan data."""
         self.latest_scan = msg

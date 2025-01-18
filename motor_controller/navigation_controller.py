@@ -8,6 +8,7 @@ from geometry_msgs.msg import Twist, PoseStamped, Point
 from nav_msgs.msg import OccupancyGrid
 from visualization_msgs.msg import MarkerArray, Marker
 from std_msgs.msg import ColorRGBA
+from ament_index_python.packages import get_package_share_directory
 import random
 import math
 import numpy as np

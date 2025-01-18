@@ -116,19 +116,21 @@ def generate_launch_description():
             parameters=[{
                 'use_sim_time': False,
                 'autostart': True,
-                'bond_timeout': 0.0,  # Disable bond timeout
+                'bond_timeout': 0.0,
                 'node_names': ['map_server',
                              'amcl',
                              'controller_server',
                              'planner_server',
                              'behavior_server',
-                             'bt_navigator']
+                             'bt_navigator'],
+                'activate_lifecycle_nodes': True,
+                'manage_lifecycle_nodes': True
             }]
         ),
 
         # Add delay before starting navigation controller
         TimerAction(
-            period=20.0,  # Increased delay to ensure Nav2 is fully initialized
+            period=30.0,
             actions=[
                 Node(
                     package='motor_controller',

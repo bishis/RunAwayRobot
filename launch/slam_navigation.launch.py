@@ -38,12 +38,24 @@ def generate_launch_description():
             arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
         ),
 
-        # Map to Odom Transform
+        # SLAM Toolbox (minimal configuration)
         Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='map_to_odom',
-            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
+            package='slam_toolbox',
+            executable='async_slam_toolbox_node',
+            name='slam_toolbox',
+            parameters=[{
+                'use_sim_time': False,
+                'base_frame': 'base_link',
+                'odom_frame': 'odom',
+                'map_frame': 'map',
+                'resolution': 0.05,
+                'map_update_interval': 5.0,
+                'max_laser_range': 12.0,
+                'minimum_time_interval': 0.5,
+                'transform_timeout': 0.2,
+                'scan_topic': '/scan',
+                'mode': 'mapping'
+            }]
         ),
 
         # Nav2 (local planning only)

@@ -286,7 +286,40 @@ class NavigationController(Node):
     def navigation_feedback_callback(self, feedback_msg):
         """Handle navigation feedback from Nav2."""
         feedback = feedback_msg.feedback
-        self.get_logger().debug(f'Distance remaining: {feedback.distance_remaining:.2f}m')
+        
+        # Get current commanded velocities
+        current_vel = feedback.current_vel
+        linear_x = current_vel.linear.x
+        angular_z = current_vel.angular.z
+        
+        # Calculate wheel speeds based on differential drive kinematics
+        wheel_separation = 0.3  # Distance between wheels in meters
+        wheel_radius = 0.05    # Wheel radius in meters
+        
+        # Convert linear and angular velocities to wheel speeds
+        left_speed = (linear_x - (wheel_separation / 2) * angular_z) / wheel_radius
+        right_speed = (linear_x + (wheel_separation / 2) * angular_z) / wheel_radius
+        
+        # Convert to binary commands (-1, 0, 1)
+        binary_left = 1.0 if left_speed > 0.1 else (-1.0 if left_speed < -0.1 else 0.0)
+        binary_right = 1.0 if right_speed > 0.1 else (-1.0 if right_speed < -0.1 else 0.0)
+        
+        # Log the velocities and wheel speeds
+        self.get_logger().info(
+            f'\nNavigation Velocities:'
+            f'\n  Linear X: {linear_x:.2f} m/s'
+            f'\n  Angular Z: {angular_z:.2f} rad/s'
+            f'\nCalculated Wheel Speeds:'
+            f'\n  Left: {left_speed:.2f} rad/s (binary: {binary_left})'
+            f'\n  Right: {right_speed:.2f} rad/s (binary: {binary_right})'
+            f'\nDistance remaining: {feedback.distance_remaining:.2f}m'
+        )
+        
+        # Send the binary velocity command
+        cmd = Twist()
+        cmd.linear.x = linear_x
+        cmd.angular.z = angular_z
+        self.send_velocity_command(linear_x, angular_z)
 
     def control_loop(self):
         """Main control loop."""

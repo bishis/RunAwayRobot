@@ -9,6 +9,10 @@ def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
     nav2_dir = get_package_share_directory('nav2_bringup')
     
+    # Get the nav2 launch file
+    nav2_launch_dir = os.path.join(nav2_dir, 'launch')
+    nav2_launch_path = os.path.join(nav2_launch_dir, 'navigation_launch.py')
+
     return LaunchDescription([
         # Network setup
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
@@ -44,9 +48,7 @@ def generate_launch_description():
 
         # Nav2
         IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([
-                os.path.join(nav2_dir, 'launch', 'navigation_launch.py')
-            ]),
+            PythonLaunchDescriptionSource(nav2_launch_path),
             launch_arguments={
                 'use_sim_time': 'false',
                 'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),

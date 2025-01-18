@@ -4,32 +4,14 @@ from launch import LaunchDescription
 from launch.actions import SetEnvironmentVariable, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
-from launch.substitutions import LaunchConfiguration
-from launch.actions import DeclareLaunchArgument
 
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
-    nav2_dir = get_package_share_directory('nav2_bringup')
-    
-    # Launch Arguments
-    use_sim_time = LaunchConfiguration('use_sim_time', default='false')
-    map_yaml_path = LaunchConfiguration('map', default='')
-    params_file = LaunchConfiguration('params_file', 
-                                    default=os.path.join(pkg_dir, 'config', 'nav2_params.yaml'))
     
     return LaunchDescription([
         # Network setup
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
-
-        # Launch Arguments
-        DeclareLaunchArgument('use_sim_time', default_value='false',
-                            description='Use simulation time'),
-        DeclareLaunchArgument('map', default_value='',
-                            description='Full path to map yaml file'),
-        DeclareLaunchArgument('params_file',
-                            default_value=os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
-                            description='Full path to the ROS2 parameters file'),
 
         # RF2O Odometry
         Node(
@@ -38,7 +20,7 @@ def generate_launch_description():
             name='rf2o_laser_odometry',
             parameters=[{
                 'laser_scan_topic': '/scan',
-                'odom_topic': '/odom',
+                'odom_topic': '/odom_rf2o',
                 'publish_tf': True,
                 'base_frame_id': 'base_link',
                 'odom_frame_id': 'odom',
@@ -47,7 +29,7 @@ def generate_launch_description():
             }]
         ),
 
-        # SLAM Toolbox
+        # SLAM Toolbox (using existing configuration)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(get_package_share_directory('slam_toolbox'),
@@ -56,18 +38,6 @@ def generate_launch_description():
             launch_arguments={
                 'use_sim_time': 'false',
                 'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
-            }.items()
-        ),
-
-        # Nav2
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([
-                os.path.join(nav2_dir, 'launch', 'navigation_launch.py')
-            ]),
-            launch_arguments={
-                'use_sim_time': use_sim_time,
-                'params_file': params_file,
-                'map': map_yaml_path
             }.items()
         ),
 

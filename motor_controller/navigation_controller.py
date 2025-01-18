@@ -95,14 +95,18 @@ class NavigationController(Node):
 
         self.get_logger().info(f'Navigating to: x={x:.2f}, y={y:.2f}, theta={theta:.2f}')
         
-        # Send goal
-        self.nav_client.send_goal_async(
-            goal_msg,
-            feedback_callback=self.navigation_feedback_callback
-        ).add_done_callback(self.navigation_response_callback)
-        
-        self.state = RobotState.NAVIGATING
-        return True
+        try:
+            # Send goal
+            future = self.nav_client.send_goal_async(
+                goal_msg,
+                feedback_callback=self.navigation_feedback_callback
+            )
+            future.add_done_callback(self.navigation_response_callback)
+            self.state = RobotState.NAVIGATING
+            return True
+        except Exception as e:
+            self.get_logger().error(f'Failed to send navigation goal: {str(e)}')
+            return False
 
     def navigation_response_callback(self, future):
         """Handle the response from Nav2 goal request."""
@@ -156,6 +160,7 @@ class NavigationController(Node):
     def control_loop(self):
         """Main control loop."""
         if not self.current_pose:
+            self.get_logger().warn('No current pose available')
             return
 
         # Publish waypoints for visualization
@@ -169,17 +174,21 @@ class NavigationController(Node):
             if not self.waypoints:
                 self.get_logger().warn('Failed to generate new waypoints')
                 return
-            return
 
         # Only send new navigation goal if we're not already navigating
         if self.state == RobotState.STOPPED:
-            current_target = self.waypoints[self.current_waypoint_index]
-            # Calculate target orientation (face the direction of movement)
-            dx = current_target.x - self.current_pose.position.x
-            dy = current_target.y - self.current_pose.position.y
-            target_angle = math.atan2(dy, dx)
-            
-            self.navigate_to_pose(current_target.x, current_target.y, target_angle)
+            if self.current_waypoint_index < len(self.waypoints):
+                current_target = self.waypoints[self.current_waypoint_index]
+                # Calculate target orientation (face the direction of movement)
+                dx = current_target.x - self.current_pose.position.x
+                dy = current_target.y - self.current_pose.position.y
+                target_angle = math.atan2(dy, dx)
+                
+                self.get_logger().info(f'Attempting to navigate to waypoint {self.current_waypoint_index}')
+                if not self.navigate_to_pose(current_target.x, current_target.y, target_angle):
+                    self.get_logger().error('Failed to send navigation goal')
+            else:
+                self.get_logger().warn('No more waypoints to navigate to')
 
     def publish_waypoints(self):
         """Publish waypoints for visualization."""
@@ -227,7 +236,8 @@ class NavigationController(Node):
 
     def generate_waypoints(self, preferred_angle=None):
         """Generate waypoints in a pattern around the robot."""
-        if not self.current_pose or not self.map_data is not None:
+        if not self.current_pose or self.map_data is None:
+            self.get_logger().warn('Cannot generate waypoints: missing pose or map data')
             return []
 
         waypoints = []
@@ -246,17 +256,49 @@ class NavigationController(Node):
             x = current_pos.x + radius * math.cos(angle)
             y = current_pos.y + radius * math.sin(angle)
 
-            point = Point()
-            point.x = x
-            point.y = y
-            point.z = 0.0
-            waypoints.append(point)
+            # Check if point is valid before adding
+            if self.is_valid_point(x, y):
+                point = Point()
+                point.x = x
+                point.y = y
+                point.z = 0.0
+                waypoints.append(point)
+                self.get_logger().info(f'Added valid waypoint {i}: ({x:.2f}, {y:.2f})')
+            else:
+                self.get_logger().warn(f'Skipping invalid waypoint {i}: ({x:.2f}, {y:.2f})')
 
             # Increase radius and angle for spiral pattern
             radius += self.leg_length * 0.5
             angle += math.pi / 2
 
+        self.get_logger().info(f'Generated {len(waypoints)} valid waypoints')
         return waypoints
+
+    def is_valid_point(self, x, y):
+        """Check if point is valid considering robot size."""
+        if self.map_data is None or self.map_info is None:
+            return False
+
+        # Convert world coordinates to map coordinates
+        mx = int((x - self.map_info.origin.position.x) / self.map_info.resolution)
+        my = int((y - self.map_info.origin.position.y) / self.map_info.resolution)
+
+        # Check if point is within map bounds
+        if not (0 <= mx < self.map_info.width and 0 <= my < self.map_info.height):
+            return False
+
+        # Check area around point
+        check_radius = int((self.robot_radius + self.safety_margin) / self.map_info.resolution)
+        for dx in range(-check_radius, check_radius + 1):
+            for dy in range(-check_radius, check_radius + 1):
+                if dx*dx + dy*dy <= check_radius*check_radius:
+                    check_x = mx + dx
+                    check_y = my + dy
+                    if (0 <= check_x < self.map_info.width and 
+                        0 <= check_y < self.map_info.height):
+                        if self.map_data[check_y, check_x] > 50:  # Occupied
+                            return False
+        return True
 
     def get_yaw_from_quaternion(self, q):
         """Extract yaw from quaternion."""

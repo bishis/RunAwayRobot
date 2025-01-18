@@ -15,6 +15,7 @@ def generate_launch_description():
     # Launch Arguments
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
     slam_params_file = os.path.join(pkg_dir, 'config', 'slam_params.yaml')
+    twist_mux_params = os.path.join(pkg_dir, 'config', 'twist_mux.yaml')
     
     # Declare launch arguments
     declare_use_sim_time = DeclareLaunchArgument(
@@ -64,10 +65,9 @@ def generate_launch_description():
             package='twist_mux',
             executable='twist_mux',
             name='twist_mux',
-            parameters=[os.path.join(pkg_dir, 'config', 'twist_mux.yaml')],
-            remappings=[
-                ('/cmd_vel_out', '/cmd_vel')
-            ]
+            output='screen',
+            parameters=[twist_mux_params],
+            remappings=[('/cmd_vel_out', '/cmd_vel')]
         ),
 
         # Navigation Controller

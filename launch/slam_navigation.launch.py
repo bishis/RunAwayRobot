@@ -58,11 +58,26 @@ def generate_launch_description():
             }.items()
         ),
 
-        # Nav2 Core
+        # Nav2 Core (in this specific order)
+        Node(
+            package='nav2_map_server',
+            executable='map_server',
+            name='map_server',
+            output='screen',
+            parameters=[configured_params]
+        ),
+
+        Node(
+            package='nav2_amcl',
+            executable='amcl',
+            name='amcl',
+            output='screen',
+            parameters=[configured_params]
+        ),
+
         Node(
             package='nav2_controller',
             executable='controller_server',
-            name='controller_server',
             output='screen',
             parameters=[configured_params],
             remappings=[('cmd_vel', 'cmd_vel')]
@@ -92,35 +107,27 @@ def generate_launch_description():
             parameters=[configured_params]
         ),
 
-        Node(
-            package='nav2_waypoint_follower',
-            executable='waypoint_follower',
-            name='waypoint_follower',
-            output='screen',
-            parameters=[configured_params]
-        ),
-
+        # Start lifecycle manager after all nodes
         Node(
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
             name='lifecycle_manager_navigation',
             output='screen',
-            parameters=[
-                {'use_sim_time': False},
-                {'autostart': True},
-                {'node_names': [
-                    'controller_server',
-                    'planner_server',
-                    'behavior_server',
-                    'bt_navigator',
-                    'waypoint_follower'
-                ]}
-            ]
+            parameters=[{
+                'use_sim_time': False,
+                'autostart': True,
+                'node_names': ['map_server',
+                             'amcl',
+                             'controller_server',
+                             'planner_server',
+                             'behavior_server',
+                             'bt_navigator']
+            }]
         ),
 
         # Add delay before starting navigation controller
         TimerAction(
-            period=15.0,  # Increased delay to ensure Nav2 is fully initialized
+            period=20.0,  # Increased delay to ensure Nav2 is fully initialized
             actions=[
                 Node(
                     package='motor_controller',

@@ -66,6 +66,8 @@ class NavigationController(Node):
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
         self.initial_pose_pub = self.create_publisher(
             PoseWithCovarianceStamped, 'initialpose', 10)
+        self.waypoint_markers_pub = self.create_publisher(
+            MarkerArray, 'waypoint_markers', 10)
         
         # Subscribers
         self.create_subscription(Odometry, 'odom', self.odom_callback, 10)
@@ -296,8 +298,88 @@ class NavigationController(Node):
         if self.waypoints:
             self.get_logger().info(f'Generated {len(self.waypoints)} new waypoints')
             self.current_waypoint = 0
+            self.publish_waypoint_markers()
         else:
             self.get_logger().warn('No valid waypoints generated')
+
+    def publish_waypoint_markers(self):
+        """Publish waypoint visualization markers."""
+        marker_array = MarkerArray()
+        
+        # Delete old markers
+        delete_marker = Marker()
+        delete_marker.action = Marker.DELETEALL
+        marker_array.markers.append(delete_marker)
+        
+        # Create markers for each waypoint
+        for i, waypoint in enumerate(self.waypoints):
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = 'waypoints'
+            marker.id = i
+            marker.type = Marker.SPHERE
+            marker.action = Marker.ADD
+            
+            # Set marker position
+            marker.pose.position = waypoint
+            marker.pose.orientation.w = 1.0
+            
+            # Set marker size
+            marker.scale.x = 0.2
+            marker.scale.y = 0.2
+            marker.scale.z = 0.2
+            
+            # Set marker color (blue for normal waypoints, green for current)
+            marker.color = ColorRGBA()
+            if i == self.current_waypoint:
+                marker.color.r = 0.0
+                marker.color.g = 1.0
+                marker.color.b = 0.0
+            else:
+                marker.color.r = 0.0
+                marker.color.g = 0.0
+                marker.color.b = 1.0
+            marker.color.a = 1.0
+            
+            marker_array.markers.append(marker)
+            
+            # Add line connecting waypoints
+            if i > 0:
+                line_marker = Marker()
+                line_marker.header.frame_id = 'map'
+                line_marker.header.stamp = self.get_clock().now().to_msg()
+                line_marker.ns = 'waypoint_lines'
+                line_marker.id = i + len(self.waypoints)
+                line_marker.type = Marker.LINE_STRIP
+                line_marker.action = Marker.ADD
+                
+                # Set line points
+                prev_point = Point()
+                prev_point.x = self.waypoints[i-1].x
+                prev_point.y = self.waypoints[i-1].y
+                prev_point.z = 0.0
+                
+                curr_point = Point()
+                curr_point.x = waypoint.x
+                curr_point.y = waypoint.y
+                curr_point.z = 0.0
+                
+                line_marker.points = [prev_point, curr_point]
+                
+                # Set line width
+                line_marker.scale.x = 0.05
+                
+                # Set line color (yellow)
+                line_marker.color = ColorRGBA()
+                line_marker.color.r = 1.0
+                line_marker.color.g = 1.0
+                line_marker.color.b = 0.0
+                line_marker.color.a = 0.8
+                
+                marker_array.markers.append(line_marker)
+        
+        self.waypoint_markers_pub.publish(marker_array)
 
     def navigate_to_next_waypoint(self):
         """Navigate to the next waypoint in the list."""
@@ -332,6 +414,7 @@ class NavigationController(Node):
         # Start navigation
         if self.navigate_to_pose(goal_pose):
             self.get_logger().info(f'Navigating to waypoint {self.current_waypoint + 1}/{len(self.waypoints)}')
+            self.publish_waypoint_markers()  # Update markers to show current waypoint
         else:
             self.get_logger().warn('Failed to start navigation to waypoint')
             self.current_waypoint = len(self.waypoints)  # Force new waypoint generation

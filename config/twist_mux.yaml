@@ -1,21 +1,19 @@
-twist_mux:
-  ros__parameters:
-    topics:
-      navigation:
-        topic   : nav2/cmd_vel
-        timeout : 0.5
-        priority: 10
-      joystick:
-        topic   : joy/cmd_vel
-        timeout : 0.5
-        priority: 100
-      keyboard:
-        topic   : key/cmd_vel
-        timeout : 0.5
-        priority: 90
-    
-    locks:
-      e_stop:
-        topic   : e_stop
-        timeout : 0.0
-        priority: 255 
+topics:
+  - name    : navigation
+    topic   : /nav2/cmd_vel
+    timeout : 0.5
+    priority: 10
+  - name    : joystick
+    topic   : /joy/cmd_vel
+    timeout : 0.5
+    priority: 100
+  - name    : keyboard
+    topic   : /key/cmd_vel
+    timeout : 0.5
+    priority: 90
+
+locks:
+  - name    : e_stop
+    topic   : /e_stop
+    timeout : 0.0
+    priority: 255 

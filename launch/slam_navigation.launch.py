@@ -66,8 +66,14 @@ def generate_launch_description():
             executable='twist_mux',
             name='twist_mux',
             output='screen',
-            parameters=[twist_mux_params],
-            remappings=[('/cmd_vel_out', '/cmd_vel')]
+            parameters=[{'yaml_config_file': twist_mux_params}],
+            remappings=[
+                ('/cmd_vel_out', '/cmd_vel'),
+                ('/nav2/cmd_vel', '/nav2/cmd_vel'),
+                ('/joy/cmd_vel', '/joy/cmd_vel'),
+                ('/key/cmd_vel', '/key/cmd_vel'),
+                ('/e_stop', '/e_stop')
+            ]
         ),
 
         # Navigation Controller

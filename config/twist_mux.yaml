@@ -1,0 +1,16 @@
+topics:
+  - name    : nav2
+    topic   : /nav2/cmd_vel
+    timeout : 0.5
+    priority: 10
+
+  - name    : joystick
+    topic   : /joy_cmd_vel
+    timeout : 0.5
+    priority: 100
+
+locks:
+  - name    : e_stop
+    topic   : /e_stop
+    timeout : 0.0
+    priority: 200 

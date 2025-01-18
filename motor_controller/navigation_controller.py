@@ -198,6 +198,77 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error processing map data: {str(e)}')
 
+    def compute_path(self, goal_pose):
+        """Compute a path to the goal pose using Nav2."""
+        if not self.nav2_initialized:
+            self.get_logger().warn('Nav2 not initialized yet')
+            return None
+
+        goal_msg = ComputePathToPose.Goal()
+        goal_msg.goal = goal_pose
+        goal_msg.start = PoseStamped()
+        goal_msg.start.header.frame_id = 'map'
+        goal_msg.start.header.stamp = self.get_clock().now().to_msg()
+        goal_msg.start.pose = self.current_pose
+
+        self.get_logger().info('Computing path to goal')
+        future = self.compute_path_client.send_goal_async(goal_msg)
+        rclpy.spin_until_future_complete(self, future)
+        goal_handle = future.result()
+
+        if not goal_handle.accepted:
+            self.get_logger().error('Path computation rejected')
+            return None
+
+        result_future = goal_handle.get_result_async()
+        rclpy.spin_until_future_complete(self, result_future)
+        result = result_future.result().result
+
+        if not result.path.poses:
+            self.get_logger().error('No path found')
+            return None
+
+        return result.path
+
+    def handle_recovery(self):
+        """Handle recovery behavior when navigation fails."""
+        if self.state != RobotState.RECOVERY:
+            return
+
+        self.get_logger().info('Executing recovery behavior')
+        
+        # Stop the robot
+        stop_cmd = Twist()
+        self.cmd_vel_pub.publish(stop_cmd)
+        
+        # Wait a bit before retrying
+        self.create_timer(2.0, self.retry_navigation, oneshot=True)
+
+    def retry_navigation(self):
+        """Retry navigation after recovery."""
+        if self.state == RobotState.RECOVERY:
+            self.state = RobotState.IDLE
+            self.get_logger().info('Recovery complete, ready for new goals')
+
+    def cancel_navigation(self):
+        """Cancel the current navigation goal."""
+        if self.state != RobotState.NAVIGATING:
+            return
+
+        self.get_logger().info('Canceling current navigation goal')
+        
+        # Stop the robot
+        stop_cmd = Twist()
+        self.cmd_vel_pub.publish(stop_cmd)
+        
+        # Cancel the goal
+        if self.nav_to_pose_client.server_is_ready():
+            future = self.nav_to_pose_client._get_goal_handle()
+            if future is not None:
+                future.cancel_goal_async()
+        
+        self.state = RobotState.IDLE
+
     def control_loop(self):
         """Main control loop."""
         if not self.current_pose or self.map_data is None:

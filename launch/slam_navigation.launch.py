@@ -30,6 +30,14 @@ def generate_launch_description():
             }]
         ),
 
+        # Transform publishers
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='base_link_to_laser',
+            arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
+        ),
+
         # SLAM Toolbox
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
@@ -50,7 +58,7 @@ def generate_launch_description():
             launch_arguments={
                 'use_sim_time': 'false',
                 'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
-                'map': os.path.join(pkg_dir, 'maps', 'map.yaml')
+                'autostart': 'true'
             }.items()
         ),
 

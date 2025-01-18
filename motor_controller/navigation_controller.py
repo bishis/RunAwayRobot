@@ -251,14 +251,31 @@ class NavigationController(Node):
             self.get_logger().error(f'Error processing map data: {str(e)}')
 
     def generate_waypoints(self, preferred_angle=None):
-        """Generate waypoints using WaypointGenerator."""
-        return self.waypoint_generator.generate_waypoints(
-            self.current_pose,
-            self.map_data,
-            self.map_info,
-            self.is_valid_point,
-            self.map_to_world
-        )
+        """Generate waypoints in a circular pattern."""
+        if not self.current_pose:
+            self.get_logger().warn('No current pose available for waypoint generation')
+            return []
+
+        waypoints = []
+        center = Point()
+        center.x = self.current_pose.position.x
+        center.y = self.current_pose.position.y
+
+        for i in range(self.num_waypoints):
+            angle = (2.0 * math.pi * i) / self.num_waypoints
+            if preferred_angle is not None:
+                angle += preferred_angle
+
+            waypoint = Point()
+            waypoint.x = center.x + self.leg_length * math.cos(angle)
+            waypoint.y = center.y + self.leg_length * math.sin(angle)
+            waypoint.z = 0.0
+
+            if self.is_valid_point(waypoint.x, waypoint.y):
+                waypoints.append(waypoint)
+
+        self.get_logger().info(f'Generated {len(waypoints)} valid waypoints')
+        return waypoints
 
     def publish_waypoints(self):
         """Publish waypoints for visualization."""

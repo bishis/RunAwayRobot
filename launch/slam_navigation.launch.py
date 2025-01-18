@@ -142,5 +142,23 @@ def generate_launch_description():
             executable='rviz2',
             name='rviz2',
             arguments=['-d', os.path.join(pkg_dir, 'config', 'slam_view.rviz')]
+        ),
+
+        # Add static transforms
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='base_link_to_laser',
+            arguments=['0', '0', '0', '0', '0', '0', 'base_link', 'laser'],
+            output='screen'
+        ),
+
+        # Add robot state publisher if not already present
+        Node(
+            package='robot_state_publisher',
+            executable='robot_state_publisher',
+            name='robot_state_publisher',
+            parameters=[{'use_sim_time': False}],
+            output='screen'
         )
     ]) 

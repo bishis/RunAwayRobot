@@ -374,15 +374,27 @@ class NavigationController(Node):
         try:
             from tf2_ros import Buffer, TransformListener
             tf_buffer = Buffer()
-            TransformListener(tf_buffer, self)
+            tf_listener = TransformListener(tf_buffer, self)
             
-            # Wait for the transform between map and base_link
-            if not tf_buffer.can_transform('map', 'base_link', rclpy.time.Time()):
-                self.get_logger().warn('Waiting for transform between map and base_link...')
+            # Debug transform tree
+            frames = tf_buffer.all_frames_as_string()
+            self.get_logger().info(f'Available transforms:\n{frames}')
+            
+            # Wait for the transform between map and base_link with timeout
+            try:
+                transform = tf_buffer.lookup_transform(
+                    'map',
+                    'base_link',
+                    rclpy.time.Time(),
+                    rclpy.duration.Duration(seconds=1.0)
+                )
+                self.get_logger().info('Transform found between map and base_link')
+            except Exception as e:
+                self.get_logger().warn(f'Transform not ready: {str(e)}')
                 return
                 
         except Exception as e:
-            self.get_logger().warn(f'Transform error: {str(e)}')
+            self.get_logger().warn(f'Transform setup error: {str(e)}')
             return
             
         self.get_logger().info('Successfully connected to Nav2 action server')

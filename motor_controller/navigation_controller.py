@@ -11,14 +11,13 @@ from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 from enum import Enum
 import math
-from .processors.path_planner import PathPlanner
-from .processors.waypoint_generator import WaypointGenerator
+import numpy as np
 
 class RobotState(Enum):
     INITIALIZING = 1
     NAVIGATING = 2
     STOPPED = 3
-    ROTATING = 4
+    WAITING_FOR_NAV2 = 4
 
 class NavigationController(Node):
     def __init__(self):
@@ -40,16 +39,20 @@ class NavigationController(Node):
         self.num_waypoints = self.get_parameter('num_waypoints').value
         
         # Robot state
-        self.state = RobotState.STOPPED
+        self.state = RobotState.INITIALIZING
         self.current_pose = None
         self.latest_scan = None
         self.current_waypoint_index = 0
         self.waypoints = []
         self.initial_pose_received = False
+        self.navigation_succeeded = False
         
         # Publishers
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
         self.waypoint_pub = self.create_publisher(MarkerArray, 'waypoints', 10)
+        
+        # Nav2 Action Client
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         
         # Subscribers
         self.create_subscription(Odometry, 'odom_rf2o', self.odom_callback, 10)
@@ -62,20 +65,6 @@ class NavigationController(Node):
         # Map data
         self.map_data = None
         self.map_info = None
-        
-        # Path planning
-        self.path_planner = PathPlanner(
-            safety_radius=self.safety_radius,
-            num_samples=20,
-            step_size=0.3
-        )
-        
-        # Waypoint generation
-        self.waypoint_generator = WaypointGenerator(
-            robot_radius=self.robot_radius,
-            safety_margin=self.safety_margin,
-            num_waypoints=self.num_waypoints
-        )
         
         self.get_logger().info('Navigation controller initialized')
 
@@ -110,17 +99,35 @@ class NavigationController(Node):
         self.nav_client.send_goal_async(
             goal_msg,
             feedback_callback=self.navigation_feedback_callback
-        )
+        ).add_done_callback(self.navigation_response_callback)
+        
         self.state = RobotState.NAVIGATING
         return True
 
-    def cmd_vel_callback(self, msg):
-        """Convert Nav2 velocity commands to binary commands."""
-        try:
-            # Convert Nav2's continuous velocities to binary commands
-            self.send_velocity_command(msg.linear.x, msg.angular.z)
-        except Exception as e:
-            self.get_logger().error(f'Error converting velocity command: {str(e)}')
+    def navigation_response_callback(self, future):
+        """Handle the response from Nav2 goal request."""
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().error('Navigation goal rejected')
+            self.state = RobotState.STOPPED
+            return
+
+        self.get_logger().info('Navigation goal accepted')
+        self._get_result_future = goal_handle.get_result_async()
+        self._get_result_future.add_done_callback(self.navigation_result_callback)
+
+    def navigation_result_callback(self, future):
+        """Handle the result of navigation."""
+        status = future.result().status
+        if status == 4:  # Succeeded
+            self.get_logger().info('Navigation succeeded')
+            self.navigation_succeeded = True
+            self.current_waypoint_index += 1
+        else:
+            self.get_logger().warn(f'Navigation failed with status: {status}')
+            self.navigation_succeeded = False
+        
+        self.state = RobotState.STOPPED
 
     def navigation_feedback_callback(self, feedback_msg):
         """Handle navigation feedback from Nav2."""
@@ -132,7 +139,6 @@ class NavigationController(Node):
         try:
             self.map_data = np.array(msg.data).reshape((msg.info.height, msg.info.width))
             self.map_info = msg.info
-            self.path_planner.update_map(self.map_data, self.map_info)
             self.get_logger().debug('Map data updated')
         except Exception as e:
             self.get_logger().error(f'Error processing map data: {str(e)}')
@@ -152,11 +158,6 @@ class NavigationController(Node):
         if not self.current_pose:
             return
 
-        # Emergency stop check using LIDAR
-        if self.check_emergency_stop():
-            self.send_velocity_command(0.0, 0.0)
-            return
-
         # Publish waypoints for visualization
         self.publish_waypoints()
 
@@ -170,74 +171,15 @@ class NavigationController(Node):
                 return
             return
 
-        current_target = self.waypoints[self.current_waypoint_index]
-        
-        # Check if path is blocked
-        is_blocked = self.check_path_to_target(current_target)
-        
-        if is_blocked:
-            self.get_logger().info('Obstacle detected, finding alternative path')
-            alternative_point = self.path_planner.find_alternative_path(
-                self.current_pose.position,
-                current_target
-            )
+        # Only send new navigation goal if we're not already navigating
+        if self.state == RobotState.STOPPED:
+            current_target = self.waypoints[self.current_waypoint_index]
+            # Calculate target orientation (face the direction of movement)
+            dx = current_target.x - self.current_pose.position.x
+            dy = current_target.y - self.current_pose.position.y
+            target_angle = math.atan2(dy, dx)
             
-            if alternative_point:
-                self.get_logger().info(f'Found alternative path through ({alternative_point.x:.2f}, {alternative_point.y:.2f})')
-                dx = alternative_point.x - self.current_pose.position.x
-                dy = alternative_point.y - self.current_pose.position.y
-                target_angle = math.atan2(dy, dx)
-                current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
-                angle_diff = target_angle - current_angle
-                
-                while angle_diff > math.pi: angle_diff -= 2*math.pi
-                while angle_diff < -math.pi: angle_diff += 2*math.pi
-                
-                if abs(angle_diff) > math.radians(20):
-                    self.send_velocity_command(0.0, 1.0 if angle_diff > 0 else -1.0)
-                else:
-                    self.send_velocity_command(1.0, 0.0)
-            else:
-                self.get_logger().warn('No alternative path found, backing up')
-                self.send_velocity_command(-1.0, 0.0)
-            return
-
-        # Normal waypoint navigation
-        dx = current_target.x - self.current_pose.position.x
-        dy = current_target.y - self.current_pose.position.y
-        distance = math.sqrt(dx*dx + dy*dy)
-        target_angle = math.atan2(dy, dx)
-        current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
-        angle_diff = target_angle - current_angle
-        
-        while angle_diff > math.pi: angle_diff -= 2*math.pi
-        while angle_diff < -math.pi: angle_diff += 2*math.pi
-
-        if distance < self.waypoint_threshold:
-            self.current_waypoint_index += 1
-            self.stop_robot()
-        elif abs(angle_diff) > math.radians(20):
-            self.send_velocity_command(0.0, 1.0 if angle_diff > 0 else -1.0)
-        else:
-            self.send_velocity_command(1.0, 0.0)
-
-    def check_emergency_stop(self):
-        """Check if emergency stop is needed based on LIDAR data."""
-        if not self.latest_scan:
-            return False
-
-        # Check front sector (150° to 210°)
-        start_idx = int(150 * len(self.latest_scan.ranges) / 360)
-        end_idx = int(210 * len(self.latest_scan.ranges) / 360)
-        
-        min_distance = float('inf')
-        for i in range(start_idx, end_idx):
-            if i < len(self.latest_scan.ranges):
-                range_val = self.latest_scan.ranges[i]
-                if 0.1 < range_val < min_distance:
-                    min_distance = range_val
-
-        return min_distance < (self.robot_radius + self.safety_margin)
+            self.navigate_to_pose(current_target.x, current_target.y, target_angle)
 
     def publish_waypoints(self):
         """Publish waypoints for visualization."""
@@ -304,19 +246,23 @@ class NavigationController(Node):
             x = current_pos.x + radius * math.cos(angle)
             y = current_pos.y + radius * math.sin(angle)
 
-            # Check if point is valid
-            if self.is_valid_point(x, y):
-                point = Point()
-                point.x = x
-                point.y = y
-                point.z = 0.0
-                waypoints.append(point)
+            point = Point()
+            point.x = x
+            point.y = y
+            point.z = 0.0
+            waypoints.append(point)
 
             # Increase radius and angle for spiral pattern
             radius += self.leg_length * 0.5
             angle += math.pi / 2
 
         return waypoints
+
+    def get_yaw_from_quaternion(self, q):
+        """Extract yaw from quaternion."""
+        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny_cosp, cosy_cosp)
 
 def main(args=None):
     rclpy.init(args=args)

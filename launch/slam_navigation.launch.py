@@ -50,7 +50,7 @@ def generate_launch_description():
             }.items()
         ),
 
-        # Nav2
+        # Nav2 (without map requirement)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(nav2_dir, 'launch', 'navigation_launch.py')
@@ -58,7 +58,8 @@ def generate_launch_description():
             launch_arguments={
                 'use_sim_time': 'false',
                 'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
-                'autostart': 'true'
+                'autostart': 'true',
+                'use_composition': 'false'
             }.items()
         ),
 

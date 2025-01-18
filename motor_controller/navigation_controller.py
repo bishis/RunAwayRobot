@@ -338,6 +338,24 @@ class NavigationController(Node):
                             return False
         return True
 
+    def cmd_vel_callback(self, msg):
+        """Forward velocity commands from Nav2 to the motors."""
+        try:
+            # Create new Twist message for motors
+            motor_cmd = Twist()
+            motor_cmd.linear.x = msg.linear.x
+            motor_cmd.angular.z = msg.angular.z
+            
+            # Add detailed logging
+            self.get_logger().info(
+                f'Received velocity command: linear={msg.linear.x:.2f}, angular={msg.angular.z:.2f}'
+            )
+            
+            # Publish command to motors
+            self.cmd_vel_pub.publish(motor_cmd)
+        except Exception as e:
+            self.get_logger().error(f'Error in cmd_vel_callback: {str(e)}')
+
 def main(args=None):
     rclpy.init(args=args)
     controller = NavigationController()

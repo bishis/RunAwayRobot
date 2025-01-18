@@ -177,9 +177,45 @@ class NavigationController(Node):
         self.current_pose = msg.pose.pose
 
     def generate_waypoints(self):
-        """Generate exploration waypoints."""
-        # Your existing waypoint generation logic here
-        pass
+        """Generate exploration waypoints using a simple frontier-based approach."""
+        if not self.current_pose:
+            self.get_logger().warn('No current pose available')
+            return []
+
+        waypoints = []
+        # Create a test pattern of waypoints in a square pattern
+        # This is a simple example - you might want to implement frontier-based exploration
+        current_x = self.current_pose.position.x
+        current_y = self.current_pose.position.y
+        step_size = 1.0  # 1 meter between waypoints
+
+        # Generate points in a square pattern
+        patterns = [
+            (step_size, 0),      # Right
+            (0, step_size),      # Up
+            (-step_size, 0),     # Left
+            (0, -step_size)      # Down
+        ]
+
+        for dx, dy in patterns:
+            point = Point()
+            point.x = current_x + dx
+            point.y = current_y + dy
+            point.z = 0.0
+            waypoints.append(point)
+
+        if waypoints:
+            self.get_logger().info(f'Generated {len(waypoints)} waypoints')
+        else:
+            self.get_logger().warn('Failed to generate waypoints')
+
+        return waypoints
+
+    def get_yaw_from_quaternion(self, q):
+        """Extract yaw from quaternion."""
+        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny_cosp, cosy_cosp)
 
     def publish_waypoints(self):
         """Publish waypoints for visualization."""

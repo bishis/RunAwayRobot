@@ -4,9 +4,11 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from nav2_msgs.action import NavigateToPose
-from geometry_msgs.msg import Twist, PoseStamped
-from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Twist, PoseStamped, Point, Vector3
+from nav_msgs.msg import Odometry, OccupancyGrid
 from sensor_msgs.msg import LaserScan
+from visualization_msgs.msg import Marker, MarkerArray
+from std_msgs.msg import ColorRGBA
 from enum import Enum
 import math
 
@@ -135,9 +137,15 @@ class NavigationController(Node):
 
     def control_loop(self):
         """Main control loop."""
-        if not self.current_pose or not self.latest_scan or not self.map_data is not None:
+        if not self.current_pose:
             return
 
+        # Emergency stop check using LIDAR
+        if self.check_emergency_stop():
+            self.send_velocity_command(0.0, 0.0)
+            return
+
+        # Publish waypoints for visualization
         self.publish_waypoints()
 
         # Check if we need to generate new waypoints
@@ -218,6 +226,85 @@ class NavigationController(Node):
                     min_distance = range_val
 
         return min_distance < (self.robot_radius + self.safety_margin)
+
+    def publish_waypoints(self):
+        """Publish waypoints for visualization."""
+        if not self.waypoints:
+            self.get_logger().warn('No waypoints to publish')
+            return
+        
+        marker_array = MarkerArray()
+        
+        # All waypoints as red spheres
+        waypoint_marker = Marker()
+        waypoint_marker.header.frame_id = 'map'
+        waypoint_marker.header.stamp = self.get_clock().now().to_msg()
+        waypoint_marker.ns = 'waypoints'
+        waypoint_marker.id = 0
+        waypoint_marker.type = Marker.POINTS
+        waypoint_marker.action = Marker.ADD
+        waypoint_marker.pose.orientation.w = 1.0
+        waypoint_marker.scale = Vector3(x=0.1, y=0.1, z=0.1)
+        waypoint_marker.color = ColorRGBA(r=1.0, g=0.0, b=0.0, a=1.0)
+        
+        # Add all waypoints
+        for point in self.waypoints:
+            waypoint_marker.points.append(point)
+        
+        marker_array.markers.append(waypoint_marker)
+        
+        # Current target as green sphere
+        if self.current_waypoint_index < len(self.waypoints):
+            target_marker = Marker()
+            target_marker.header.frame_id = 'map'
+            target_marker.header.stamp = self.get_clock().now().to_msg()
+            target_marker.ns = 'current_target'
+            target_marker.id = 1
+            target_marker.type = Marker.SPHERE
+            target_marker.action = Marker.ADD
+            target_marker.pose.position = self.waypoints[self.current_waypoint_index]
+            target_marker.pose.orientation.w = 1.0
+            target_marker.scale = Vector3(x=0.2, y=0.2, z=0.2)
+            target_marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0)
+            marker_array.markers.append(target_marker)
+        
+        self.waypoint_pub.publish(marker_array)
+        self.get_logger().info(f'Published {len(self.waypoints)} waypoints')
+
+    def generate_waypoints(self, preferred_angle=None):
+        """Generate waypoints in a pattern around the robot."""
+        if not self.current_pose or not self.map_data is not None:
+            return []
+
+        waypoints = []
+        current_pos = self.current_pose.position
+        current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
+
+        # If preferred angle is not specified, use current orientation
+        if preferred_angle is None:
+            preferred_angle = current_yaw
+
+        # Generate waypoints in a spiral pattern
+        radius = self.leg_length
+        angle = preferred_angle
+        for i in range(self.num_waypoints):
+            # Calculate next point
+            x = current_pos.x + radius * math.cos(angle)
+            y = current_pos.y + radius * math.sin(angle)
+
+            # Check if point is valid
+            if self.is_valid_point(x, y):
+                point = Point()
+                point.x = x
+                point.y = y
+                point.z = 0.0
+                waypoints.append(point)
+
+            # Increase radius and angle for spiral pattern
+            radius += self.leg_length * 0.5
+            angle += math.pi / 2
+
+        return waypoints
 
 def main(args=None):
     rclpy.init(args=args)

@@ -8,6 +8,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
     nav2_dir = get_package_share_directory('nav2_bringup')
+    slam_dir = get_package_share_directory('slam_toolbox')
     
     return LaunchDescription([
         # Network setup
@@ -38,36 +39,30 @@ def generate_launch_description():
             arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
         ),
 
-        # SLAM Toolbox (minimal configuration)
-        Node(
-            package='slam_toolbox',
-            executable='async_slam_toolbox_node',
-            name='slam_toolbox',
-            parameters=[{
-                'use_sim_time': False,
-                'base_frame': 'base_link',
-                'odom_frame': 'odom',
-                'map_frame': 'map',
-                'resolution': 0.05,
-                'map_update_interval': 5.0,
-                'max_laser_range': 12.0,
-                'minimum_time_interval': 0.5,
-                'transform_timeout': 0.2,
-                'scan_topic': '/scan',
-                'mode': 'mapping'
-            }]
-        ),
-
-        # Nav2 (local planning only)
+        # SLAM Toolbox
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
-                os.path.join(nav2_dir, 'launch', 'navigation_launch.py')
+                os.path.join(slam_dir, 'launch', 'online_async_launch.py')
+            ]),
+            launch_arguments={
+                'use_sim_time': 'False',
+                'publish_period': '5.0',
+                'scan_topic': '/scan'
+            }.items()
+        ),
+
+        # Nav2 Stack
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource([
+                os.path.join(nav2_dir, 'launch', 'bringup_launch.py')
             ]),
             launch_arguments={
                 'use_sim_time': 'False',
                 'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
                 'autostart': 'True',
-                'use_composition': 'False'
+                'use_composition': 'False',
+                'use_respawn': 'False',
+                'map': ''
             }.items()
         ),
 

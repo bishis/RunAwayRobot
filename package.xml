@@ -31,4 +31,13 @@
     <!-- Add TurtleBot4 dependencies -->
   <depend>turtlebot4_navigation</depend>
   <depend>nav2_bringup</depend>
+  <depend>nav2_common</depend>
+  <depend>nav2_bt_navigator</depend>
+  <depend>nav2_costmap_2d</depend>
+  <depend>nav2_core</depend>
+  <depend>nav2_msgs</depend>
+  <depend>nav2_navfn_planner</depend>
+  <depend>nav2_recoveries</depend>
+  <depend>nav2_planner</depend>
+  <depend>nav2_controller</depend>
   </package> 

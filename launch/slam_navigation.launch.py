@@ -41,18 +41,19 @@ def generate_launch_description():
             ]),
             launch_arguments={
                 'use_sim_time': 'false',
-                'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
+                'slam_params_file': slam_params
             }.items()
         ),
 
-        # Nav2 Stack
+        # Full Nav2 Stack (includes all necessary components)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
-                os.path.join(nav2_dir, 'launch', 'navigation_launch.py')
+                os.path.join(nav2_dir, 'launch', 'bringup_launch.py')
             ]),
             launch_arguments={
                 'use_sim_time': 'false',
                 'params_file': nav2_params,
+                'map': '',  # Empty string for SLAM
                 'use_composition': 'True'
             }.items()
         ),

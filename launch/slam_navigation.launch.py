@@ -52,7 +52,7 @@ def generate_launch_description():
             }]
         ),
 
-        # SLAM Toolbox in online async mode
+        # SLAM Toolbox
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(get_package_share_directory('slam_toolbox'),
@@ -64,7 +64,7 @@ def generate_launch_description():
             }.items()
         ),
 
-        # Nav2 Navigation Stack (without map server since SLAM provides the map)
+        # Nav2 Navigation Stack
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(nav2_pkg_dir, 'launch', 'navigation_launch.py')
@@ -74,36 +74,6 @@ def generate_launch_description():
                 'params_file': params_file,
                 'use_composition': 'False'
             }.items()
-        ),
-
-        # Collision Monitor
-        Node(
-            package='nav2_collision_monitor',
-            executable='collision_monitor',
-            name='collision_monitor',
-            parameters=[{
-                'use_sim_time': 'false',
-                'base_frame_id': 'base_link',
-                'odom_frame_id': 'odom',
-                'cmd_vel_in_topic': 'cmd_vel',
-                'cmd_vel_out_topic': 'cmd_vel_smoothed',
-                'transform_tolerance': 0.5,
-                'source_timeout': 1.0,
-                'stop_on_collision': True,
-                'observation_sources': ['scan'],
-                'scan': {
-                    'type': 'scan',
-                    'topic': '/scan',
-                    'min_height': 0.1,
-                    'max_height': 0.5,
-                    'clearing': True,
-                    'marking': True,
-                    'data_type': 'LaserScan'
-                },
-                'polygons': [],
-                'polygon_points': [],
-                'points': []
-            }]
         ),
 
         # Nav2 Hardware Bridge
@@ -117,7 +87,7 @@ def generate_launch_description():
             }]
         ),
 
-        # RViz2 for visualization with Nav2 config
+        # RViz2 for visualization
         Node(
             package='rviz2',
             executable='rviz2',

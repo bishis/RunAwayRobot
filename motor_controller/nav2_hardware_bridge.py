@@ -22,7 +22,7 @@ class Nav2HardwareBridge(Node):
         # Publishers and Subscribers
         self.cmd_vel_sub = self.create_subscription(
             Twist,
-            'cmd_vel_smoothed',
+            'cmd_vel',
             self.cmd_vel_callback,
             10
         )

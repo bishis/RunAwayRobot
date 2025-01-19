@@ -3,42 +3,31 @@
 <package format="3">
   <name>motor_controller</name>
   <version>0.0.1</version>
-  <description>Robot navigation package using Nav2</description>
-  <maintainer email="your@email.com">Your Name</maintainer>
-  <license>Apache-2.0</license>
+  <description>Motor controller package with wall following capabilities</description>
+  <maintainer email="your.email@example.com">Your Name</maintainer>
+  <license>Apache License 2.0</license>
 
   <buildtool_depend>ament_python</buildtool_depend>
-  
-  <depend>rclpy</depend>
-  <depend>geometry_msgs</depend>
-  <depend>nav_msgs</depend>
-  <depend>sensor_msgs</depend>
-  <depend>tf2_ros</depend>
-  <depend>nav2_bringup</depend>
-  <depend>nav2_common</depend>
-  <depend>slam_toolbox</depend>
-  <depend>rplidar_ros</depend>
-  <depend>rf2o_laser_odometry</depend>
 
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>rplidar_ros</depend>
+  <depend>numpy</depend>
+  <depend>python3-numpy</depend>
+  <build_depend>rf2o_laser_odometry</build_depend>
+  <exec_depend>rf2o_laser_odometry</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
 
   <export>
     <build_type>ament_python</build_type>
   </export>
-    <!-- Add TurtleBot4 dependencies -->
+
+  <!-- Add TurtleBot4 dependencies -->
   <depend>turtlebot4_navigation</depend>
   <depend>nav2_bringup</depend>
-  <depend>nav2_common</depend>
-  <depend>nav2_bt_navigator</depend>
-  <depend>nav2_costmap_2d</depend>
-  <depend>nav2_core</depend>
-  <depend>nav2_msgs</depend>
-  <depend>nav2_navfn_planner</depend>
-  <depend>nav2_recoveries</depend>
-  <depend>nav2_planner</depend>
-  <depend>nav2_controller</depend>
-  <depend>nav2_behaviors</depend>
-  </package> 
+</package> 

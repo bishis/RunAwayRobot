@@ -7,10 +7,6 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
-    nav2_dir = get_package_share_directory('nav2_bringup')
-    
-    nav2_params = os.path.join(pkg_dir, 'config', 'nav2_params.yaml')
-    slam_params = os.path.join(pkg_dir, 'config', 'slam.yaml')
     
     return LaunchDescription([
         # Network setup
@@ -33,7 +29,7 @@ def generate_launch_description():
             }]
         ),
 
-        # SLAM Toolbox
+        # SLAM Toolbox (using existing configuration)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(get_package_share_directory('slam_toolbox'),
@@ -41,74 +37,30 @@ def generate_launch_description():
             ]),
             launch_arguments={
                 'use_sim_time': 'false',
-                'slam_params_file': slam_params
+                'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
             }.items()
         ),
 
-        # Full Nav2 Stack (includes all necessary components)
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([
-                os.path.join(nav2_dir, 'launch', 'bringup_launch.py')
-            ]),
-            launch_arguments={
-                'use_sim_time': 'false',
-                'params_file': nav2_params,
-                'map': '',  # Empty string for SLAM
-                'use_composition': 'True'
-            }.items()
-        ),
-
-        # Navigation Interface
+        # Navigation Controller
         Node(
             package='motor_controller',
-            executable='navigation_interface',
-            name='navigation_interface',
+            executable='navigation_controller',
+            name='navigation_controller',
             parameters=[{
-                'use_sim_time': False
+                'use_sim_time': False,
+                'waypoint_threshold': 0.2,
+                'leg_length': 0.5,
+                'safety_radius': 0.25,
+                'num_waypoints': 8,
+                'robot.radius': 0.17
             }]
         ),
 
-        # RViz2
+        # RViz2 for visualization
         Node(
             package='rviz2',
             executable='rviz2',
             name='rviz2',
-            arguments=['-d', os.path.join(pkg_dir, 'config', 'nav2_view.rviz')]
-        ),
-
-        # Nav2 Lifecycle Manager
-        Node(
-            package='nav2_lifecycle_manager',
-            executable='lifecycle_manager',
-            name='lifecycle_manager',
-            output='screen',
-            parameters=[{
-                'use_sim_time': False,
-                'autostart': True,
-                'bond_timeout': 0.0,
-                'attempt_respawn_reconnection': True,
-                'node_names': [
-                    'map_server',
-                    'amcl',
-                    'controller_server',
-                    'planner_server',
-                    'recoveries_server',
-                    'bt_navigator',
-                    'behavior_server'
-                ]
-            }]
-        ),
-
-        # Our Lifecycle Manager - start after Nav2 manager
-        Node(
-            package='motor_controller',
-            executable='nav2_lifecycle_manager',
-            name='nav2_lifecycle_manager',
-            output='screen',
-            parameters=[{
-                'use_sim_time': False
-            }],
-            # Add dependency on Nav2 lifecycle manager
-            arguments=['--wait-for-node', 'lifecycle_manager']
+            arguments=['-d', os.path.join(pkg_dir, 'config', 'slam_view.rviz')]
         )
     ]) 

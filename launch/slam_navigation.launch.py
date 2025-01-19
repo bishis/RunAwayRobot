@@ -60,53 +60,6 @@ def generate_launch_description():
 
         # Nav2 Core (in this specific order)
         Node(
-            package='nav2_bt_navigator',
-            executable='bt_navigator',
-            name='bt_navigator',
-            output='screen',
-            parameters=[configured_params,
-                {
-                    'use_sim_time': False,
-                    'global_frame': 'map',
-                    'robot_base_frame': 'base_link',
-                    'transform_tolerance': 0.1,
-                    'default_nav_to_pose_bt_xml': os.path.join(
-                        get_package_share_directory('motor_controller'),
-                        'behavior_trees',
-                        'navigate_w_replanning_and_recovery.xml'
-                    ),
-                    'default_nav_through_poses_bt_xml': os.path.join(
-                        get_package_share_directory('nav2_bt_navigator'),
-                        'behavior_trees',
-                        'navigate_through_poses_w_replanning_and_recovery.xml'
-                    ),
-                    'plugin_lib_names': [
-                        'nav2_compute_path_to_pose_action_bt_node',
-                        'nav2_follow_path_action_bt_node',
-                        'nav2_back_up_action_bt_node',
-                        'nav2_spin_action_bt_node',
-                        'nav2_wait_action_bt_node',
-                        'nav2_clear_costmap_service_bt_node',
-                        'nav2_is_stuck_condition_bt_node',
-                        'nav2_goal_reached_condition_bt_node',
-                        'nav2_goal_updated_condition_bt_node',
-                        'nav2_initial_pose_received_condition_bt_node',
-                        'nav2_reinitialize_global_localization_service_bt_node',
-                        'nav2_rate_controller_bt_node',
-                        'nav2_distance_controller_bt_node',
-                        'nav2_speed_controller_bt_node',
-                        'nav2_recovery_node_bt_node',
-                        'nav2_pipeline_sequence_bt_node',
-                        'nav2_round_robin_node_bt_node',
-                        'nav2_transform_available_condition_bt_node',
-                        'nav2_time_expired_condition_bt_node',
-                        'nav2_distance_traveled_condition_bt_node',
-                        'nav2_single_trigger_bt_node'
-                    ]
-                }]
-        ),
-
-        Node(
             package='nav2_map_server',
             executable='map_server',
             name='map_server',
@@ -146,7 +99,15 @@ def generate_launch_description():
             parameters=[configured_params]
         ),
 
-        # Start lifecycle manager first
+        Node(
+            package='nav2_bt_navigator',
+            executable='bt_navigator',
+            name='bt_navigator',
+            output='screen',
+            parameters=[configured_params]
+        ),
+
+        # Start lifecycle manager after all nodes
         Node(
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
@@ -156,32 +117,12 @@ def generate_launch_description():
                 'use_sim_time': False,
                 'autostart': True,
                 'bond_timeout': 0.0,
-                'node_names': ['bt_navigator'],  # Start with just bt_navigator
-                'activate_lifecycle_nodes': True,
-                'manage_lifecycle_nodes': True,
-                'attempt_respawn_on_failure': True,
-                'attempt_respawn_max_tries': 3,
-                'bond_disable_heartbeat_timeout': True
-            }]
-        ),
-
-        # Second lifecycle manager for other nodes
-        Node(
-            package='nav2_lifecycle_manager',
-            executable='lifecycle_manager',
-            name='lifecycle_manager_localization',
-            output='screen',
-            parameters=[{
-                'use_sim_time': False,
-                'autostart': True,
-                'bond_timeout': 0.0,
-                'node_names': [
-                    'map_server',
-                    'amcl',
-                    'controller_server',
-                    'planner_server',
-                    'behavior_server'
-                ],
+                'node_names': ['map_server',
+                             'amcl',
+                             'controller_server',
+                             'planner_server',
+                             'behavior_server',
+                             'bt_navigator'],
                 'activate_lifecycle_nodes': True,
                 'manage_lifecycle_nodes': True
             }]
@@ -189,7 +130,7 @@ def generate_launch_description():
 
         # Add delay before starting navigation controller
         TimerAction(
-            period=40.0,  # Increased delay to ensure Nav2 is fully initialized
+            period=30.0,
             actions=[
                 Node(
                     package='motor_controller',

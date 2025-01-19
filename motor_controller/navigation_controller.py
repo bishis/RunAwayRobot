@@ -8,14 +8,11 @@ from geometry_msgs.msg import Twist, PoseStamped, Point
 from nav_msgs.msg import OccupancyGrid
 from visualization_msgs.msg import MarkerArray, Marker
 from std_msgs.msg import ColorRGBA
-from ament_index_python.packages import get_package_share_directory
 import random
 import math
 import numpy as np
 from enum import Enum
-from lifecycle_msgs.srv import GetState, ChangeState
-import subprocess
-import os
+from lifecycle_msgs.srv import GetState
 
 class RobotState(Enum):
     INITIALIZING = 1
@@ -391,102 +388,38 @@ class NavigationController(Node):
 
     def init_nav_client(self):
         """Initialize Nav2 action client with retry."""
-        try:
-            # Check if bt_navigator node is running
-            result = subprocess.run(['ros2', 'node', 'list'], capture_output=True, text=True)
-            if '/bt_navigator' not in result.stdout:
-                self.get_logger().error('bt_navigator node is not running!')
-                self.get_logger().info('Available nodes: \n' + result.stdout)
-                return
-
-            # Create service client to check state
-            if not hasattr(self, 'state_client'):
-                self.state_client = self.create_client(GetState, '/bt_navigator/get_state')
+        if self.nav_client is None:
+            self.get_logger().info('Creating new Nav2 action client...')
+            self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
             
-            if not self.state_client.wait_for_service(timeout_sec=2.0):
-                self.get_logger().warn('BT Navigator state service not available, waiting...')
-                return
-
-            # Create request and future
-            request = GetState.Request()
-            future = self.state_client.call_async(request)
-
-            # Wait for response with multiple attempts
-            timeout = 5.0  # Total timeout in seconds
-            check_interval = 0.1  # Time between checks in seconds
-            elapsed = 0.0
-
-            while elapsed < timeout:
-                rclpy.spin_once(self, timeout_sec=check_interval)
-                elapsed += check_interval
-
-                if future.done():
-                    try:
-                        response = future.result()
-                        if response is not None:
-                            state = response.current_state.id
-                            self.get_logger().info(f'BT Navigator state: {state}')
-                            
-                            # If not active, try to activate
-                            if state != 3:  # Not active
-                                self.get_logger().warn('BT Navigator not active, attempting to activate...')
-                                try:
-                                    # Create activation client
-                                    activate_client = self.create_client(
-                                        ChangeState, 
-                                        '/bt_navigator/change_state'
-                                    )
-                                    
-                                    if not activate_client.wait_for_service(timeout_sec=1.0):
-                                        self.get_logger().error('Change state service not available')
-                                        return
-
-                                    # First configure if unconfigured
-                                    if state == 0:  # Unconfigured
-                                        configure_request = ChangeState.Request()
-                                        configure_request.transition.id = 1  # Configure transition
-                                        configure_future = activate_client.call_async(configure_request)
-                                        rclpy.spin_until_future_complete(self, configure_future, timeout_sec=2.0)
-                                        self.get_logger().info('Sent configure request')
-
-                                    # Then activate
-                                    activate_request = ChangeState.Request()
-                                    activate_request.transition.id = 3  # Activate transition
-                                    activate_future = activate_client.call_async(activate_request)
-                                    rclpy.spin_until_future_complete(self, activate_future, timeout_sec=2.0)
-                                    self.get_logger().info('Sent activate request')
-                                    
-                                except Exception as e:
-                                    self.get_logger().error(f'Error during activation: {str(e)}')
-                                return
-                            
-                            # If active, proceed with action client setup
-                            if self.nav_client is None:
-                                self.get_logger().info('Creating new Nav2 action client...')
-                                self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
-                            
-                            if not self.nav_client.wait_for_server(timeout_sec=2.0):
-                                self.get_logger().warn('Nav2 action server not available, will retry...')
-                                return
-                            
-                            # Successfully initialized
-                            self.get_logger().info('Successfully connected to Nav2 action server')
-                            self.destroy_timer(self.init_nav_client)  # Stop retry timer
-                            return
-                            
-                        else:
-                            self.get_logger().error('Got empty response from state service')
-                            return
-                    except Exception as e:
-                        self.get_logger().error(f'Error processing state response: {str(e)}')
-                        return
-
-            self.get_logger().error('Timed out waiting for state response')
+        # Check if the action server is available
+        self.get_logger().info('Waiting for Nav2 action server...')
+        server_available = self.nav_client.wait_for_server(timeout_sec=1.0)
+        
+        if not server_available:
+            self.get_logger().warn('Nav2 action server not available, will retry...')
+            # Check what actions are available
+            from rclpy.action import get_action_names_and_types
+            actions = get_action_names_and_types(self)
+            self.get_logger().info(f'Available actions: {actions}')
+            
+            # Check Nav2 node states
+            from lifecycle_msgs.srv import GetState
+            try:
+                # Check multiple Nav2 components
+                for node in ['bt_navigator', 'planner_server', 'controller_server']:
+                    state_client = self.create_client(GetState, f'/{node}/get_state')
+                    if state_client.wait_for_service(timeout_sec=1.0):
+                        self.get_logger().info(f'{node} service is available')
+                    else:
+                        self.get_logger().warn(f'{node} service not available')
+            except Exception as e:
+                self.get_logger().warn(f'Error checking Nav2 states: {e}')
             return
             
-        except Exception as e:
-            self.get_logger().error(f'Error in init_nav_client: {str(e)}')
-            return
+        # Successfully initialized
+        self.get_logger().info('Successfully connected to Nav2 action server')
+        self.destroy_timer(self.init_nav_client)  # Stop retry timer
 
 def main(args=None):
     rclpy.init(args=args)

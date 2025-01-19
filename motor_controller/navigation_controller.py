@@ -50,7 +50,7 @@ class NavigationController(Node):
         self.initial_pose_received = False
         
         # Publishers
-        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, 'wheel_cmd_vel', 10)
         self.waypoint_pub = self.create_publisher(MarkerArray, 'waypoints', 10)
         
         # Subscribers

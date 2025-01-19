@@ -63,14 +63,14 @@ def generate_launch_description():
                 'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
             }.items()
         ),
-
+ 
         # Nav2 Navigation Stack
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(pkg_dir, 'launch', 'nav2_custom_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': use_sim_time,
+                'use_sim_time': False,
                 'params_file': params_file,
                 'use_composition': 'False',
                 'autostart': 'True'

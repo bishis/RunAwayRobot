@@ -59,8 +59,8 @@ def generate_launch_description():
                            'launch', 'online_async_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': use_sim_time,
-                'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
+                'use_sim_time': str(use_sim_time),
+                'slam_params_file': str(os.path.join(pkg_dir, 'config', 'slam.yaml'))
             }.items()
         ),
 
@@ -70,8 +70,8 @@ def generate_launch_description():
                 os.path.join(nav2_pkg_dir, 'launch', 'navigation_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': use_sim_time,
-                'params_file': params_file,
+                'use_sim_time': str(use_sim_time),
+                'params_file': str(params_file),
                 'use_composition': 'False'
             }.items()
         ),

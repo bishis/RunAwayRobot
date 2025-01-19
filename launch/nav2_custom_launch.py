@@ -83,20 +83,28 @@ def generate_launch_description():
                 parameters=[params_file]
             ),
 
-            # Costmap Nodes
+            # Costmap Nodes - with SLAM map topic
             Node(
                 package='nav2_costmap_2d',
                 executable='nav2_costmap_2d',
                 name='local_costmap',
                 output='screen',
-                parameters=[params_file]
+                parameters=[params_file],
+                remappings=[
+                    ('map', '/map'),  # Use SLAM's map
+                    ('odom', '/odom_rf2o')
+                ]
             ),
             Node(
                 package='nav2_costmap_2d',
                 executable='nav2_costmap_2d',
                 name='global_costmap',
                 output='screen',
-                parameters=[params_file]
+                parameters=[params_file],
+                remappings=[
+                    ('map', '/map'),  # Use SLAM's map
+                    ('odom', '/odom_rf2o')
+                ]
             ),
 
             # Behavior Server
@@ -116,7 +124,11 @@ def generate_launch_description():
                 name='bt_navigator',
                 output='screen',
                 respawn=use_respawn,
-                parameters=[params_file]
+                parameters=[params_file],
+                remappings=[
+                    ('map', '/map'),  # Use SLAM's map
+                    ('odom', '/odom_rf2o')
+                ]
             ),
 
             # Lifecycle Manager
@@ -128,14 +140,16 @@ def generate_launch_description():
                 parameters=[{
                     'autostart': True,
                     'node_names': [
-                        'planner_server',  # Start planner first
+                        'planner_server',
                         'controller_server',
+                        'local_costmap',
+                        'global_costmap',
                         'behavior_server',
                         'bt_navigator'
                     ],
                     'bond_timeout': 4.0,
                     'attempt_respawn_reconnection': True,
-                    'autostart_timeout': 15.0,  # Increased timeout
+                    'autostart_timeout': 15.0,
                     'configure_timeout': 15.0,
                     'startup_timeout': 15.0
                 }]

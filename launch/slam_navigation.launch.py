@@ -10,6 +10,10 @@ def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
     nav2_pkg_dir = get_package_share_directory('nav2_bringup')
     
+    # Set default paths
+    default_params_path = os.path.join(pkg_dir, 'config', 'nav2_params.yaml')
+    default_slam_params_path = os.path.join(pkg_dir, 'config', 'slam.yaml')
+    
     # Launch configuration variables
     use_sim_time = LaunchConfiguration('use_sim_time')
     params_file = LaunchConfiguration('params_file')
@@ -23,7 +27,7 @@ def generate_launch_description():
     
     declare_params_file_cmd = DeclareLaunchArgument(
         'params_file',
-        default_value=os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
+        default_value=default_params_path,
         description='Full path to the ROS2 parameters file'
     )
 
@@ -59,8 +63,8 @@ def generate_launch_description():
                            'launch', 'online_async_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': str(use_sim_time),
-                'slam_params_file': str(os.path.join(pkg_dir, 'config', 'slam.yaml'))
+                'use_sim_time': 'false',
+                'slam_params_file': default_slam_params_path
             }.items()
         ),
 
@@ -70,8 +74,8 @@ def generate_launch_description():
                 os.path.join(nav2_pkg_dir, 'launch', 'navigation_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': str(use_sim_time),
-                'params_file': str(params_file),
+                'use_sim_time': 'false',
+                'params_file': default_params_path,
                 'use_composition': 'False'
             }.items()
         ),

@@ -59,6 +59,7 @@ def generate_launch_description():
     load_nodes = GroupAction(
         condition=IfCondition(PythonExpression(['not ', use_composition])),
         actions=[
+            # Controller Server
             Node(
                 package='nav2_controller',
                 executable='controller_server',
@@ -71,51 +72,74 @@ def generate_launch_description():
                     ('odom', '/odom_rf2o')
                 ]
             ),
+
+            # Planner Server
             Node(
                 package='nav2_planner',
                 executable='planner_server',
                 name='planner_server',
                 output='screen',
                 respawn=use_respawn,
-                parameters=[params_file]),
+                parameters=[params_file]
+            ),
+
+            # Costmap Nodes
+            Node(
+                package='nav2_costmap_2d',
+                executable='nav2_costmap_2d',
+                name='local_costmap',
+                output='screen',
+                parameters=[params_file]
+            ),
+            Node(
+                package='nav2_costmap_2d',
+                executable='nav2_costmap_2d',
+                name='global_costmap',
+                output='screen',
+                parameters=[params_file]
+            ),
+
+            # Behavior Server
             Node(
                 package='nav2_behaviors',
                 executable='behavior_server',
                 name='behavior_server',
                 output='screen',
                 respawn=use_respawn,
-                parameters=[params_file]),
+                parameters=[params_file]
+            ),
+
+            # BT Navigator
             Node(
                 package='nav2_bt_navigator',
                 executable='bt_navigator',
                 name='bt_navigator',
                 output='screen',
                 respawn=use_respawn,
-                parameters=[params_file]),
-            Node(
-                package='nav2_waypoint_follower',
-                executable='waypoint_follower',
-                name='waypoint_follower',
-                output='screen',
-                respawn=use_respawn,
-                parameters=[params_file]),
+                parameters=[params_file]
+            ),
+
+            # Lifecycle Manager - with explicit ordering
             Node(
                 package='nav2_lifecycle_manager',
                 executable='lifecycle_manager',
                 name='lifecycle_manager_navigation',
                 output='screen',
                 parameters=[{
-                    'autostart': autostart,
+                    'autostart': True,  # Force autostart
                     'node_names': [
+                        'local_costmap',
+                        'global_costmap',
                         'controller_server',
                         'planner_server',
                         'behavior_server',
-                        'bt_navigator',
-                        'local_costmap/local_costmap',
-                        'global_costmap/global_costmap'
+                        'bt_navigator'
                     ],
                     'bond_timeout': 4.0,
-                    'attempt_respawn_reconnection': True
+                    'attempt_respawn_reconnection': True,
+                    'autostart_timeout': 10.0,  # Give nodes time to start
+                    'configure_timeout': 10.0,
+                    'startup_timeout': 10.0
                 }]
             )
         ]

@@ -36,7 +36,7 @@ def generate_launch_description():
         declare_use_sim_time_cmd,
         declare_params_file_cmd,
 
-        # RF2O Odometry
+        # RF2O Odometry first
         Node(
             package='rf2o_laser_odometry',
             executable='rf2o_laser_odometry_node',
@@ -59,25 +59,25 @@ def generate_launch_description():
                            'launch', 'online_async_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': use_sim_time,
+                'use_sim_time': 'false',
                 'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
             }.items()
         ),
- 
+
         # Nav2 Navigation Stack
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(pkg_dir, 'launch', 'nav2_custom_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': 'False',
+                'use_sim_time': 'false',
                 'params_file': params_file,
                 'use_composition': 'False',
                 'autostart': 'True'
             }.items()
         ),
 
-        # Nav2 Hardware Bridge
+        # Hardware Bridge
         Node(
             package='motor_controller',
             executable='nav2_hardware_bridge',
@@ -85,15 +85,15 @@ def generate_launch_description():
             parameters=[{
                 'max_linear_speed': 1.0,
                 'max_angular_speed': 1.0,
-                'cmd_vel_topic': 'cmd_vel'
+                'cmd_vel_topic': '/cmd_vel'  # Add leading slash
             }],
             remappings=[
-                ('cmd_vel', 'cmd_vel'),
+                ('cmd_vel', '/cmd_vel'),
                 ('wheel_cmd_vel', 'wheel_cmd_vel')
             ]
         ),
 
-        # RViz2 for visualization
+        # RViz2 last
         Node(
             package='rviz2',
             executable='rviz2',

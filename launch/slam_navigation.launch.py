@@ -85,11 +85,16 @@ def generate_launch_description():
             parameters=[{
                 'use_sim_time': False,
                 'autostart': True,
-                'node_names': ['controller_server',
-                             'planner_server',
-                             'recoveries_server',
-                             'bt_navigator',
-                             'waypoint_follower']
+                'bond_timeout': 0.0,  # Disable bond timeout
+                'node_names': [
+                    'map_server',
+                    'amcl',
+                    'controller_server',
+                    'planner_server',
+                    'recoveries_server',
+                    'bt_navigator',
+                    'behavior_server'
+                ]
             }]
         ),
 

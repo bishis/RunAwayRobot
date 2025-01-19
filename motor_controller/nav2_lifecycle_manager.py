@@ -15,16 +15,34 @@ class Nav2LifecycleManager(Node):
             'lifecycle_manager/manage_nodes'
         )
         
+        # Add timeout with retries
+        retry_count = 0
         while not self.client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Waiting for lifecycle manager...')
+            retry_count += 1
+            if retry_count > 10:
+                self.get_logger().error('Lifecycle manager service not available')
+                return
             
         self.req = ManageLifecycleNodes.Request()
+        
+        # Start Nav2 after a short delay
+        self.create_timer(5.0, self.startup)
         
     def startup(self):
         self.get_logger().info('Starting up Nav2...')
         self.req.command = ManageLifecycleNodes.Request.STARTUP
         future = self.client.call_async(self.req)
-        rclpy.spin_until_future_complete(self, future)
+        
+        # Add timeout for the future
+        try:
+            rclpy.spin_until_future_complete(self, future, timeout_sec=10.0)
+            if future.result() is not None:
+                self.get_logger().info('Nav2 startup complete')
+            else:
+                self.get_logger().error('Nav2 startup failed')
+        except Exception as e:
+            self.get_logger().error(f'Nav2 startup error: {str(e)}')
         
     def shutdown(self):
         self.get_logger().info('Shutting down Nav2...')
@@ -37,10 +55,6 @@ def main():
     manager = Nav2LifecycleManager()
     
     try:
-        # Startup Nav2
-        manager.startup()
-        time.sleep(5)  # Wait for nodes to fully start
-        
         # Keep running
         rclpy.spin(manager)
         

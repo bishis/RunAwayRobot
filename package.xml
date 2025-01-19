@@ -40,4 +40,5 @@
   <depend>nav2_recoveries</depend>
   <depend>nav2_planner</depend>
   <depend>nav2_controller</depend>
+  <depend>nav2_behaviors</depend>
   </package> 

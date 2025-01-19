@@ -48,12 +48,19 @@ class HardwareController(Node):
             # Print received command details
             self.get_logger().info(
                 f"\nReceived wheel speeds:"
-                f"\n  Left: {left_speed:.2f}"
-                f"\n  Right: {right_speed:.2f}"
+                f"\n  Left: {left_speed:.3f}"
+                f"\n  Right: {right_speed:.3f}"
             )
             
             # Apply speeds to motors
             self.motors.set_speeds(left_speed, right_speed)
+            
+            # Log the actual speeds being set
+            self.get_logger().info(
+                f"Applied speeds to motors:"
+                f"\n  Left: {left_speed:.3f}"
+                f"\n  Right: {right_speed:.3f}"
+            )
             
             # Increment command counter
             self.command_count += 1

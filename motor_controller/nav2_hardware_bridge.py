@@ -49,6 +49,11 @@ class Nav2HardwareBridge(Node):
             linear_x = msg.linear.x
             angular_z = msg.angular.z
             
+            # Log the received command
+            self.get_logger().info(
+                f'Received cmd_vel - linear: {linear_x:.3f}, angular: {angular_z:.3f}'
+            )
+            
             # Clamp velocities to max values
             linear_x = max(-self.max_linear_speed, min(self.max_linear_speed, linear_x))
             angular_z = max(-self.max_angular_speed, min(self.max_angular_speed, angular_z))
@@ -57,6 +62,11 @@ class Nav2HardwareBridge(Node):
             # Similar to your navigation_controller implementation
             left_speed = linear_x - (angular_z * 0.1)  # 0.1 is wheel separation/2
             right_speed = linear_x + (angular_z * 0.1)
+            
+            # Log the calculated wheel speeds
+            self.get_logger().info(
+                f'Calculated wheel speeds - left: {left_speed:.3f}, right: {right_speed:.3f}'
+            )
             
             # Create wheel command message
             wheel_cmd = Twist()
@@ -68,12 +78,6 @@ class Nav2HardwareBridge(Node):
             
             # Update command time
             self.last_cmd_time = self.get_clock().now()
-            
-            # Log command details
-            self.get_logger().debug(
-                f'Nav2 cmd: linear={linear_x:.2f}, angular={angular_z:.2f} -> '
-                f'wheels: left={left_speed:.2f}, right={right_speed:.2f}'
-            )
             
         except Exception as e:
             self.get_logger().error(f'Error processing velocity command: {str(e)}')

@@ -74,5 +74,30 @@ def generate_launch_description():
             executable='rviz2',
             name='rviz2',
             arguments=['-d', os.path.join(pkg_dir, 'config', 'nav2_view.rviz')]
+        ),
+
+        # Nav2 Lifecycle Manager
+        Node(
+            package='nav2_lifecycle_manager',
+            executable='lifecycle_manager',
+            name='lifecycle_manager',
+            output='screen',
+            parameters=[{
+                'use_sim_time': False,
+                'autostart': True,
+                'node_names': ['controller_server',
+                             'planner_server',
+                             'recoveries_server',
+                             'bt_navigator',
+                             'waypoint_follower']
+            }]
+        ),
+
+        # Our Lifecycle Manager
+        Node(
+            package='motor_controller',
+            executable='nav2_lifecycle_manager',
+            name='nav2_lifecycle_manager',
+            output='screen'
         )
     ]) 

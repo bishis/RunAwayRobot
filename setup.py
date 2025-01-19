@@ -29,6 +29,7 @@ setup(
             'hardware_controller = motor_controller.hardware_controller:main',
             'navigation_controller = motor_controller.navigation_controller:main',
             'navigation_interface = motor_controller.navigation_interface:main',
+            'nav2_lifecycle_manager = motor_controller.nav2_lifecycle_manager:main',
         ],
     },
 )

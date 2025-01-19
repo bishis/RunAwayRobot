@@ -143,24 +143,18 @@ class Nav2HardwareBridge(Node):
         # Get node name info
         node_name = self.get_name()
         
-        # Check Nav2 nodes
-        try:
-            from rclpy.node import get_node_names
-            
-            # List all nodes
-            node_names = get_node_names(node=self)
-            nav2_nodes = [name for name in node_names if 'nav2' in name or 'controller' in name]
-            
-            self.get_logger().info(
-                f'\nDebug Info for {node_name}:'
-                f'\n  Time since last cmd_vel: {time_since_cmd:.2f} seconds'
-                f'\n  Number of publishers to cmd_vel: {n_publishers}'
-                f'\n  Number of subscribers to wheel_cmd_vel: {n_subscribers}'
-                f'\n  Subscribed to cmd_vel topic: {self.get_parameter("cmd_vel_topic").value}'
-                f'\n  Nav2 nodes found: {", ".join(nav2_nodes) if nav2_nodes else "None"}'
-            )
-        except Exception as e:
-            self.get_logger().error(f'Error getting node info: {str(e)}')
+        # Log the basic debug info
+        self.get_logger().info(
+            f'\nDebug Info for {node_name}:'
+            f'\n  Time since last cmd_vel: {time_since_cmd:.2f} seconds'
+            f'\n  Number of publishers to cmd_vel: {n_publishers}'
+            f'\n  Number of subscribers to wheel_cmd_vel: {n_subscribers}'
+            f'\n  Subscribed to cmd_vel topic: {self.get_parameter("cmd_vel_topic").value}'
+        )
+        
+        # Check if we have any publishers
+        if n_publishers == 0:
+            self.get_logger().warn('No publishers on cmd_vel topic - Nav2 may not be running properly')
 
 def main(args=None):
     rclpy.init(args=args)

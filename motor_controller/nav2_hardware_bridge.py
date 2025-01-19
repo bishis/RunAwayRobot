@@ -109,9 +109,9 @@ class Nav2HardwareBridge(Node):
         """Debug timer callback to check if we're receiving cmd_vel."""
         time_since_cmd = (self.get_clock().now() - self.last_cmd_time).nanoseconds / 1e9
         
-        # Get publisher and subscriber counts
-        n_publishers = len(self.cmd_vel_sub.get_publisher_count())
-        n_subscribers = len(self.wheel_cmd_pub.get_subscription_count())
+        # Get publisher and subscriber counts - don't use len()
+        n_publishers = self.cmd_vel_sub.get_publisher_count()
+        n_subscribers = self.wheel_cmd_pub.get_subscription_count()
         
         self.get_logger().info(
             f'\nDebug Info:'

@@ -36,6 +36,14 @@ def generate_launch_description():
         declare_use_sim_time_cmd,
         declare_params_file_cmd,
 
+        # Static TF Publishers
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='base_link_to_laser',
+            arguments=['0', '0', '0', '0', '0', '0', 'base_link', 'laser_frame']
+        ),
+
         # RF2O Odometry first
         Node(
             package='rf2o_laser_odometry',

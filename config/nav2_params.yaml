@@ -30,7 +30,7 @@ amcl:
     save_pose_rate: 0.5
     sigma_hit: 0.2
     tf_broadcast: true
-    transform_tolerance: 1.0
+    transform_tolerance: 0.1
     update_min_a: 0.2
     update_min_d: 0.25
     z_hit: 0.5
@@ -210,6 +210,7 @@ local_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 2.5
           obstacle_min_range: 0.0
+      transform_tolerance: 0.1
 
 global_costmap:
   global_costmap:
@@ -264,6 +265,7 @@ global_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 2.5
           obstacle_min_range: 0.0
+      transform_tolerance: 0.1
 
 # Add this at the same level as other top-level configurations (like amcl, bt_navigator, etc.)
 collision_monitor:

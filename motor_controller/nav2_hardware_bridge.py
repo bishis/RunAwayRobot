@@ -145,8 +145,10 @@ class Nav2HardwareBridge(Node):
         
         # Check Nav2 nodes
         try:
+            from rclpy.node import get_node_names
+            
             # List all nodes
-            node_names = [node.name for node in self.get_node_names()]
+            node_names = get_node_names(node=self)
             nav2_nodes = [name for name in node_names if 'nav2' in name or 'controller' in name]
             
             self.get_logger().info(
@@ -155,7 +157,7 @@ class Nav2HardwareBridge(Node):
                 f'\n  Number of publishers to cmd_vel: {n_publishers}'
                 f'\n  Number of subscribers to wheel_cmd_vel: {n_subscribers}'
                 f'\n  Subscribed to cmd_vel topic: {self.get_parameter("cmd_vel_topic").value}'
-                f'\n  Nav2 nodes found: {nav2_nodes}'
+                f'\n  Nav2 nodes found: {", ".join(nav2_nodes) if nav2_nodes else "None"}'
             )
         except Exception as e:
             self.get_logger().error(f'Error getting node info: {str(e)}')

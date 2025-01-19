@@ -4,8 +4,6 @@ from launch import LaunchDescription
 from launch.actions import SetEnvironmentVariable, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
-from launch.substitutions import LaunchConfiguration, TextSubstitution
-from launch.actions import DeclareLaunchArgument
 
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
@@ -42,22 +40,21 @@ def generate_launch_description():
                            'launch', 'online_async_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': TextSubstitution(text='false'),
+                'use_sim_time': 'false',
                 'slam_params_file': slam_params
             }.items()
         ),
 
-        # Full Nav2 Stack
+        # Full Nav2 Stack (includes all necessary components)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(nav2_dir, 'launch', 'bringup_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': TextSubstitution(text='false'),
+                'use_sim_time': 'false',
                 'params_file': nav2_params,
-                'map': '',
-                'use_composition': TextSubstitution(text='false'),
-                'autostart': TextSubstitution(text='true')
+                'map': '',  # Empty string for SLAM
+                'use_composition': 'True'
             }.items()
         ),
 
@@ -88,17 +85,19 @@ def generate_launch_description():
             parameters=[{
                 'use_sim_time': False,
                 'autostart': True,
-                'bond_timeout': 0.0,
-                'node_names': [
-                    'map_server',
-                    'amcl',
-                    'controller_server',
-                    'planner_server',
-                    'recoveries_server',
-                    'bt_navigator',
-                    'waypoint_follower',
-                    'velocity_smoother'
-                ]
+                'node_names': ['controller_server',
+                             'planner_server',
+                             'recoveries_server',
+                             'bt_navigator',
+                             'waypoint_follower']
             }]
         ),
+
+        # Our Lifecycle Manager
+        Node(
+            package='motor_controller',
+            executable='nav2_lifecycle_manager',
+            name='nav2_lifecycle_manager',
+            output='screen'
+        )
     ]) 

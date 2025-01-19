@@ -9,11 +9,32 @@ from launch_ros.actions import Node
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
     nav2_pkg_dir = get_package_share_directory('nav2_bringup')
+    
+    # Launch configuration variables
+    use_sim_time = LaunchConfiguration('use_sim_time')
+    params_file = LaunchConfiguration('params_file')
+    
+    # Declare launch arguments
+    declare_use_sim_time_cmd = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false',
+        description='Use simulation (Gazebo) clock if true'
+    )
+    
+    declare_params_file_cmd = DeclareLaunchArgument(
+        'params_file',
+        default_value=os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
+        description='Full path to the ROS2 parameters file'
+    )
 
     return LaunchDescription([
         # Network setup
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
+
+        # Launch arguments
+        declare_use_sim_time_cmd,
+        declare_params_file_cmd,
 
         # RF2O Odometry
         Node(
@@ -27,26 +48,32 @@ def generate_launch_description():
                 'base_frame_id': 'base_link',
                 'odom_frame_id': 'odom',
                 'init_pose_from_topic': '',
-                'freq': 20.0,
-                'use_sim_time': False
+                'freq': 20.0
             }]
         ),
 
-        # SLAM Toolbox
+        # SLAM Toolbox in online async mode
         IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
+            PythonLaunchDescriptionSource([
                 os.path.join(get_package_share_directory('slam_toolbox'),
                            'launch', 'online_async_launch.py')
-            ),
-            launch_arguments={'use_sim_time': 'false'}.items()
+            ]),
+            launch_arguments={
+                'use_sim_time': use_sim_time,
+                'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
+            }.items()
         ),
 
-        # Nav2 Navigation Stack
+        # Nav2 Navigation Stack (without map server since SLAM provides the map)
         IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
+            PythonLaunchDescriptionSource([
                 os.path.join(nav2_pkg_dir, 'launch', 'navigation_launch.py')
-            ),
-            launch_arguments={'use_sim_time': 'false'}.items()
+            ]),
+            launch_arguments={
+                'use_sim_time': use_sim_time,
+                'params_file': params_file,
+                'use_composition': 'False'
+            }.items()
         ),
 
         # Collision Monitor
@@ -55,7 +82,7 @@ def generate_launch_description():
             executable='collision_monitor',
             name='collision_monitor',
             parameters=[{
-                'use_sim_time': False,
+                'use_sim_time': use_sim_time,
                 'base_frame_id': 'base_link',
                 'odom_frame_id': 'odom',
                 'cmd_vel_in_topic': 'cmd_vel',
@@ -63,8 +90,7 @@ def generate_launch_description():
                 'transform_tolerance': 0.5,
                 'source_timeout': 1.0,
                 'stop_on_collision': True,
-                'observation_sources': 'scan',
-                'polygons': [],
+                'observation_sources': ['scan'],
                 'scan': {
                     'type': 'scan',
                     'topic': '/scan',
@@ -84,12 +110,11 @@ def generate_launch_description():
             name='nav2_hardware_bridge',
             parameters=[{
                 'max_linear_speed': 1.0,
-                'max_angular_speed': 1.0,
-                'use_sim_time': False
+                'max_angular_speed': 1.0
             }]
         ),
 
-        # RViz2
+        # RViz2 for visualization with Nav2 config
         Node(
             package='rviz2',
             executable='rviz2',

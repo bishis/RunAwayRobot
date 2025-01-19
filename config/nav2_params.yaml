@@ -252,8 +252,7 @@ collision_monitor:
     transform_tolerance: 0.5
     source_timeout: 1.0
     stop_on_collision: true
-    observation_sources: "scan"
-    polygons: []
+    observation_sources: ["scan"]
     scan:
       type: "scan"
       topic: "/scan"

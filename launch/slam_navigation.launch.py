@@ -62,22 +62,15 @@ def generate_launch_description():
                 os.path.join(get_package_share_directory('slam_toolbox'),
                            'launch', 'online_async_launch.py')
             ]),
-            launch_arguments={
-                'use_sim_time': 'false',
-                'slam_params_file': default_slam_params_path
-            }.items()
+            launch_arguments={'use_sim_time': 'false'}.items()
         ),
 
-        # Nav2 Navigation Stack (without map server since SLAM provides the map)
+        # Nav2 Navigation Stack
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(nav2_pkg_dir, 'launch', 'navigation_launch.py')
             ]),
-            launch_arguments={
-                'use_sim_time': 'false',
-                'params_file': default_params_path,
-                'use_composition': 'False'
-            }.items()
+            launch_arguments={'use_sim_time': 'false'}.items()
         ),
 
         # Collision Monitor
@@ -86,7 +79,7 @@ def generate_launch_description():
             executable='collision_monitor',
             name='collision_monitor',
             parameters=[{
-                'use_sim_time': 'false',
+                'use_sim_time': False,
                 'base_frame_id': 'base_link',
                 'odom_frame_id': 'odom',
                 'cmd_vel_in_topic': 'cmd_vel',

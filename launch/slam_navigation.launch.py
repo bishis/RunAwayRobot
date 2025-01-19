@@ -82,7 +82,7 @@ def generate_launch_description():
             executable='collision_monitor',
             name='collision_monitor',
             parameters=[{
-                'use_sim_time': use_sim_time,
+                'use_sim_time': 'false',
                 'base_frame_id': 'base_link',
                 'odom_frame_id': 'odom',
                 'cmd_vel_in_topic': 'cmd_vel',

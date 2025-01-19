@@ -15,7 +15,7 @@ setup(
         ('share/' + package_name + '/launch', glob('launch/*.py')),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
         ('share/' + package_name + '/config', glob('config/*.rviz')),
-        (os.path.join('share', package_name, 'behavior_trees'), glob('behavior_trees/*.xml')),
+        ('share/' + package_name + '/behavior_trees', glob('behavior_trees/*.xml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

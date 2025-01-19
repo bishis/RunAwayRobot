@@ -105,8 +105,13 @@ amcl:
     base_frame_id: "base_link"
     beam_skip_distance: 0.5
     beam_skip_threshold: 0.3
+    do_beamskip: false
     global_frame_id: "map"
     lambda_short: 0.1
+    laser_likelihood_max_dist: 2.0
+    laser_max_range: 100.0
+    laser_min_range: 0.1
+    laser_model_type: "likelihood_field"
     max_beams: 60
     max_particles: 2000
     min_particles: 500
@@ -123,6 +128,11 @@ amcl:
     transform_tolerance: 1.0
     update_min_a: 0.2
     update_min_d: 0.25
+    z_hit: 0.5
+    z_max: 0.05
+    z_rand: 0.5
+    z_short: 0.05
+    scan_topic: scan
 
 planner_server:
   ros__parameters:
@@ -152,4 +162,21 @@ recoveries_server:
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.0
     min_rotational_vel: 0.4
-    rotational_acc_lim: 3.2 
+    rotational_acc_lim: 3.2
+
+velocity_smoother:
+  ros__parameters:
+    smoothing_frequency: 20.0
+    scale_velocities: False
+    feedback: "OPEN_LOOP"
+    max_velocity: [0.5, 0.0, 1.0]
+    min_velocity: [-0.5, 0.0, -1.0]
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0
+    max_accel: [2.5, 0.0, 3.2]
+    max_decel: [-2.5, 0.0, -3.2]
+
+map_server:
+  ros__parameters:
+    use_sim_time: False
+    yaml_filename: "" 

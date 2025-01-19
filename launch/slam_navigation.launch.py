@@ -45,7 +45,7 @@ def generate_launch_description():
             }.items()
         ),
 
-        # Full Nav2 Stack (includes all necessary components)
+        # Full Nav2 Stack
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(nav2_dir, 'launch', 'bringup_launch.py')
@@ -54,7 +54,8 @@ def generate_launch_description():
                 'use_sim_time': 'false',
                 'params_file': nav2_params,
                 'map': '',  # Empty string for SLAM
-                'use_composition': 'True'
+                'use_composition': 'false',  # Changed to false for better debugging
+                'autostart': 'true'
             }.items()
         ),
 
@@ -85,19 +86,17 @@ def generate_launch_description():
             parameters=[{
                 'use_sim_time': False,
                 'autostart': True,
-                'node_names': ['controller_server',
-                             'planner_server',
-                             'recoveries_server',
-                             'bt_navigator',
-                             'waypoint_follower']
+                'bond_timeout': 0.0,  # Disable bond timeout
+                'node_names': [
+                    'map_server',
+                    'amcl',
+                    'controller_server',
+                    'planner_server',
+                    'recoveries_server',
+                    'bt_navigator',
+                    'waypoint_follower',
+                    'velocity_smoother'
+                ]
             }]
         ),
-
-        # Our Lifecycle Manager
-        Node(
-            package='motor_controller',
-            executable='nav2_lifecycle_manager',
-            name='nav2_lifecycle_manager',
-            output='screen'
-        )
     ]) 

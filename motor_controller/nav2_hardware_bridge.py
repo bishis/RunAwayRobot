@@ -7,6 +7,9 @@ from nav_msgs.msg import Odometry
 import math
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
+from nav2_msgs.action import NavigateToPose
+from rclpy.action import ActionClient
+import time
 
 class Nav2HardwareBridge(Node):
     """Bridge between Nav2 commands and hardware controller."""
@@ -57,6 +60,24 @@ class Nav2HardwareBridge(Node):
         
         # Create watchdog timer
         self.create_timer(0.1, self.watchdog_callback)
+        
+        # Create action client for navigation
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        
+        # Add timer to send test goal after a short delay
+        self.create_timer(5.0, self.send_test_goal)  # Wait 5 seconds before sending goal
+        
+        # Track if we've sent a goal
+        self.goal_sent = False
+        
+        # Define test waypoints [(x, y), ...]
+        self.waypoints = [
+            (0.5, 0.0),   # 1m ahead
+            (0.2, 0.5),   # diagonal
+            (0.0, 0.2),   # left
+            (0.0, 0.0)    # back to start
+        ]
+        self.current_waypoint = 0
         
         self.get_logger().info('Nav2 Hardware Bridge initialized')
         
@@ -243,6 +264,78 @@ class Nav2HardwareBridge(Node):
         
         # Cycle to next test state
         self.test_state = (self.test_state + 1) % 4
+
+    def send_test_goal(self):
+        """Send next waypoint as goal."""
+        if self.goal_sent:
+            return
+            
+        if not self.nav_client.wait_for_server(timeout_sec=1.0):
+            self.get_logger().warn('Navigation action server not available')
+            return
+            
+        # Get next waypoint
+        x, y = self.waypoints[self.current_waypoint]
+        
+        # Create goal message
+        goal_msg = NavigateToPose.Goal()
+        goal_msg.pose.header.frame_id = 'map'
+        goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
+        
+        # Set position
+        goal_msg.pose.pose.position.x = x
+        goal_msg.pose.pose.position.y = y
+        goal_msg.pose.pose.position.z = 0.0
+        
+        # Set orientation (facing forward)
+        goal_msg.pose.pose.orientation.w = 1.0
+        goal_msg.pose.pose.orientation.x = 0.0
+        goal_msg.pose.pose.orientation.y = 0.0
+        goal_msg.pose.pose.orientation.z = 0.0
+        
+        self.get_logger().info(f'Sending navigation goal: waypoint {self.current_waypoint} ({x}, {y})')
+        
+        # Send the goal
+        self.nav_client.send_goal_async(
+            goal_msg,
+            feedback_callback=self.goal_feedback_callback
+        ).add_done_callback(self.goal_response_callback)
+        
+        self.goal_sent = True
+        
+        # Move to next waypoint
+        self.current_waypoint = (self.current_waypoint + 1) % len(self.waypoints)
+    
+    def goal_response_callback(self, future):
+        """Handle the goal response."""
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().error('Goal rejected')
+            return
+
+        self.get_logger().info('Goal accepted')
+        
+        # Get the result future
+        self._get_result_future = goal_handle.get_result_async()
+        self._get_result_future.add_done_callback(self.goal_result_callback)
+    
+    def goal_result_callback(self, future):
+        """Handle the goal result."""
+        status = future.result().status
+        if status == 4:  # SUCCEEDED
+            self.get_logger().info('Goal succeeded!')
+        else:
+            self.get_logger().warn(f'Goal failed with status: {status}')
+            
+        # Reset goal sent flag to allow sending another goal
+        self.goal_sent = False
+    
+    def goal_feedback_callback(self, feedback_msg):
+        """Handle the goal feedback."""
+        feedback = feedback_msg.feedback
+        self.get_logger().info(
+            f'Distance remaining: {feedback.distance_remaining:.2f} meters'
+        )
 
 def main(args=None):
     rclpy.init(args=args)

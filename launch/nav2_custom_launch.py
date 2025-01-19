@@ -104,7 +104,9 @@ def generate_launch_description():
                         'controller_server',
                         'planner_server',
                         'behavior_server',
-                        'bt_navigator'
+                        'bt_navigator',
+                        'local_costmap/local_costmap',
+                        'global_costmap/global_costmap'
                     ],
                     'bond_timeout': 4.0,
                     'attempt_respawn_reconnection': True

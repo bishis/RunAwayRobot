@@ -15,7 +15,7 @@ class HardwareController(Node):
             right_pin=self.declare_parameter('right_pin', 12).value
         )
         
-        # Subscribe to Nav2's velocity commands
+        # Subscribe to wheel speed commands
         self.create_subscription(
             Twist,
             'cmd_vel',
@@ -39,9 +39,9 @@ class HardwareController(Node):
         return 1 if speed > 0 else -1
         
     def velocity_callback(self, msg):
-        """Convert Nav2 velocity commands to motor speeds."""
+        """Handle incoming velocity commands."""
         try:
-            # Extract linear and angular velocities
+            # Extract velocities
             linear_x = msg.linear.x
             angular_z = msg.angular.z
             
@@ -59,7 +59,7 @@ class HardwareController(Node):
                 f"\n  Right: {right_speed:.2f}"
             )
             
-            # Apply to motors
+            # Apply speeds to motors (no binary conversion here)
             self.motors.set_speeds(left_speed, right_speed)
             
             # Increment command counter

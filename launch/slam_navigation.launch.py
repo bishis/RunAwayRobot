@@ -61,6 +61,15 @@ def generate_launch_description():
             }.items()
         ),
 
+        # 3) Map Server
+        Node(
+            package='nav2_map_server',
+            executable='map_server',
+            name='map_server',
+            output='screen',
+            parameters=[configured_params]
+        ),
+
         # 3) Nav2 Core Nodes (lifecycle-managed)
         Node(
             package='nav2_controller',

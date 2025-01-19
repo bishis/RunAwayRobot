@@ -402,64 +402,92 @@ class NavigationController(Node):
         if not server_available:
             # Try to configure and then activate Nav2 nodes in correct order
             try:
+                # First check if bt_navigator is running
+                bt_state_client = self.create_client(GetState, '/bt_navigator/get_state')
+                if not bt_state_client.wait_for_service(timeout_sec=1.0):
+                    self.get_logger().warn('BT Navigator not running, waiting...')
+                    return
+
                 # Create clients for each Nav2 node in dependency order
                 nodes = [
-                    'controller_server',  # Start with controller
-                    'planner_server',     # Then planner
-                    'bt_navigator'        # Finally behavior tree
+                    'controller_server',
+                    'planner_server',
+                    'bt_navigator'
                 ]
                 
+                # First configure all nodes
                 for node in nodes:
-                    # Create the service client
-                    client = self.create_client(ChangeState, f'/{node}/change_state')
-                    if client.wait_for_service(timeout_sec=1.0):
-                        # First check current state
-                        state_client = self.create_client(GetState, f'/{node}/get_state')
-                        if state_client.wait_for_service(timeout_sec=1.0):
-                            state_future = state_client.call_async(GetState.Request())
-                            rclpy.spin_until_future_complete(self, state_future, timeout_sec=1.0)
-                            
-                            if state_future.result() is not None:
-                                current_state = state_future.result().current_state.id
-                                self.get_logger().info(f'{node} current state: {current_state}')
-                                
-                                # Only configure if unconfigured
-                                if current_state == 1:  # UNCONFIGURED
-                                    configure_request = ChangeState.Request()
-                                    configure_request.transition = Transition()
-                                    configure_request.transition.id = 1  # TRANSITION_CONFIGURE
-                                    configure_request.transition.label = 'configure'
-                                    
-                                    self.get_logger().info(f'Configuring {node}...')
-                                    future = client.call_async(configure_request)
-                                    rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
-                                    
-                                    # Wait a bit for configuration to complete
-                                    time.sleep(0.5)
-                                
-                                # Only activate if inactive
-                                if current_state <= 2:  # INACTIVE or less
-                                    activate_request = ChangeState.Request()
-                                    activate_request.transition = Transition()
-                                    activate_request.transition.id = 3  # TRANSITION_ACTIVATE
-                                    activate_request.transition.label = 'activate'
-                                    
-                                    self.get_logger().info(f'Activating {node}...')
-                                    future = client.call_async(activate_request)
-                                    rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
-                                    
-                                    # Wait a bit for activation to complete
-                                    time.sleep(0.5)
-                            
+                    state_client = self.create_client(GetState, f'/{node}/get_state')
+                    change_client = self.create_client(ChangeState, f'/{node}/change_state')
+                    
+                    if not state_client.wait_for_service(timeout_sec=1.0):
+                        self.get_logger().warn(f'{node} state service not available')
+                        continue
+                        
+                    if not change_client.wait_for_service(timeout_sec=1.0):
+                        self.get_logger().warn(f'{node} change service not available')
+                        continue
+
+                    # Get current state
+                    state_future = state_client.call_async(GetState.Request())
+                    rclpy.spin_until_future_complete(self, state_future, timeout_sec=2.0)
+                    
+                    if state_future.result() is None:
+                        self.get_logger().warn(f'Failed to get {node} state')
+                        continue
+                        
+                    current_state = state_future.result().current_state.id
+                    self.get_logger().info(f'{node} current state: {current_state}')
+                    
+                    # Configure if needed
+                    if current_state == 1:  # UNCONFIGURED
+                        self.get_logger().info(f'Configuring {node}...')
+                        configure_request = ChangeState.Request()
+                        configure_request.transition = Transition()
+                        configure_request.transition.id = 1  # TRANSITION_CONFIGURE
+                        future = change_client.call_async(configure_request)
+                        rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
+                        time.sleep(1.0)  # Wait for configuration
+                
+                # Then activate all nodes
+                for node in nodes:
+                    state_client = self.create_client(GetState, f'/{node}/get_state')
+                    change_client = self.create_client(ChangeState, f'/{node}/change_state')
+                    
+                    if not state_client.wait_for_service(timeout_sec=1.0):
+                        continue
+                        
+                    # Get current state
+                    state_future = state_client.call_async(GetState.Request())
+                    rclpy.spin_until_future_complete(self, state_future, timeout_sec=2.0)
+                    
+                    if state_future.result() is None:
+                        continue
+                        
+                    current_state = state_future.result().current_state.id
+                    
+                    # Activate if needed
+                    if current_state == 2:  # INACTIVE
+                        self.get_logger().info(f'Activating {node}...')
+                        activate_request = ChangeState.Request()
+                        activate_request.transition = Transition()
+                        activate_request.transition.id = 3  # TRANSITION_ACTIVATE
+                        future = change_client.call_async(activate_request)
+                        rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
+                        time.sleep(1.0)  # Wait for activation
+                
+                # Final check for action server
+                server_available = self.nav_client.wait_for_server(timeout_sec=5.0)
+                if server_available:
+                    self.get_logger().info('Successfully connected to Nav2 action server')
+                    self.destroy_timer(self.init_nav_client_timer)
+                    return
+                    
             except Exception as e:
                 self.get_logger().warn(f'Error managing Nav2 nodes: {e}')
             
             self.get_logger().warn('Nav2 action server not available, will retry...')
             return
-            
-        # If we get here, the server was actually available
-        self.get_logger().info('Successfully connected to Nav2 action server')
-        self.destroy_timer(self.init_nav_client_timer)
 
 
 def main(args=None):

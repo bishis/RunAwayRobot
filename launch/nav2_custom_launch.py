@@ -64,7 +64,12 @@ def generate_launch_description():
                 executable='controller_server',
                 output='screen',
                 respawn=use_respawn,
-                parameters=[params_file]),
+                parameters=[params_file],
+                remappings=[
+                    ('cmd_vel', '/cmd_vel'),
+                    ('odom', '/odom_rf2o')
+                ]
+            ),
             Node(
                 package='nav2_planner',
                 executable='planner_server',

@@ -138,31 +138,25 @@ controller_server:
       min_speed_xy: 0.0
       max_speed_xy: 0.26
       min_speed_theta: 0.0
-      acc_lim_x: 2.5
+      acc_lim_x: 0.5
       acc_lim_y: 0.0
-      acc_lim_theta: 3.2
-      decel_lim_x: -2.5
+      acc_lim_theta: 1.0
+      decel_lim_x: -0.5
       decel_lim_y: 0.0
-      decel_lim_theta: -3.2
-      vx_samples: 20
-      vy_samples: 0
-      vtheta_samples: 40
-      sim_time: 1.7
-      linear_granularity: 0.05
-      angular_granularity: 0.025
-      transform_tolerance: 0.2
-      trans_stopped_velocity: 0.25
-      short_circuit_trajectory_evaluation: True
-      stateful: True
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.02
-      PathAlign.scale: 32.0
-      GoalAlign.scale: 24.0
-      PathDist.scale: 32.0
-      GoalDist.scale: 24.0
-      RotateToGoal.scale: 32.0
-      RotateToGoal.slowing_factor: 5.0
-      RotateToGoal.lookahead_time: -1.0
+      decel_lim_theta: -1.0
+      path_distance_bias: 32.0
+      goal_distance_bias: 24.0
+      occdist_scale: 0.02
+      forward_point_distance: 0.1
+      stop_time_buffer: 0.2
+      scaling_speed: 0.25
+      max_scaling_factor: 0.2
+      publish_cost_grid_pc: True
+      publish_evaluation: True
+      publish_global_plan: True
+      publish_local_plan: True
+      publish_trajectories: True
+      publish_transformed_plan: True
 
 local_costmap:
   local_costmap:

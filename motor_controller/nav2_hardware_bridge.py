@@ -15,14 +15,19 @@ class Nav2HardwareBridge(Node):
         # Parameters
         self.declare_parameter('max_linear_speed', 0.5)  # m/s
         self.declare_parameter('max_angular_speed', 1.0)  # rad/s
+        self.declare_parameter('cmd_vel_topic', 'cmd_vel')  # Make topic configurable
         
         self.max_linear_speed = self.get_parameter('max_linear_speed').value
         self.max_angular_speed = self.get_parameter('max_angular_speed').value
+        cmd_vel_topic = self.get_parameter('cmd_vel_topic').value
+        
+        # Log subscribed topics
+        self.get_logger().info(f'Subscribing to cmd_vel topic: {cmd_vel_topic}')
         
         # Publishers and Subscribers
         self.cmd_vel_sub = self.create_subscription(
             Twist,
-            'cmd_vel',
+            cmd_vel_topic,
             self.cmd_vel_callback,
             10
         )
@@ -33,7 +38,7 @@ class Nav2HardwareBridge(Node):
             10
         )
         
-        # Add debug timer to check cmd_vel
+        # Add debug timer to check cmd_vel and print topic info
         self.create_timer(1.0, self.debug_callback)
         
         # Status variables
@@ -103,7 +108,17 @@ class Nav2HardwareBridge(Node):
     def debug_callback(self):
         """Debug timer callback to check if we're receiving cmd_vel."""
         time_since_cmd = (self.get_clock().now() - self.last_cmd_time).nanoseconds / 1e9
-        self.get_logger().info(f'Time since last cmd_vel: {time_since_cmd:.2f} seconds')
+        
+        # Get publisher and subscriber counts
+        n_publishers = len(self.cmd_vel_sub.get_publisher_count())
+        n_subscribers = len(self.wheel_cmd_pub.get_subscription_count())
+        
+        self.get_logger().info(
+            f'\nDebug Info:'
+            f'\n  Time since last cmd_vel: {time_since_cmd:.2f} seconds'
+            f'\n  Number of publishers to cmd_vel: {n_publishers}'
+            f'\n  Number of subscribers to wheel_cmd_vel: {n_subscribers}'
+        )
 
 def main(args=None):
     rclpy.init(args=args)

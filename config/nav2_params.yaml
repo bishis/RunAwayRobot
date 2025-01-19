@@ -111,6 +111,7 @@ controller_server:
     progress_checker_plugin: "progress_checker"
     goal_checker_plugin: "goal_checker"
     controller_plugins: ["FollowPath"]
+    cmd_vel_topic: "cmd_vel"
 
     # Progress checker parameters
     progress_checker:

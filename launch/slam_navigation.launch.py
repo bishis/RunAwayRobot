@@ -84,8 +84,13 @@ def generate_launch_description():
             name='nav2_hardware_bridge',
             parameters=[{
                 'max_linear_speed': 1.0,
-                'max_angular_speed': 1.0
-            }]
+                'max_angular_speed': 1.0,
+                'cmd_vel_topic': 'cmd_vel'
+            }],
+            remappings=[
+                ('cmd_vel', 'cmd_vel'),
+                ('wheel_cmd_vel', 'wheel_cmd_vel')
+            ]
         ),
 
         # RViz2 for visualization

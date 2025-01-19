@@ -25,11 +25,12 @@ def generate_launch_description():
                 'publish_tf': True,
                 'base_frame_id': 'base_link',
                 'odom_frame_id': 'odom',
+                'init_pose_from_topic': '',
                 'freq': 20.0
             }]
         ),
 
-        # Keep your existing SLAM configuration
+        # SLAM Toolbox (using existing configuration)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(get_package_share_directory('slam_toolbox'),
@@ -61,13 +62,11 @@ def generate_launch_description():
         ),
 
         # RViz2
+        # RViz2 for visualization
         Node(
             package='rviz2',
             executable='rviz2',
             name='rviz2',
-            arguments=['-d', os.path.join(pkg_dir, 'config', 'nav2_view.rviz')],
-            parameters=[{
-                'use_sim_time': False
-            }]
+            arguments=['-d', os.path.join(pkg_dir, 'config', 'slam_view.rviz')]
         )
     ]) 

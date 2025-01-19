@@ -1,21 +1,23 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import SetEnvironmentVariable, IncludeLaunchDescription, TimerAction
+from launch.actions import (
+    SetEnvironmentVariable,
+    IncludeLaunchDescription,
+    TimerAction
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from nav2_common.launch import RewrittenYaml
 
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
-    nav2_dir = get_package_share_directory('nav2_bringup')
     
-    # Create temporary YAML files with substitutions
+    # Merge your nav2_params.yaml with any overrides you like
     param_substitutions = {
         'use_sim_time': 'false',
         'autostart': 'true'
     }
-    
     configured_params = RewrittenYaml(
         source_file=os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
         root_key='',
@@ -24,11 +26,11 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        # Network setup
+        # Environment variables for networking, etc.
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
 
-        # RF2O Odometry
+        # 1) Laser Odometry
         Node(
             package='rf2o_laser_odometry',
             executable='rf2o_laser_odometry_node',
@@ -39,17 +41,19 @@ def generate_launch_description():
                 'publish_tf': True,
                 'base_frame_id': 'base_link',
                 'odom_frame_id': 'odom',
-                'init_pose_from_topic': '',
                 'freq': 20.0
             }],
             output='screen'
         ),
 
-        # SLAM Toolbox (Remove if using static map)
+        # 2) SLAM Toolbox for live map
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
-                os.path.join(get_package_share_directory('slam_toolbox'),
-                           'launch', 'online_async_launch.py')
+                os.path.join(
+                    get_package_share_directory('slam_toolbox'),
+                    'launch',
+                    'online_async_launch.py'
+                )
             ]),
             launch_arguments={
                 'use_sim_time': 'false',
@@ -57,30 +61,14 @@ def generate_launch_description():
             }.items()
         ),
 
-        # Nav2 Core (Lifecycle managed by lifecycle_manager_navigation)
-        Node(
-            package='nav2_map_server',
-            executable='map_server',
-            name='map_server',
-            output='screen',
-            parameters=[configured_params]
-        ),
-
-        Node(
-            package='nav2_amcl',
-            executable='amcl',
-            name='amcl',
-            output='screen',
-            parameters=[configured_params]
-        ),
-
+        # 3) Nav2 Core Nodes (lifecycle-managed)
         Node(
             package='nav2_controller',
             executable='controller_server',
             name='controller_server',
             output='screen',
             parameters=[configured_params],
-            remappings=[('cmd_vel', 'cmd_vel')]
+            remappings=[('cmd_vel', 'cmd_vel')]  # If needed
         ),
 
         Node(
@@ -107,7 +95,7 @@ def generate_launch_description():
             parameters=[configured_params]
         ),
 
-        # Lifecycle Manager with proper node order
+        # 4) Lifecycle Manager: *all* nodes to manage
         Node(
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
@@ -120,16 +108,16 @@ def generate_launch_description():
                 'node_names': [
                     'controller_server',
                     'planner_server',
+                    'behavior_server',
                     'bt_navigator'
-                ],
-                'activate_lifecycle_nodes': True,
-                'manage_lifecycle_nodes': True
+                    # If using a 'recoveries_server', list it here too
+                ]
             }]
         ),
 
-        # Navigation Controller with longer delay
+        # 5) Delay start of your navigation_controller so Nav2 is ACTIVE
         TimerAction(
-            period=60.0,  # Even longer delay to ensure Nav2 is fully initialized
+            period=30.0,  # seconds
             actions=[
                 Node(
                     package='motor_controller',
@@ -140,7 +128,7 @@ def generate_launch_description():
             ]
         ),
 
-        # RViz2 for visualization
+        # 6) RViz for visualization
         Node(
             package='rviz2',
             executable='rviz2',
@@ -149,7 +137,7 @@ def generate_launch_description():
             output='screen'
         ),
 
-        # Static Transform
+        # 7) Static transform (base_link -> laser)
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
@@ -158,12 +146,12 @@ def generate_launch_description():
             output='screen'
         ),
 
-        # Robot State Publisher
+        # 8) Robot State Publisher
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
             name='robot_state_publisher',
             parameters=[{'use_sim_time': False}],
             output='screen'
-        )
+        ),
     ])

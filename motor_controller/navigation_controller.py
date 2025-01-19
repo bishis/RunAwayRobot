@@ -4,7 +4,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from nav2_msgs.action import NavigateToPose
-from geometry_msgs.msg import Twist, PoseStamped, Point
+from geometry_msgs.msg import Twist, Point
 from nav_msgs.msg import OccupancyGrid
 from visualization_msgs.msg import MarkerArray, Marker
 from std_msgs.msg import ColorRGBA
@@ -12,8 +12,6 @@ import random
 import math
 import numpy as np
 from enum import Enum
-from lifecycle_msgs.srv import GetState, ChangeState
-from lifecycle_msgs.msg import Transition
 import time
 
 class RobotState(Enum):
@@ -42,11 +40,11 @@ class NavigationController(Node):
         self.waypoints = []
         self.map_data = None
         self.map_info = None
-        self.navigation_succeeded = False
         
         # Nav2 Action Client
         self.nav_client = None
-        # Create and store the timer, so we can destroy it later
+        
+        # Timer to initialize Nav2 client
         self.init_nav_client_timer = self.create_timer(1.0, self.init_nav_client)
         
         # Publishers
@@ -56,18 +54,18 @@ class NavigationController(Node):
         # Subscribers
         self.create_subscription(
             OccupancyGrid,
-            'map',
+            'map',      # SLAM Toolbox publishes /map
             self.map_callback,
             10
         )
         
-        # Timer for main control loop
+        # Timer for the main control loop
         self.create_timer(1.0, self.control_loop)
         
         self.get_logger().info('Navigation controller initialized')
 
     def map_callback(self, msg):
-        """Process incoming map data."""
+        """Receives and stores the SLAM Toolbox occupancy grid."""
         self.map_data = np.array(msg.data).reshape((msg.info.height, msg.info.width))
         self.map_info = msg.info
         
@@ -75,50 +73,22 @@ class NavigationController(Node):
             self.state = RobotState.GENERATING_WAYPOINTS
             self.generate_waypoints()
 
-    def is_valid_point(self, x, y):
-        """Check if point is valid in map."""
-        if self.map_data is None or self.map_info is None:
-            return False
-            
-        # Convert world coordinates to map coordinates
-        mx = int((x - self.map_info.origin.position.x) / self.map_info.resolution)
-        my = int((y - self.map_info.origin.position.y) / self.map_info.resolution)
-        
-        # Check bounds
-        if not (0 <= mx < self.map_info.width and 0 <= my < self.map_info.height):
-            return False
-            
-        # First check if the point is in known space (not -1/unknown)
-        if self.map_data[my, mx] == -1:  # Unknown space
-            return False
-            
-        # Check if point and surrounding area is free and mapped
-        radius = int(0.3 / self.map_info.resolution)  # 30cm safety radius
-        for dx in range(-radius, radius + 1):
-            for dy in range(-radius, radius + 1):
-                check_x = mx + dx
-                check_y = my + dy
-                if (0 <= check_x < self.map_info.width and 
-                    0 <= check_y < self.map_info.height):
-                    cell_value = self.map_data[check_y, check_x]
-                    # Check if cell is unknown or occupied
-                    if cell_value == -1 or cell_value > 50:
-                        return False
-        return True
-
     def generate_waypoints(self):
         """Generate random valid waypoints across the mapped area."""
+        if self.map_data is None:
+            self.get_logger().warn('No map data available yet; cannot generate waypoints.')
+            return
+        
         self.waypoints = []
         attempts = 0
         max_attempts = 1000
         
-        # Find the bounds of the mapped area
+        # Find the bounds of the mapped area (exclude unknown=-1)
         mapped_points = np.where(self.map_data != -1)
         if len(mapped_points[0]) == 0:
-            self.get_logger().warn('No mapped areas found')
+            self.get_logger().warn('No known/mapped areas found in the map.')
             return
-            
-        # Get the bounds of the mapped area
+
         min_y, max_y = np.min(mapped_points[0]), np.max(mapped_points[0])
         min_x, max_x = np.min(mapped_points[1]), np.max(mapped_points[1])
         
@@ -139,7 +109,7 @@ class NavigationController(Node):
             x = random.uniform(world_min_x, world_max_x)
             y = random.uniform(world_min_y, world_max_y)
             
-            # Check if point is valid and far enough from other waypoints
+            # Check if this random point is valid and spaced from others
             if self.is_valid_point(x, y) and self.is_point_far_enough(x, y):
                 self.waypoints.append(Point(x=x, y=y, z=0.0))
                 self.get_logger().info(
@@ -157,17 +127,44 @@ class NavigationController(Node):
         self.state = RobotState.NAVIGATING
 
     def is_point_far_enough(self, x, y):
-        """Check if point is far enough from existing waypoints."""
+        """Ensure the new waypoint is at least self.min_distance from existing ones."""
         for waypoint in self.waypoints:
             dx = x - waypoint.x
             dy = y - waypoint.y
-            distance = math.sqrt(dx*dx + dy*dy)
-            if distance < self.min_distance:
+            dist = math.sqrt(dx*dx + dy*dy)
+            if dist < self.min_distance:
                 return False
         return True
 
+    def is_valid_point(self, x, y):
+        """Check if (x, y) is a free (unoccupied) cell in the occupancy grid."""
+        if (self.map_data is None) or (self.map_info is None):
+            return False
+            
+        # Convert world coords to map coords
+        mx = int((x - self.map_info.origin.position.x) / self.map_info.resolution)
+        my = int((y - self.map_info.origin.position.y) / self.map_info.resolution)
+        
+        if mx < 0 or my < 0 or mx >= self.map_info.width or my >= self.map_info.height:
+            return False
+        
+        # Cell must be known (not -1) and free (<= 50 is typically free)
+        if self.map_data[my, mx] == -1 or self.map_data[my, mx] > 50:
+            return False
+        
+        # Optional: check a small neighborhood for safety
+        radius = int(0.3 / self.map_info.resolution)  # 30cm safety
+        for dx in range(-radius, radius+1):
+            for dy in range(-radius, radius+1):
+                nx = mx + dx
+                ny = my + dy
+                if 0 <= nx < self.map_info.width and 0 <= ny < self.map_info.height:
+                    if self.map_data[ny, nx] == -1 or self.map_data[ny, nx] > 50:
+                        return False
+        return True
+
     def publish_waypoints(self):
-        """Publish waypoints for visualization."""
+        """Publish all waypoints + current target for RViz visualization."""
         marker_array = MarkerArray()
         
         # All waypoints as red spheres
@@ -184,84 +181,77 @@ class NavigationController(Node):
         waypoint_marker.color.r = 1.0
         waypoint_marker.color.a = 1.0
         
-        for point in self.waypoints:
-            waypoint_marker.points.append(point)
+        for p in self.waypoints:
+            waypoint_marker.points.append(p)
         
         marker_array.markers.append(waypoint_marker)
         
         # Current target as green sphere
         if self.current_waypoint_index < len(self.waypoints):
-            target_marker = Marker()
-            target_marker.header.frame_id = 'map'
-            target_marker.header.stamp = self.get_clock().now().to_msg()
-            target_marker.ns = 'current_target'
-            target_marker.id = 1
-            target_marker.type = Marker.SPHERE
-            target_marker.action = Marker.ADD
-            target_marker.pose.position = self.waypoints[self.current_waypoint_index]
-            target_marker.scale.x = 0.3
-            target_marker.scale.y = 0.3
-            target_marker.scale.z = 0.3
-            target_marker.color.g = 1.0
-            target_marker.color.a = 1.0
+            current_marker = Marker()
+            current_marker.header.frame_id = 'map'
+            current_marker.header.stamp = self.get_clock().now().to_msg()
+            current_marker.ns = 'current_target'
+            current_marker.id = 1
+            current_marker.type = Marker.SPHERE
+            current_marker.action = Marker.ADD
+            current_marker.pose.position = self.waypoints[self.current_waypoint_index]
+            current_marker.scale.x = 0.3
+            current_marker.scale.y = 0.3
+            current_marker.scale.z = 0.3
+            current_marker.color.g = 1.0
+            current_marker.color.a = 1.0
             
-            marker_array.markers.append(target_marker)
+            marker_array.markers.append(current_marker)
         
         self.waypoint_pub.publish(marker_array)
 
     def send_velocity_command(self, linear_x, angular_z):
-        """Send binary velocity command to the robot."""
-        # Calculate wheel speeds based on differential drive kinematics
-        wheel_separation = 0.20  # Distance between wheels in meters
-        wheel_radius = 0.05      # Wheel radius in meters
+        """
+        Convert Nav2 velocity commands into a simple "binary" wheel command
+        (Left, Right) for demonstration, then publish to /cmd_vel.
+        """
+        wheel_separation = 0.20  # meters
+        wheel_radius = 0.05      # meters
         
-        # Convert linear and angular velocities to wheel speeds
-        left_speed = (linear_x - (wheel_separation / 2) * angular_z) / wheel_radius
-        right_speed = (linear_x + (wheel_separation / 2) * angular_z) / wheel_radius
+        # Convert linear & angular to wheel speeds (rad/s)
+        left_speed = (linear_x - (wheel_separation / 2.0) * angular_z) / wheel_radius
+        right_speed = (linear_x + (wheel_separation / 2.0) * angular_z) / wheel_radius
         
-        # Debug print raw speeds
-        self.get_logger().info(
-            f'\nRaw velocities:'
-            f'\n  Linear X: {linear_x:.3f} m/s'
-            f'\n  Angular Z: {angular_z:.3f} rad/s'
-            f'\nCalculated wheel speeds:'
-            f'\n  Left: {left_speed:.3f} rad/s'
-            f'\n  Right: {right_speed:.3f} rad/s'
-        )
+        # Convert to discrete -1, 0, or +1
+        def to_binary(speed):
+            if speed > 0.1:
+                return 1.0
+            elif speed < -0.1:
+                return -1.0
+            return 0.0
         
-        # Convert to binary commands (-1, 0, 1)
-        binary_left = 1.0 if left_speed > 0.1 else (-1.0 if left_speed < -0.1 else 0.0)
-        binary_right = 1.0 if right_speed > 0.1 else (-1.0 if right_speed < -0.1 else 0.0)
-        
-        # Create Twist message with binary wheel speeds
         cmd = Twist()
-        cmd.linear.x = binary_left   # Left wheel
-        cmd.angular.z = binary_right # Right wheel
+        cmd.linear.x = to_binary(left_speed)
+        cmd.angular.z = to_binary(right_speed)
         
-        # Log the final commands being sent
         self.get_logger().info(
-            f'Publishing cmd_vel:'
-            f'\n  cmd_vel.linear.x (LEFT): {cmd.linear.x}'
-            f'\n  cmd_vel.angular.z (RIGHT): {cmd.angular.z}'
+            f'Nav2 raw: lin={linear_x:.3f}, ang={angular_z:.3f} '
+            f'=> left={left_speed:.2f}, right={right_speed:.2f} '
+            f'=> cmd=({cmd.linear.x}, {cmd.angular.z})'
         )
         
         self.cmd_vel_pub.publish(cmd)
 
     def navigate_to_waypoint(self):
-        """Send navigation goal to Nav2."""
+        """Send a new goal to /navigate_to_pose for the current waypoint."""
         if self.nav_client is None:
-            self.get_logger().warn('Navigation client not initialized')
+            self.get_logger().warn('Navigation client not initialized.')
             return False
-            
-        # Double-check server is still available (try a longer timeout if needed)
+        
+        # Check server availability again
         if not self.nav_client.wait_for_server(timeout_sec=5.0):
-            self.get_logger().warn('Navigation server not available')
+            self.get_logger().warn('Navigation server not available (timeout).')
             return False
-
-        # Debug print
-        self.get_logger().info('Preparing to send navigation goal...')
-
+        
         try:
+            # Build the NavigateToPose Goal
+            from nav2_msgs.action import NavigateToPose
             goal_msg = NavigateToPose.Goal()
             goal_msg.pose.header.frame_id = 'map'
             goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
@@ -269,7 +259,7 @@ class NavigationController(Node):
             current_waypoint = self.waypoints[self.current_waypoint_index]
             goal_msg.pose.pose.position = current_waypoint
             
-            # Set orientation to face the direction of movement
+            # Simple orientation: face toward the next waypoint (or 0 if last)
             if self.current_waypoint_index < len(self.waypoints) - 1:
                 next_waypoint = self.waypoints[self.current_waypoint_index + 1]
                 yaw = math.atan2(
@@ -278,217 +268,112 @@ class NavigationController(Node):
                 )
             else:
                 yaw = 0.0
-                
+            
+            # Convert yaw -> quaternion
             goal_msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
             goal_msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
-
+            
             self.get_logger().info(
-                f'Sending navigation goal for waypoint {self.current_waypoint_index + 1}/{len(self.waypoints)}: '
+                f'Sending goal for waypoint {self.current_waypoint_index+1}/{len(self.waypoints)}: '
                 f'({current_waypoint.x:.2f}, {current_waypoint.y:.2f})'
             )
             
-            # Send goal with explicit feedback callback
-            self.get_logger().info('Creating goal request...')
+            # Send asynchronously
             send_goal_future = self.nav_client.send_goal_async(
                 goal_msg,
                 feedback_callback=self.navigation_feedback_callback
             )
-            
-            self.get_logger().info('Goal request created, adding callback...')
             send_goal_future.add_done_callback(self.navigation_response_callback)
             
-            self.get_logger().info('Callback added, changing state...')
             self.state = RobotState.WAITING_FOR_NAV2
             return True
-            
+        
         except Exception as e:
             self.get_logger().error(f'Failed to send navigation goal: {str(e)}')
             return False
 
     def navigation_response_callback(self, future):
-        """Handle the response from Nav2 goal request."""
+        """Called when the action server has accepted/rejected our goal request."""
         goal_handle = future.result()
         if not goal_handle.accepted:
-            self.get_logger().error('Navigation goal rejected')
+            self.get_logger().error('Navigation goal rejected!')
             self.state = RobotState.NAVIGATING
             return
-
-        self.get_logger().info('Navigation goal accepted, waiting for feedback...')
+        
+        self.get_logger().info('Goal accepted. Waiting for result...')
         self._get_result_future = goal_handle.get_result_async()
         self._get_result_future.add_done_callback(self.navigation_result_callback)
 
     def navigation_result_callback(self, future):
-        """Handle the result of navigation."""
-        status = future.result().status
-        if status == 4:  # Succeeded
-            self.get_logger().info('Navigation succeeded')
+        """Called when Nav2 finishes the goal."""
+        result = future.result()
+        status = result.status
+        
+        if status == 4:  # GoalStatus.SUCCEEDED
+            self.get_logger().info('Navigation succeeded!')
             self.current_waypoint_index += 1
+            
             if self.current_waypoint_index >= len(self.waypoints):
-                self.get_logger().info('All waypoints visited!')
-                self.generate_waypoints()  # Generate new waypoints
+                self.get_logger().info('All waypoints visited! Generating new set...')
+                self.generate_waypoints()
             else:
                 self.state = RobotState.NAVIGATING
         else:
-            self.get_logger().warn(f'Navigation failed with status: {status}')
+            self.get_logger().warn(f'Navigation failed with status {status}')
+            # Retry or move on
             self.state = RobotState.NAVIGATING
 
     def navigation_feedback_callback(self, feedback_msg):
-        """Handle navigation feedback from Nav2."""
-        self.get_logger().info('Received navigation feedback!')  # Debug print
-        
+        """Called periodically as Nav2 moves toward the goal."""
         feedback = feedback_msg.feedback
-        
-        # Get current commanded velocities
         current_vel = feedback.current_vel
-        linear_x = current_vel.linear.x
-        angular_z = current_vel.angular.z
         
-        # Log the raw Nav2 velocities
         self.get_logger().info(
-            f'\nReceived Nav2 velocities:'
-            f'\n  Linear X: {linear_x:.3f} m/s'
-            f'\n  Angular Z: {angular_z:.3f} rad/s'
-            f'\nDistance remaining: {feedback.distance_remaining:.2f}m'
+            f'Received Nav2 feedback: dist_rem={feedback.distance_remaining:.2f}, '
+            f'lin_x={current_vel.linear.x:.2f}, ang_z={current_vel.angular.z:.2f}'
         )
         
-        # Send the binary velocity command
-        self.send_velocity_command(linear_x, angular_z)
+        # Convert these velocities to the "binary" cmd_vel
+        self.send_velocity_command(current_vel.linear.x, current_vel.angular.z)
 
     def control_loop(self):
-        """Main control loop."""
+        """Main control loop, runs at 1 Hz."""
         if self.state == RobotState.INITIALIZING:
             self.get_logger().info('Waiting for map data...')
             return
-            
+        
         elif self.state == RobotState.GENERATING_WAYPOINTS:
             self.get_logger().info('Generating waypoints...')
             return
-            
+        
         elif self.state == RobotState.NAVIGATING:
-            # Add diagnostic info
-            self.get_logger().info(
-                f'\nNavigation Status:'
-                f'\n  Current State: {self.state}'
-                f'\n  Nav Client Ready: {self.nav_client is not None}'
-                f'\n  Waypoints Generated: {len(self.waypoints)}'
-                f'\n  Current Waypoint: {self.current_waypoint_index}/{len(self.waypoints)}'
-            )
-            
+            # If we still have a waypoint to visit, send a goal
             if self.current_waypoint_index < len(self.waypoints):
-                self.get_logger().info('Attempting to navigate to waypoint...')
-                if not self.navigate_to_waypoint():
-                    self.get_logger().warn('Navigation failed, retrying in 1 second...')
-                    return  # Wait for next control loop iteration
+                self.navigate_to_waypoint()
             else:
-                self.get_logger().info('No more waypoints, generating new ones...')
+                self.get_logger().info('No more waypoints. Generating new ones...')
                 self.generate_waypoints()
-                
+        
         elif self.state == RobotState.WAITING_FOR_NAV2:
-            self.get_logger().info('Waiting for Nav2 to process goal...')
-            
-        # Always publish waypoints for visualization
+            self.get_logger().info('Waiting for Nav2 feedback/result...')
+        
+        # Always publish markers
         self.publish_waypoints()
 
     def init_nav_client(self):
-        """Initialize Nav2 action client with retry."""
+        """Initialize the action client for /navigate_to_pose."""
         if self.nav_client is None:
-            self.get_logger().info('Creating new Nav2 action client...')
+            self.get_logger().info('Creating /navigate_to_pose action client...')
             self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
-            
-        # Check if the action server is available
+        
+        # Check if server is available
         self.get_logger().info('Waiting for Nav2 action server...')
         server_available = self.nav_client.wait_for_server(timeout_sec=1.0)
-        
-        if not server_available:
-            # Try to configure and then activate Nav2 nodes in correct order
-            try:
-                # First check if bt_navigator is running
-                bt_state_client = self.create_client(GetState, '/bt_navigator/get_state')
-                if not bt_state_client.wait_for_service(timeout_sec=1.0):
-                    self.get_logger().warn('BT Navigator not running, waiting...')
-                    return
-
-                # Create clients for each Nav2 node in dependency order
-                nodes = [
-                    'controller_server',
-                    'planner_server',
-                    'bt_navigator'
-                ]
-                
-                # First configure all nodes
-                for node in nodes:
-                    state_client = self.create_client(GetState, f'/{node}/get_state')
-                    change_client = self.create_client(ChangeState, f'/{node}/change_state')
-                    
-                    if not state_client.wait_for_service(timeout_sec=1.0):
-                        self.get_logger().warn(f'{node} state service not available')
-                        continue
-                        
-                    if not change_client.wait_for_service(timeout_sec=1.0):
-                        self.get_logger().warn(f'{node} change service not available')
-                        continue
-
-                    # Get current state
-                    state_future = state_client.call_async(GetState.Request())
-                    rclpy.spin_until_future_complete(self, state_future, timeout_sec=2.0)
-                    
-                    if state_future.result() is None:
-                        self.get_logger().warn(f'Failed to get {node} state')
-                        continue
-                        
-                    current_state = state_future.result().current_state.id
-                    self.get_logger().info(f'{node} current state: {current_state}')
-                    
-                    # Configure if needed
-                    if current_state == 1:  # UNCONFIGURED
-                        self.get_logger().info(f'Configuring {node}...')
-                        configure_request = ChangeState.Request()
-                        configure_request.transition = Transition()
-                        configure_request.transition.id = 1  # TRANSITION_CONFIGURE
-                        future = change_client.call_async(configure_request)
-                        rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
-                        time.sleep(1.0)  # Wait for configuration
-                
-                # Then activate all nodes
-                for node in nodes:
-                    state_client = self.create_client(GetState, f'/{node}/get_state')
-                    change_client = self.create_client(ChangeState, f'/{node}/change_state')
-                    
-                    if not state_client.wait_for_service(timeout_sec=1.0):
-                        continue
-                        
-                    # Get current state
-                    state_future = state_client.call_async(GetState.Request())
-                    rclpy.spin_until_future_complete(self, state_future, timeout_sec=2.0)
-                    
-                    if state_future.result() is None:
-                        continue
-                        
-                    current_state = state_future.result().current_state.id
-                    
-                    # Activate if needed
-                    if current_state == 2:  # INACTIVE
-                        self.get_logger().info(f'Activating {node}...')
-                        activate_request = ChangeState.Request()
-                        activate_request.transition = Transition()
-                        activate_request.transition.id = 3  # TRANSITION_ACTIVATE
-                        future = change_client.call_async(activate_request)
-                        rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
-                        time.sleep(1.0)  # Wait for activation
-                
-                # Final check for action server
-                server_available = self.nav_client.wait_for_server(timeout_sec=5.0)
-                if server_available:
-                    self.get_logger().info('Successfully connected to Nav2 action server')
-                    self.destroy_timer(self.init_nav_client_timer)
-                    return
-                    
-            except Exception as e:
-                self.get_logger().warn(f'Error managing Nav2 nodes: {e}')
-            
-            self.get_logger().warn('Nav2 action server not available, will retry...')
-            return
-
+        if server_available:
+            self.get_logger().info('Nav2 action server is available!')
+            self.destroy_timer(self.init_nav_client_timer)
+        else:
+            self.get_logger().warn('Nav2 server not ready yet. Will retry.')
 
 def main(args=None):
     rclpy.init(args=args)

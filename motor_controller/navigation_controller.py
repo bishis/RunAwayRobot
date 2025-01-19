@@ -407,18 +407,30 @@ class NavigationController(Node):
                     # Create the service client
                     client = self.create_client(ChangeState, f'/{node}/change_state')
                     if client.wait_for_service(timeout_sec=1.0):
-                        # Create request to activate node
-                        request = ChangeState.Request()
-                        request.transition = Transition()
-                        request.transition.id = 3  # Activate transition
-                        request.transition.label = 'activate'
+                        # First configure the node
+                        configure_request = ChangeState.Request()
+                        configure_request.transition = Transition()
+                        configure_request.transition.id = 1  # Configure transition
+                        configure_request.transition.label = 'configure'
                         
-                        # Call service
-                        future = client.call_async(request)
-                        self.get_logger().info(f'Attempting to activate {node}...')
+                        # Call configure service
+                        self.get_logger().info(f'Configuring {node}...')
+                        future = client.call_async(configure_request)
+                        rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
+                        
+                        # Then activate the node
+                        activate_request = ChangeState.Request()
+                        activate_request.transition = Transition()
+                        activate_request.transition.id = 3  # Activate transition
+                        activate_request.transition.label = 'activate'
+                        
+                        # Call activate service
+                        self.get_logger().info(f'Activating {node}...')
+                        future = client.call_async(activate_request)
+                        rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
                         
             except Exception as e:
-                self.get_logger().warn(f'Error activating Nav2 nodes: {e}')
+                self.get_logger().warn(f'Error managing Nav2 nodes: {e}')
             
             self.get_logger().warn('Nav2 action server not available, will retry...')
             return

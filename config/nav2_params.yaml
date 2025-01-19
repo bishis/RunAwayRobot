@@ -289,4 +289,13 @@ planner_server:
       plugin: "nav2_navfn_planner/NavfnPlanner"
       tolerance: 0.5
       use_astar: false
-      allow_unknown: true 
+      allow_unknown: true
+      visualize_potential: false  # Set to true for debugging
+      use_final_approach_orientation: false
+      use_grid_path: false
+      publish_potential: true
+      # Costmap parameters
+      cost_factor: 0.55
+      neutral_cost: 66
+      lethal_cost: 253
+      unknown_cost: 0 

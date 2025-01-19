@@ -151,6 +151,18 @@ controller_server:
       stop_time_buffer: 0.2
       scaling_speed: 0.25
       max_scaling_factor: 0.2
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      BaseObstacle.scale: 0.02
+      PathAlign.scale: 32.0
+      GoalAlign.scale: 24.0
+      PathDist.scale: 32.0
+      GoalDist.scale: 24.0
+      RotateToGoal.scale: 32.0
+      RotateToGoal.slowing_factor: 5.0
+      RotateToGoal.lookahead_time: -1.0
+      prune_plan: true
+      prune_distance: 1.0
+      debug_trajectory_details: true
       publish_cost_grid_pc: True
       publish_evaluation: True
       publish_global_plan: True

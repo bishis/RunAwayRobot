@@ -1,17 +1,40 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import SetEnvironmentVariable, IncludeLaunchDescription
+from launch.actions import SetEnvironmentVariable, IncludeLaunchDescription, DeclareLaunchArgument
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
+    nav2_pkg_dir = get_package_share_directory('nav2_bringup')
     
+    # Launch configuration variables
+    use_sim_time = LaunchConfiguration('use_sim_time')
+    params_file = LaunchConfiguration('params_file')
+    
+    # Declare launch arguments
+    declare_use_sim_time_cmd = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false',
+        description='Use simulation (Gazebo) clock if true'
+    )
+    
+    declare_params_file_cmd = DeclareLaunchArgument(
+        'params_file',
+        default_value=os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
+        description='Full path to the ROS2 parameters file'
+    )
+
     return LaunchDescription([
         # Network setup
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
+
+        # Launch arguments
+        declare_use_sim_time_cmd,
+        declare_params_file_cmd,
 
         # RF2O Odometry
         Node(
@@ -29,38 +52,35 @@ def generate_launch_description():
             }]
         ),
 
-        # SLAM Toolbox (using existing configuration)
+        # SLAM Toolbox in online async mode
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(get_package_share_directory('slam_toolbox'),
                            'launch', 'online_async_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': 'false',
+                'use_sim_time': use_sim_time,
                 'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
             }.items()
         ),
 
-        # Navigation Controller
-        Node(
-            package='motor_controller',
-            executable='navigation_controller',
-            name='navigation_controller',
-            parameters=[{
-                'use_sim_time': False,
-                'waypoint_threshold': 0.2,
-                'leg_length': 0.5,
-                'safety_radius': 0.25,
-                'num_waypoints': 8,
-                'robot.radius': 0.17
-            }]
+        # Nav2 Navigation Stack (without map server since SLAM provides the map)
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource([
+                os.path.join(nav2_pkg_dir, 'launch', 'navigation_launch.py')
+            ]),
+            launch_arguments={
+                'use_sim_time': use_sim_time,
+                'params_file': params_file,
+                'use_composition': 'False'
+            }.items()
         ),
 
-        # RViz2 for visualization
+        # RViz2 for visualization with Nav2 config
         Node(
             package='rviz2',
             executable='rviz2',
             name='rviz2',
-            arguments=['-d', os.path.join(pkg_dir, 'config', 'slam_view.rviz')]
+            arguments=['-d', os.path.join(pkg_dir, 'config', 'nav2_view.rviz')]
         )
     ]) 

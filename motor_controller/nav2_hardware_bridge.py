@@ -22,7 +22,11 @@ class Nav2HardwareBridge(Node):
         cmd_vel_topic = self.get_parameter('cmd_vel_topic').value
         
         # Log subscribed topics
-        self.get_logger().info(f'Subscribing to cmd_vel topic: {cmd_vel_topic}')
+        self.get_logger().info(
+            f'\nTopic Configuration:'
+            f'\n  Subscribing to cmd_vel topic: {cmd_vel_topic}'
+            f'\n  Publishing to wheel_cmd_vel topic: wheel_cmd_vel'
+        )
         
         # Publishers and Subscribers
         self.cmd_vel_sub = self.create_subscription(
@@ -109,15 +113,19 @@ class Nav2HardwareBridge(Node):
         """Debug timer callback to check if we're receiving cmd_vel."""
         time_since_cmd = (self.get_clock().now() - self.last_cmd_time).nanoseconds / 1e9
         
-        # Get publisher and subscriber counts - don't use len()
+        # Get publisher and subscriber counts
         n_publishers = self.cmd_vel_sub.get_publisher_count()
         n_subscribers = self.wheel_cmd_pub.get_subscription_count()
         
+        # Get node name info
+        node_name = self.get_name()
+        
         self.get_logger().info(
-            f'\nDebug Info:'
+            f'\nDebug Info for {node_name}:'
             f'\n  Time since last cmd_vel: {time_since_cmd:.2f} seconds'
             f'\n  Number of publishers to cmd_vel: {n_publishers}'
             f'\n  Number of subscribers to wheel_cmd_vel: {n_subscribers}'
+            f'\n  Subscribed to cmd_vel topic: {self.get_parameter("cmd_vel_topic").value}'
         )
 
 def main(args=None):

@@ -67,14 +67,13 @@ def generate_launch_description():
         # Nav2 Navigation Stack
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
-                os.path.join(nav2_pkg_dir, 'launch', 'navigation_launch.py')
+                os.path.join(pkg_dir, 'launch', 'nav2_custom_launch.py')
             ]),
             launch_arguments={
                 'use_sim_time': use_sim_time,
                 'params_file': params_file,
                 'use_composition': 'False',
-                'autostart': 'True',
-                'use_collision_monitor': 'False'
+                'autostart': 'True'
             }.items()
         ),
 

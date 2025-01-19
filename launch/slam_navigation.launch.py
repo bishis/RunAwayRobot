@@ -99,7 +99,10 @@ def generate_launch_description():
                     'clearing': True,
                     'marking': True,
                     'data_type': 'LaserScan'
-                }
+                },
+                'polygons': [],
+                'polygon_points': [],
+                'points': []
             }]
         ),
 

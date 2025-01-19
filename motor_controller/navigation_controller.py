@@ -13,6 +13,8 @@ import math
 import numpy as np
 from enum import Enum
 from lifecycle_msgs.srv import GetState
+from lifecycle_msgs.srv import ChangeState
+from lifecycle_msgs.msg import Transition
 
 class RobotState(Enum):
     INITIALIZING = 1
@@ -397,24 +399,28 @@ class NavigationController(Node):
         server_available = self.nav_client.wait_for_server(timeout_sec=1.0)
         
         if not server_available:
-            self.get_logger().warn('Nav2 action server not available, will retry...')
-            # Check what actions are available
-            from rclpy.action import get_action_names_and_types
-            actions = get_action_names_and_types(self)
-            self.get_logger().info(f'Available actions: {actions}')
-            
-            # Check Nav2 node states
-            from lifecycle_msgs.srv import GetState
+            # Try to activate Nav2 nodes
             try:
-                # Check multiple Nav2 components
-                for node in ['bt_navigator', 'planner_server', 'controller_server']:
-                    state_client = self.create_client(GetState, f'/{node}/get_state')
-                    if state_client.wait_for_service(timeout_sec=1.0):
-                        self.get_logger().info(f'{node} service is available')
-                    else:
-                        self.get_logger().warn(f'{node} service not available')
+                # Create clients for each Nav2 node
+                nodes = ['bt_navigator', 'planner_server', 'controller_server']
+                for node in nodes:
+                    # Create the service client
+                    client = self.create_client(ChangeState, f'/{node}/change_state')
+                    if client.wait_for_service(timeout_sec=1.0):
+                        # Create request to activate node
+                        request = ChangeState.Request()
+                        request.transition = Transition()
+                        request.transition.id = 3  # Activate transition
+                        request.transition.label = 'activate'
+                        
+                        # Call service
+                        future = client.call_async(request)
+                        self.get_logger().info(f'Attempting to activate {node}...')
+                        
             except Exception as e:
-                self.get_logger().warn(f'Error checking Nav2 states: {e}')
+                self.get_logger().warn(f'Error activating Nav2 nodes: {e}')
+            
+            self.get_logger().warn('Nav2 action server not available, will retry...')
             return
             
         # Successfully initialized

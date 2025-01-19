@@ -63,25 +63,65 @@ class Nav2HardwareBridge(Node):
             
             # Log the received command
             self.get_logger().info(
-                f'Received cmd_vel - linear: {linear_x:.3f}, angular: {angular_z:.3f}'
+                f'\nReceived cmd_vel:'
+                f'\n  Linear X: {linear_x:.3f} m/s'
+                f'\n  Angular Z: {angular_z:.3f} rad/s'
             )
             
             # Clamp velocities to max values
+            original_linear = linear_x
+            original_angular = angular_z
             linear_x = max(-self.max_linear_speed, min(self.max_linear_speed, linear_x))
             angular_z = max(-self.max_angular_speed, min(self.max_angular_speed, angular_z))
             
-            # Convert to differential drive commands
-            left_speed = linear_x - (angular_z * 0.1)  # 0.1 is wheel separation/2
-            right_speed = linear_x + (angular_z * 0.1)
+            if original_linear != linear_x or original_angular != angular_z:
+                self.get_logger().info(
+                    f'Clamped velocities:'
+                    f'\n  Linear X: {linear_x:.3f} m/s (from {original_linear:.3f})'
+                    f'\n  Angular Z: {angular_z:.3f} rad/s (from {original_angular:.3f})'
+                )
+            
+            # Tank drive conversion
+            wheel_separation = 0.2  # Distance between wheels in meters
+            
+            # Calculate wheel speeds for tank drive
+            if abs(angular_z) > 0.001:  # If we're turning
+                # Tank drive turning: opposite wheel directions
+                turn_speed = (angular_z * wheel_separation) / 2.0
+                left_speed = linear_x - turn_speed
+                right_speed = linear_x + turn_speed
+                
+                self.get_logger().info(
+                    f'Turn calculation:'
+                    f'\n  Turn speed component: {turn_speed:.3f}'
+                    f'\n  Pre-normalized speeds:'
+                    f'\n    Left: {left_speed:.3f}'
+                    f'\n    Right: {right_speed:.3f}'
+                )
+            else:
+                # Straight motion
+                left_speed = right_speed = linear_x
+                self.get_logger().info(
+                    f'Straight motion - pre-normalized speed: {linear_x:.3f}'
+                )
             
             # Normalize wheel speeds to [-1, 1]
             max_speed = max(abs(left_speed), abs(right_speed), 1.0)
+            original_left = left_speed
+            original_right = right_speed
             left_speed = left_speed / max_speed
             right_speed = right_speed / max_speed
             
             # Log the calculated wheel speeds
             self.get_logger().info(
-                f'Calculated wheel speeds - left: {left_speed:.3f}, right: {right_speed:.3f}'
+                f'Wheel speeds:'
+                f'\n  Pre-normalization:'
+                f'\n    Left: {original_left:.3f}'
+                f'\n    Right: {original_right:.3f}'
+                f'\n  Normalization factor: {max_speed:.3f}'
+                f'\n  Final speeds [-1 to 1]:'
+                f'\n    Left: {left_speed:.3f}'
+                f'\n    Right: {right_speed:.3f}'
             )
             
             # Create wheel command message

@@ -29,16 +29,21 @@ def generate_launch_description():
             }]
         ),
 
-        # SLAM Toolbox
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([
-                os.path.join(get_package_share_directory('slam_toolbox'),
-                           'launch', 'online_async_launch.py')
-            ]),
-            launch_arguments={
-                'use_sim_time': 'false',
-                'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
-            }.items()
+        # SLAM Toolbox with explicit parameters
+        Node(
+            package='slam_toolbox',
+            executable='async_slam_toolbox_node',
+            name='slam_toolbox',
+            parameters=[{
+                'use_sim_time': False,
+                'max_laser_range': 20.0,
+                'resolution': 0.05,
+                'map_frame': 'map',
+                'odom_frame': 'odom',
+                'base_frame': 'base_link',
+                'scan_topic': '/scan',
+                'mode': 'mapping'  # Explicitly set mapping mode
+            }]
         ),
 
         # Nav2 Stack (includes built-in exploration)
@@ -52,11 +57,22 @@ def generate_launch_description():
             }.items()
         ),
 
-        # RViz2
+        # Transform publishers for robot frames
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='base_link_to_laser',
+            arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
+        ),
+
+        # RViz2 with specific configuration
         Node(
             package='rviz2',
             executable='rviz2',
             name='rviz2',
-            arguments=['-d', os.path.join(pkg_dir, 'config', 'nav2_view.rviz')]
+            arguments=['-d', os.path.join(pkg_dir, 'config', 'nav2_view.rviz')],
+            parameters=[{
+                'use_sim_time': False
+            }]
         )
     ]) 

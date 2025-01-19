@@ -76,6 +76,33 @@ def generate_launch_description():
             }.items()
         ),
 
+        # Collision Monitor
+        Node(
+            package='nav2_collision_monitor',
+            executable='collision_monitor',
+            name='collision_monitor',
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'base_frame_id': 'base_link',
+                'odom_frame_id': 'odom',
+                'cmd_vel_in_topic': 'cmd_vel',
+                'cmd_vel_out_topic': 'cmd_vel_smoothed',
+                'transform_tolerance': 0.5,
+                'source_timeout': 1.0,
+                'stop_on_collision': True,
+                'observation_sources': ['scan'],
+                'scan': {
+                    'type': 'scan',
+                    'topic': '/scan',
+                    'min_height': 0.1,
+                    'max_height': 0.5,
+                    'clearing': True,
+                    'marking': True,
+                    'data_type': 'LaserScan'
+                }
+            }]
+        ),
+
         # Nav2 Hardware Bridge
         Node(
             package='motor_controller',

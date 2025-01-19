@@ -4,7 +4,7 @@ from launch import LaunchDescription
 from launch.actions import SetEnvironmentVariable, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, TextSubstitution
 from launch.actions import DeclareLaunchArgument
 
 def generate_launch_description():
@@ -14,16 +14,7 @@ def generate_launch_description():
     nav2_params = os.path.join(pkg_dir, 'config', 'nav2_params.yaml')
     slam_params = os.path.join(pkg_dir, 'config', 'slam.yaml')
     
-    # Declare launch arguments
-    use_sim_time = LaunchConfiguration('use_sim_time')
-    
     return LaunchDescription([
-        # Declare arguments
-        DeclareLaunchArgument(
-            'use_sim_time',
-            default_value='false',
-            description='Use simulation (Gazebo) clock if true'),
-
         # Network setup
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
@@ -51,7 +42,7 @@ def generate_launch_description():
                            'launch', 'online_async_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': use_sim_time,
+                'use_sim_time': TextSubstitution(text='false'),
                 'slam_params_file': slam_params
             }.items()
         ),
@@ -62,11 +53,11 @@ def generate_launch_description():
                 os.path.join(nav2_dir, 'launch', 'bringup_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': use_sim_time,
+                'use_sim_time': TextSubstitution(text='false'),
                 'params_file': nav2_params,
                 'map': '',
-                'use_composition': 'false',
-                'autostart': 'true'
+                'use_composition': TextSubstitution(text='false'),
+                'autostart': TextSubstitution(text='true')
             }.items()
         ),
 
@@ -76,7 +67,7 @@ def generate_launch_description():
             executable='navigation_interface',
             name='navigation_interface',
             parameters=[{
-                'use_sim_time': use_sim_time
+                'use_sim_time': False
             }]
         ),
 
@@ -95,7 +86,7 @@ def generate_launch_description():
             name='lifecycle_manager',
             output='screen',
             parameters=[{
-                'use_sim_time': use_sim_time,
+                'use_sim_time': False,
                 'autostart': True,
                 'bond_timeout': 0.0,
                 'node_names': [

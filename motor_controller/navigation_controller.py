@@ -12,8 +12,7 @@ import random
 import math
 import numpy as np
 from enum import Enum
-from lifecycle_msgs.srv import GetState
-from lifecycle_msgs.srv import ChangeState
+from lifecycle_msgs.srv import GetState, ChangeState
 from lifecycle_msgs.msg import Transition
 
 class RobotState(Enum):
@@ -44,9 +43,10 @@ class NavigationController(Node):
         self.map_info = None
         self.navigation_succeeded = False
         
-        # Nav2 Action Client with retry
+        # Nav2 Action Client
         self.nav_client = None
-        self.create_timer(1.0, self.init_nav_client)  # Try to connect every second
+        # Create and store the timer, so we can destroy it later
+        self.init_nav_client_timer = self.create_timer(1.0, self.init_nav_client)
         
         # Publishers
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
@@ -212,7 +212,7 @@ class NavigationController(Node):
         """Send binary velocity command to the robot."""
         # Calculate wheel speeds based on differential drive kinematics
         wheel_separation = 0.20  # Distance between wheels in meters
-        wheel_radius = 0.05    # Wheel radius in meters
+        wheel_radius = 0.05      # Wheel radius in meters
         
         # Convert linear and angular velocities to wheel speeds
         left_speed = (linear_x - (wheel_separation / 2) * angular_z) / wheel_radius
@@ -252,8 +252,8 @@ class NavigationController(Node):
             self.get_logger().warn('Navigation client not initialized')
             return False
             
-        # Double check server is still available
-        if not self.nav_client.wait_for_server(timeout_sec=1.0):
+        # Double-check server is still available (try a longer timeout if needed)
+        if not self.nav_client.wait_for_server(timeout_sec=5.0):
             self.get_logger().warn('Navigation server not available')
             return False
 
@@ -399,7 +399,7 @@ class NavigationController(Node):
         server_available = self.nav_client.wait_for_server(timeout_sec=1.0)
         
         if not server_available:
-            # Try to activate Nav2 nodes
+            # Try to configure and then activate Nav2 nodes
             try:
                 # Create clients for each Nav2 node
                 nodes = ['bt_navigator', 'planner_server', 'controller_server']
@@ -413,7 +413,6 @@ class NavigationController(Node):
                         configure_request.transition.id = 1  # Configure transition
                         configure_request.transition.label = 'configure'
                         
-                        # Call configure service
                         self.get_logger().info(f'Configuring {node}...')
                         future = client.call_async(configure_request)
                         rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
@@ -424,7 +423,6 @@ class NavigationController(Node):
                         activate_request.transition.id = 3  # Activate transition
                         activate_request.transition.label = 'activate'
                         
-                        # Call activate service
                         self.get_logger().info(f'Activating {node}...')
                         future = client.call_async(activate_request)
                         rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
@@ -435,9 +433,11 @@ class NavigationController(Node):
             self.get_logger().warn('Nav2 action server not available, will retry...')
             return
             
-        # Successfully initialized
+        # If we get here, the server was actually available
         self.get_logger().info('Successfully connected to Nav2 action server')
-        self.destroy_timer(self.init_nav_client)  # Stop retry timer
+        # Stop this timer so we don't keep calling init_nav_client
+        self.destroy_timer(self.init_nav_client_timer)
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -452,4 +452,4 @@ def main(args=None):
         rclpy.shutdown()
 
 if __name__ == '__main__':
-    main() 
+    main()

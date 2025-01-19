@@ -117,31 +117,23 @@ def generate_launch_description():
                 'use_sim_time': False,
                 'autostart': True,
                 'bond_timeout': 0.0,
-                'node_names': ['map_server',
-                             'amcl',
-                             'controller_server',
+                'node_names': ['controller_server',
                              'planner_server',
-                             'behavior_server',
                              'bt_navigator'],
                 'activate_lifecycle_nodes': True,
                 'manage_lifecycle_nodes': True
             }]
         ),
 
-        # Add delay before starting navigation controller
+        # Add longer delay before starting navigation controller
         TimerAction(
-            period=30.0,
+            period=40.0,  # Increased delay to ensure Nav2 is fully initialized
             actions=[
                 Node(
                     package='motor_controller',
                     executable='navigation_controller',
                     name='navigation_controller',
-                    output='screen',
-                    parameters=[{
-                        'use_sim_time': False,
-                        'robot.radius': 0.17,
-                        'robot.safety_margin': 0.10
-                    }]
+                    output='screen'
                 )
             ]
         ),

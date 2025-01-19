@@ -40,7 +40,7 @@ def generate_launch_description():
                            'launch', 'online_async_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': 'false',
+                'use_sim_time': False,
                 'slam_params_file': slam_params
             }.items()
         ),
@@ -51,7 +51,7 @@ def generate_launch_description():
                 os.path.join(nav2_dir, 'launch', 'bringup_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': 'false',
+                'use_sim_time': False,
                 'params_file': nav2_params,
                 'map': '',  # Empty string for SLAM
                 'use_composition': 'false',  # Changed to false for better debugging
@@ -65,7 +65,7 @@ def generate_launch_description():
             executable='navigation_interface',
             name='navigation_interface',
             parameters=[{
-                'use_sim_time': 'false'
+                'use_sim_time': False
             }]
         ),
 
@@ -84,8 +84,8 @@ def generate_launch_description():
             name='lifecycle_manager',
             output='screen',
             parameters=[{
-                'use_sim_time': 'false',
-                'autostart': 'true',
+                'use_sim_time': False,
+                'autostart': True,
                 'bond_timeout': 0.0,  # Disable bond timeout
                 'node_names': [
                     'map_server',

@@ -5,6 +5,8 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 import math
+from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Path
 
 class Nav2HardwareBridge(Node):
     """Bridge between Nav2 commands and hardware controller."""
@@ -45,8 +47,8 @@ class Nav2HardwareBridge(Node):
         # Add debug timer to check cmd_vel and print topic info
         self.create_timer(1.0, self.debug_callback)
         
-        # Add test movement timer
-        self.create_timer(2.0, self.test_movement_callback)
+        # Comment out test movement timer to check Nav2
+        # self.create_timer(2.0, self.test_movement_callback)
         
         # Status variables
         self.last_cmd_time = self.get_clock().now()
@@ -170,14 +172,40 @@ class Nav2HardwareBridge(Node):
         # Get node name info
         node_name = self.get_name()
         
-        # Log the basic debug info
-        self.get_logger().info(
-            f'\nDebug Info for {node_name}:'
-            f'\n  Time since last cmd_vel: {time_since_cmd:.2f} seconds'
-            f'\n  Number of publishers to cmd_vel: {n_publishers}'
-            f'\n  Number of subscribers to wheel_cmd_vel: {n_subscribers}'
-            f'\n  Subscribed to cmd_vel topic: {self.get_parameter("cmd_vel_topic").value}'
-        )
+        # Check Nav2 topics
+        try:
+            # Create a one-time subscriber to check Nav2 topics
+            goal_sub = self.create_subscription(
+                PoseStamped,
+                'goal_pose',
+                lambda msg: None,
+                1
+            )
+            plan_sub = self.create_subscription(
+                Path,
+                'plan',
+                lambda msg: None,
+                1
+            )
+            
+            # Log the basic debug info
+            self.get_logger().info(
+                f'\nDebug Info for {node_name}:'
+                f'\n  Time since last cmd_vel: {time_since_cmd:.2f} seconds'
+                f'\n  Number of publishers to cmd_vel: {n_publishers}'
+                f'\n  Number of subscribers to wheel_cmd_vel: {n_subscribers}'
+                f'\n  Nav2 Status:'
+                f'\n    Goal pose publishers: {goal_sub.get_publisher_count()}'
+                f'\n    Plan publishers: {plan_sub.get_publisher_count()}'
+                f'\n    Controller state: {"Active" if n_publishers > 0 else "Inactive"}'
+            )
+            
+            # Cleanup temporary subscribers
+            self.destroy_subscription(goal_sub)
+            self.destroy_subscription(plan_sub)
+            
+        except Exception as e:
+            self.get_logger().error(f'Error checking Nav2 status: {str(e)}')
         
         # Check if we have any publishers
         if n_publishers == 0:

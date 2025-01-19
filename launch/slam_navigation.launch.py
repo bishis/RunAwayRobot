@@ -65,7 +65,7 @@ def generate_launch_description():
             executable='navigation_interface',
             name='navigation_interface',
             parameters=[{
-                'use_sim_time': False
+                'use_sim_time': 'false'
             }]
         ),
 
@@ -84,8 +84,8 @@ def generate_launch_description():
             name='lifecycle_manager',
             output='screen',
             parameters=[{
-                'use_sim_time': False,
-                'autostart': True,
+                'use_sim_time': 'false',
+                'autostart': 'true',
                 'bond_timeout': 0.0,  # Disable bond timeout
                 'node_names': [
                     'map_server',

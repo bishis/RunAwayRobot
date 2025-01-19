@@ -78,7 +78,7 @@ def generate_launch_description():
                 os.path.join(pkg_dir, 'launch', 'nav2_custom_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': 'false',
+                'use_sim_time': 'false', 
                 'params_file': params_file,
                 'use_composition': 'False',
                 'autostart': 'True'

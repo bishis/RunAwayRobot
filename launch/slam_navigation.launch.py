@@ -9,36 +9,11 @@ from launch_ros.actions import Node
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
     nav2_pkg_dir = get_package_share_directory('nav2_bringup')
-    
-    # Set default paths
-    default_params_path = os.path.join(pkg_dir, 'config', 'nav2_params.yaml')
-    default_slam_params_path = os.path.join(pkg_dir, 'config', 'slam.yaml')
-    
-    # Launch configuration variables
-    use_sim_time = LaunchConfiguration('use_sim_time')
-    params_file = LaunchConfiguration('params_file')
-    
-    # Declare launch arguments
-    declare_use_sim_time_cmd = DeclareLaunchArgument(
-        'use_sim_time',
-        default_value='false',
-        description='Use simulation (Gazebo) clock if true'
-    )
-    
-    declare_params_file_cmd = DeclareLaunchArgument(
-        'params_file',
-        default_value=default_params_path,
-        description='Full path to the ROS2 parameters file'
-    )
 
     return LaunchDescription([
         # Network setup
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
-
-        # Launch arguments
-        declare_use_sim_time_cmd,
-        declare_params_file_cmd,
 
         # RF2O Odometry
         Node(

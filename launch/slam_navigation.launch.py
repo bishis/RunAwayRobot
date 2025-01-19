@@ -4,15 +4,13 @@ from launch import LaunchDescription
 from launch.actions import SetEnvironmentVariable, IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
 from nav2_common.launch import RewrittenYaml
 
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
     nav2_dir = get_package_share_directory('nav2_bringup')
     
-    # Create our own temporary YAML files that include substitutions
+    # Create temporary YAML files with substitutions
     param_substitutions = {
         'use_sim_time': 'false',
         'autostart': 'true'
@@ -43,10 +41,11 @@ def generate_launch_description():
                 'odom_frame_id': 'odom',
                 'init_pose_from_topic': '',
                 'freq': 20.0
-            }]
+            }],
+            output='screen'
         ),
 
-        # SLAM Toolbox
+        # SLAM Toolbox (Remove if using static map)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(get_package_share_directory('slam_toolbox'),
@@ -58,7 +57,7 @@ def generate_launch_description():
             }.items()
         ),
 
-        # Nav2 Core (in this specific order)
+        # Nav2 Core (Lifecycle managed by lifecycle_manager_navigation)
         Node(
             package='nav2_map_server',
             executable='map_server',
@@ -78,6 +77,7 @@ def generate_launch_description():
         Node(
             package='nav2_controller',
             executable='controller_server',
+            name='controller_server',
             output='screen',
             parameters=[configured_params],
             remappings=[('cmd_vel', 'cmd_vel')]
@@ -107,7 +107,7 @@ def generate_launch_description():
             parameters=[configured_params]
         ),
 
-        # Start lifecycle manager after all nodes
+        # Lifecycle Manager
         Node(
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
@@ -117,17 +117,20 @@ def generate_launch_description():
                 'use_sim_time': False,
                 'autostart': True,
                 'bond_timeout': 0.0,
-                'node_names': ['controller_server',
-                             'planner_server',
-                             'bt_navigator'],
-                'activate_lifecycle_nodes': True,
-                'manage_lifecycle_nodes': True
+                'node_names': [
+                    'map_server',
+                    'amcl',
+                    'controller_server',
+                    'planner_server',
+                    'behavior_server',
+                    'bt_navigator'
+                ]
             }]
         ),
 
-        # Add longer delay before starting navigation controller
+        # Navigation Controller
         TimerAction(
-            period=40.0,  # Increased delay to ensure Nav2 is fully initialized
+            period=45.0,  # Longer delay to ensure Nav2 is fully initialized
             actions=[
                 Node(
                     package='motor_controller',
@@ -143,10 +146,11 @@ def generate_launch_description():
             package='rviz2',
             executable='rviz2',
             name='rviz2',
-            arguments=['-d', os.path.join(pkg_dir, 'config', 'slam_view.rviz')]
+            arguments=['-d', os.path.join(pkg_dir, 'config', 'slam_view.rviz')],
+            output='screen'
         ),
 
-        # Add static transforms
+        # Static Transform
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
@@ -155,7 +159,7 @@ def generate_launch_description():
             output='screen'
         ),
 
-        # Add robot state publisher if not already present
+        # Robot State Publisher
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
@@ -163,4 +167,4 @@ def generate_launch_description():
             parameters=[{'use_sim_time': False}],
             output='screen'
         )
-    ]) 
+    ])

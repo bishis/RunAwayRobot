@@ -52,16 +52,7 @@ def generate_launch_description():
                 'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml')
             }.items()
         ),
-
-        # Basic transform publisher
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='base_link_to_laser',
-            arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
-        ),
-
-        # RViz2
+        
         # RViz2 for visualization
         Node(
             package='rviz2',

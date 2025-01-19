@@ -7,7 +7,6 @@ from nav_msgs.msg import Odometry
 import math
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
-from lifecycle_msgs.srv import GetState
 
 class Nav2HardwareBridge(Node):
     """Bridge between Nav2 commands and hardware controller."""
@@ -173,30 +172,23 @@ class Nav2HardwareBridge(Node):
         # Get node name info
         node_name = self.get_name()
         
-        # Check Nav2 topics and services
+        # Check Nav2 topics
         try:
-            # Check lifecycle states
-            lifecycle_nodes = [
-                'controller_server',
-                'planner_server',
-                'bt_navigator'
-            ]
+            # Create a one-time subscriber to check Nav2 topics
+            goal_sub = self.create_subscription(
+                PoseStamped,
+                'goal_pose',
+                lambda msg: None,
+                1
+            )
+            plan_sub = self.create_subscription(
+                Path,
+                'plan',
+                lambda msg: None,
+                1
+            )
             
-            node_states = {}
-            for node in lifecycle_nodes:
-                try:
-                    client = self.create_client(GetState, f'/{node}/get_state')
-                    if client.wait_for_service(timeout_sec=0.5):
-                        future = client.call_async(GetState.Request())
-                        rclpy.spin_until_future_complete(self, future, timeout_sec=0.5)
-                        if future.result():
-                            node_states[node] = future.result().current_state.label
-                    else:
-                        node_states[node] = "Service not available"
-                except Exception as e:
-                    node_states[node] = f"Error: {str(e)}"
-            
-            # Log the debug info with lifecycle states
+            # Log the basic debug info
             self.get_logger().info(
                 f'\nDebug Info for {node_name}:'
                 f'\n  Time since last cmd_vel: {time_since_cmd:.2f} seconds'
@@ -206,9 +198,11 @@ class Nav2HardwareBridge(Node):
                 f'\n    Goal pose publishers: {goal_sub.get_publisher_count()}'
                 f'\n    Plan publishers: {plan_sub.get_publisher_count()}'
                 f'\n    Controller state: {"Active" if n_publishers > 0 else "Inactive"}'
-                f'\n  Lifecycle States:'
-                f'\n    ' + '\n    '.join([f'{node}: {state}' for node, state in node_states.items()])
             )
+            
+            # Cleanup temporary subscribers
+            self.destroy_subscription(goal_sub)
+            self.destroy_subscription(plan_sub)
             
         except Exception as e:
             self.get_logger().error(f'Error checking Nav2 status: {str(e)}')

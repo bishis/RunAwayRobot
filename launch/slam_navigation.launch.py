@@ -76,6 +76,17 @@ def generate_launch_description():
             }.items()
         ),
 
+        # Nav2 Hardware Bridge
+        Node(
+            package='motor_controller',
+            executable='nav2_hardware_bridge',
+            name='nav2_hardware_bridge',
+            parameters=[{
+                'max_linear_speed': 1.0,
+                'max_angular_speed': 1.0
+            }]
+        ),
+
         # RViz2 for visualization with Nav2 config
         Node(
             package='rviz2',

@@ -18,8 +18,8 @@ class HardwareController(Node):
         # Subscribe to wheel speed commands
         self.create_subscription(
             Twist,
-            'cmd_vel',
-            self.velocity_callback,
+            'wheel_cmd_vel',
+            self.wheel_velocity_callback,
             10
         )
         
@@ -38,28 +38,21 @@ class HardwareController(Node):
             return 0
         return 1 if speed > 0 else -1
         
-    def velocity_callback(self, msg):
-        """Handle incoming velocity commands."""
+    def wheel_velocity_callback(self, msg):
+        """Handle incoming wheel velocity commands."""
         try:
-            # Extract velocities
-            linear_x = msg.linear.x
-            angular_z = msg.angular.z
-            
-            # Convert to wheel speeds
-            left_speed = linear_x - angular_z
-            right_speed = linear_x + angular_z
+            # Extract wheel speeds from Twist message
+            left_speed = msg.linear.x   # Left wheel speed
+            right_speed = msg.linear.y  # Right wheel speed
             
             # Print received command details
             self.get_logger().info(
-                f"\nReceived cmd_vel:"
-                f"\n  Linear X: {linear_x:.2f}"
-                f"\n  Angular Z: {angular_z:.2f}"
-                f"\nCalculated wheel speeds:"
+                f"\nReceived wheel speeds:"
                 f"\n  Left: {left_speed:.2f}"
                 f"\n  Right: {right_speed:.2f}"
             )
             
-            # Apply speeds to motors (no binary conversion here)
+            # Apply speeds to motors
             self.motors.set_speeds(left_speed, right_speed)
             
             # Increment command counter

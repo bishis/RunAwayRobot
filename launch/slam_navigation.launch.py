@@ -90,7 +90,7 @@ def generate_launch_description():
                 'transform_tolerance': 0.5,
                 'source_timeout': 1.0,
                 'stop_on_collision': True,
-                'observation_sources': ['scan'],
+                'observation_sources': 'scan',
                 'polygons': [],
                 'scan': {
                     'type': 'scan',

@@ -49,17 +49,21 @@ class HardwareController(Node):
             left_speed = linear_x - angular_z
             right_speed = linear_x + angular_z
             
+            # Clamp speeds to [-1, 1]
+            left_speed = max(-1.0, min(1.0, left_speed))
+            right_speed = max(-1.0, min(1.0, right_speed))
+            
             # Print received command details
             self.get_logger().info(
                 f"\nReceived cmd_vel:"
                 f"\n  Linear X: {linear_x:.2f}"
                 f"\n  Angular Z: {angular_z:.2f}"
-                f"\nCalculated wheel speeds:"
+                f"\nClamped wheel speeds:"
                 f"\n  Left: {left_speed:.2f}"
                 f"\n  Right: {right_speed:.2f}"
             )
             
-            # Apply speeds to motors (no binary conversion here)
+            # Apply speeds to motors
             self.motors.set_speeds(left_speed, right_speed)
             
             # Increment command counter

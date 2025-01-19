@@ -41,7 +41,7 @@ def generate_launch_description():
             }.items()
         ),
 
-        # Nav2 Stack
+        # Nav2 Stack (includes built-in exploration)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(nav2_dir, 'launch', 'navigation_launch.py')
@@ -50,17 +50,6 @@ def generate_launch_description():
                 'use_sim_time': 'false',
                 'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml')
             }.items()
-        ),
-
-        # Nav2 Exploration
-        Node(
-            package='nav2_exploration',
-            executable='exploration_server',
-            name='exploration_server',
-            parameters=[{
-                'robot_radius': 0.17,
-                'min_frontier_size': 0.5,
-            }]
         ),
 
         # RViz2

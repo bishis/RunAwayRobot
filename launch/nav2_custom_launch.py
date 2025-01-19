@@ -119,27 +119,25 @@ def generate_launch_description():
                 parameters=[params_file]
             ),
 
-            # Lifecycle Manager - with explicit ordering
+            # Lifecycle Manager
             Node(
                 package='nav2_lifecycle_manager',
                 executable='lifecycle_manager',
                 name='lifecycle_manager_navigation',
                 output='screen',
                 parameters=[{
-                    'autostart': True,  # Force autostart
+                    'autostart': True,
                     'node_names': [
-                        'local_costmap',
-                        'global_costmap',
+                        'planner_server',  # Start planner first
                         'controller_server',
-                        'planner_server',
                         'behavior_server',
                         'bt_navigator'
                     ],
                     'bond_timeout': 4.0,
                     'attempt_respawn_reconnection': True,
-                    'autostart_timeout': 10.0,  # Give nodes time to start
-                    'configure_timeout': 10.0,
-                    'startup_timeout': 10.0
+                    'autostart_timeout': 15.0,  # Increased timeout
+                    'configure_timeout': 15.0,
+                    'startup_timeout': 15.0
                 }]
             )
         ]

@@ -290,6 +290,12 @@ planner_server:
       lethal_cost: 253
       unknown_cost: 100
 
+    # Add required parameters
+    expected_planner_frequency: 20.0
+    max_planner_duration: 5.0
+    planner_patience: 5.0
+    use_realtime_priority: false
+
 behavior_server:
   ros__parameters:
     costmap_topic: local_costmap/costmap_raw

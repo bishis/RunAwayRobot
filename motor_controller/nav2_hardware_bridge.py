@@ -64,8 +64,8 @@ class Nav2HardwareBridge(Node):
         # Create action client for navigation
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         
-        # Add timer to send test goal after a short delay
-        self.create_timer(5.0, self.send_test_goal)  # Wait 5 seconds before sending goal
+        # Add timer to send test goal after a longer delay to ensure Nav2 is ready
+        self.create_timer(15.0, self.send_test_goal)  # Wait 15 seconds before sending goal
         
         # Track if we've sent a goal
         self.goal_sent = False

@@ -72,7 +72,9 @@ def generate_launch_description():
             launch_arguments={
                 'use_sim_time': use_sim_time,
                 'params_file': params_file,
-                'use_composition': 'False'
+                'use_composition': 'False',
+                'autostart': 'True',
+                'use_collision_monitor': 'False'
             }.items()
         ),
 

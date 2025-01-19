@@ -30,4 +30,8 @@
   <!-- Add TurtleBot4 dependencies -->
   <depend>turtlebot4_navigation</depend>
   <depend>nav2_bringup</depend>
+
+  <data_files>
+    <data_file type="behavior_tree" name="behavior_trees/navigate_w_replanning_and_recovery.xml"/>
+  </data_files>
 </package> 

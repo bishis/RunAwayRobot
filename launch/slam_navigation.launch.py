@@ -72,6 +72,6 @@ def generate_launch_description():
             package='rviz2',
             executable='rviz2',
             name='rviz2',
-            arguments=['-d', os.path.join(pkg_dir, 'config', 'slam_view.rviz')]
+            arguments=['-d', os.path.join(pkg_dir, 'config', 'nav2_view.rviz')]
         )
     ]) 

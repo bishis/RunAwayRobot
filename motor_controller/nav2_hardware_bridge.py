@@ -72,40 +72,63 @@ class Nav2HardwareBridge(Node):
                 f'\n  Angular Z: {angular_z:.3f} rad/s'
             )
             
+            # Clamp velocities to max values
+            original_linear = linear_x
+            original_angular = angular_z
+            linear_x = max(-self.max_linear_speed, min(self.max_linear_speed, linear_x))
+            angular_z = max(-self.max_angular_speed, min(self.max_angular_speed, angular_z))
+            
+            # Log if velocities were clamped
+            if original_linear != linear_x or original_angular != angular_z:
+                self.get_logger().info(
+                    f'Clamped velocities:'
+                    f'\n  Linear X: {linear_x:.3f} m/s (from {original_linear:.3f})'
+                    f'\n  Angular Z: {angular_z:.3f} rad/s (from {original_angular:.3f})'
+                )
+            
             # For tank drive:
             # Pure rotation: One wheel forward, one backward
             # Pure translation: Both wheels same direction
             # Mixed: Combine both effects
             
-            # Simpler tank drive calculation
-            if abs(angular_z) < 0.001:
-                # Pure straight motion
-                left_speed = right_speed = linear_x
-                self.get_logger().info('Pure straight motion')
-            elif abs(linear_x) < 0.001:
-                # Pure rotation
-                left_speed = -angular_z
-                right_speed = angular_z
+            # Convert to binary commands (-1, 0, 1)
+            linear_threshold = 0.05  # Minimum speed to start moving
+            angular_threshold = 0.05  # Minimum speed to start turning
+            
+            # Determine movement type and set binary speeds
+            if abs(linear_x) < linear_threshold and abs(angular_z) < angular_threshold:
+                # Stop
+                left_speed = 0
+                right_speed = 0
+                self.get_logger().info('Stopping')
+            elif abs(angular_z) > angular_threshold:
+                # Turning takes priority over forward/backward
+                if angular_z > 0:
+                    # Turn left
+                    left_speed = -1
+                    right_speed = 1
+                else:
+                    # Turn right
+                    left_speed = 1
+                    right_speed = -1
                 self.get_logger().info('Pure rotation')
             else:
-                # Mixed motion
-                left_speed = linear_x - angular_z
-                right_speed = linear_x + angular_z
-                self.get_logger().info('Mixed motion')
-            
-            # Normalize to [-1, 1] range
-            max_speed = max(abs(left_speed), abs(right_speed))
-            if max_speed > 1.0:
-                left_speed = left_speed / max_speed
-                right_speed = right_speed / max_speed
+                # Forward/Backward
+                if linear_x > 0:
+                    left_speed = 1
+                    right_speed = 1
+                else:
+                    left_speed = -1
+                    right_speed = -1
+                self.get_logger().info('Pure straight motion')
             
             # Log detailed movement info
             self.get_logger().info(
                 f'Movement calculation:'
                 f'\n  Movement type: {"rotation" if abs(angular_z) > abs(linear_x) else "translation"}'
-                f'\n  Final wheel speeds [-1 to 1]:'
-                f'\n    Left: {left_speed:.3f}'
-                f'\n    Right: {right_speed:.3f}'
+                f'\n  Binary wheel speeds [-1, 0, 1]:'
+                f'\n    Left: {left_speed}'
+                f'\n    Right: {right_speed}'
                 f'\n  Expected behavior:'
                 f'\n    Forward/Back: {abs(linear_x) > abs(angular_z)}'
                 f'\n    Turning: {abs(angular_z) > abs(linear_x)}'
@@ -113,8 +136,8 @@ class Nav2HardwareBridge(Node):
             
             # Create wheel command message
             wheel_cmd = Twist()
-            wheel_cmd.linear.x = left_speed   # Left wheel (-1 to 1)
-            wheel_cmd.linear.y = right_speed  # Right wheel (-1 to 1)
+            wheel_cmd.linear.x = float(left_speed)   # Left wheel (-1, 0, 1)
+            wheel_cmd.linear.y = float(right_speed)  # Right wheel (-1, 0, 1)
             
             # Publish wheel commands
             self.wheel_cmd_pub.publish(wheel_cmd)

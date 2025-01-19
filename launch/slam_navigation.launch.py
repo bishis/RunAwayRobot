@@ -52,24 +52,25 @@ def generate_launch_description():
                 'base_frame_id': 'base_link',
                 'odom_frame_id': 'odom',
                 'init_pose_from_topic': '',
-                'freq': 20.0
+                'freq': 20.0,
+                'use_sim_time': False
             }]
         ),
 
-        # SLAM Toolbox in online async mode
+        # SLAM Toolbox
         IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([
+            PythonLaunchDescriptionSource(
                 os.path.join(get_package_share_directory('slam_toolbox'),
                            'launch', 'online_async_launch.py')
-            ]),
+            ),
             launch_arguments={'use_sim_time': 'false'}.items()
         ),
 
         # Nav2 Navigation Stack
         IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([
+            PythonLaunchDescriptionSource(
                 os.path.join(nav2_pkg_dir, 'launch', 'navigation_launch.py')
-            ]),
+            ),
             launch_arguments={'use_sim_time': 'false'}.items()
         ),
 
@@ -108,11 +109,12 @@ def generate_launch_description():
             name='nav2_hardware_bridge',
             parameters=[{
                 'max_linear_speed': 1.0,
-                'max_angular_speed': 1.0
+                'max_angular_speed': 1.0,
+                'use_sim_time': False
             }]
         ),
 
-        # RViz2 for visualization with Nav2 config
+        # RViz2
         Node(
             package='rviz2',
             executable='rviz2',

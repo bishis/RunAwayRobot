@@ -14,7 +14,7 @@ def generate_launch_description():
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
 
-        # RF2O Odometry (keep this as it works well)
+        # RF2O Odometry
         Node(
             package='rf2o_laser_odometry',
             executable='rf2o_laser_odometry_node',
@@ -29,24 +29,19 @@ def generate_launch_description():
             }]
         ),
 
-        # SLAM Toolbox with explicit parameters
-        Node(
-            package='slam_toolbox',
-            executable='async_slam_toolbox_node',
-            name='slam_toolbox',
-            parameters=[{
-                'use_sim_time': False,
-                'max_laser_range': 20.0,
-                'resolution': 0.05,
-                'map_frame': 'map',
-                'odom_frame': 'odom',
-                'base_frame': 'base_link',
-                'scan_topic': '/scan',
-                'mode': 'mapping'  # Explicitly set mapping mode
-            }]
+        # Keep your existing SLAM configuration
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource([
+                os.path.join(get_package_share_directory('slam_toolbox'),
+                           'launch', 'online_async_launch.py')
+            ]),
+            launch_arguments={
+                'use_sim_time': 'false',
+                'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
+            }.items()
         ),
 
-        # Nav2 Stack (includes built-in exploration)
+        # Nav2 Stack
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(nav2_dir, 'launch', 'navigation_launch.py')
@@ -57,7 +52,7 @@ def generate_launch_description():
             }.items()
         ),
 
-        # Transform publishers for robot frames
+        # Basic transform publisher
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
@@ -65,7 +60,7 @@ def generate_launch_description():
             arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
         ),
 
-        # RViz2 with specific configuration
+        # RViz2
         Node(
             package='rviz2',
             executable='rviz2',

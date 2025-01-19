@@ -62,6 +62,7 @@ def generate_launch_description():
             Node(
                 package='nav2_controller',
                 executable='controller_server',
+                name='controller_server',
                 output='screen',
                 respawn=use_respawn,
                 parameters=[params_file],

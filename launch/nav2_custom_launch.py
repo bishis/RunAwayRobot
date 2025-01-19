@@ -98,12 +98,18 @@ def generate_launch_description():
                 executable='lifecycle_manager',
                 name='lifecycle_manager_navigation',
                 output='screen',
-                parameters=[{'autostart': autostart,
-                           'node_names': ['controller_server',
-                                        'planner_server',
-                                        'behavior_server',
-                                        'bt_navigator',
-                                        'waypoint_follower']}])
+                parameters=[{
+                    'autostart': autostart,
+                    'node_names': [
+                        'controller_server',
+                        'planner_server',
+                        'behavior_server',
+                        'bt_navigator'
+                    ],
+                    'bond_timeout': 4.0,
+                    'attempt_respawn_reconnection': True
+                }]
+            )
         ]
     )
 

@@ -399,39 +399,24 @@ class NavigationController(Node):
                 self.get_logger().info('Available nodes: \n' + result.stdout)
                 return
                 
-            # Try different possible locations for the behavior tree file
-            possible_paths = [
-                os.path.join(get_package_share_directory('nav2_bt_navigator'),
-                            'behavior_trees',
-                            'navigate_w_replanning_and_recovery.xml'),
-                os.path.join(get_package_share_directory('nav2_behavior_tree'),
-                            'trees',
-                            'navigate_w_replanning_and_recovery.xml'),
-                os.path.join(get_package_share_directory('nav2_bt_navigator'),
-                            'bt_xml',
-                            'navigate_w_replanning_and_recovery.xml')
-            ]
-            
-            bt_xml_path = None
-            for path in possible_paths:
-                if os.path.exists(path):
-                    bt_xml_path = path
-                    self.get_logger().info(f'Found behavior tree XML at: {path}')
-                    break
+            # Try to find behavior tree in our package
+            bt_xml_path = os.path.join(
+                get_package_share_directory('motor_controller'),
+                'behavior_trees',
+                'navigate_w_replanning_and_recovery.xml'
+            )
+            if os.path.exists(bt_xml_path):
+                self.get_logger().info(f'Found behavior tree XML at: {bt_xml_path}')
+            else:
+                self.get_logger().error(f'Behavior tree not found at: {bt_xml_path}')
+                # List the contents of the directory
+                dir_path = os.path.dirname(bt_xml_path)
+                if os.path.exists(dir_path):
+                    self.get_logger().info(f'Contents of {dir_path}:')
+                    result = subprocess.run(['ls', '-l', dir_path], capture_output=True, text=True)
+                    self.get_logger().info(result.stdout)
                 else:
-                    self.get_logger().warn(f'Behavior tree not found at: {path}')
-            
-            if bt_xml_path is None:
-                self.get_logger().error('Could not find behavior tree XML file in any expected location')
-                # List contents of nav2 package directories
-                for pkg in ['nav2_bt_navigator', 'nav2_behavior_tree']:
-                    try:
-                        pkg_dir = get_package_share_directory(pkg)
-                        self.get_logger().info(f'Contents of {pkg} directory:')
-                        result = subprocess.run(['ls', '-R', pkg_dir], capture_output=True, text=True)
-                        self.get_logger().info(result.stdout)
-                    except Exception as e:
-                        self.get_logger().warn(f'Could not list contents of {pkg}: {e}')
+                    self.get_logger().error(f'Directory does not exist: {dir_path}')
                 return
 
             # Create service client to check state

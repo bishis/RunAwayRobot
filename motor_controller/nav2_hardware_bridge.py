@@ -45,9 +45,13 @@ class Nav2HardwareBridge(Node):
         # Add debug timer to check cmd_vel and print topic info
         self.create_timer(1.0, self.debug_callback)
         
+        # Add test movement timer
+        self.create_timer(2.0, self.test_movement_callback)
+        
         # Status variables
         self.last_cmd_time = self.get_clock().now()
         self.cmd_timeout = 0.5  # seconds
+        self.test_state = 0  # For cycling through test movements
         
         # Create watchdog timer
         self.create_timer(0.1, self.watchdog_callback)
@@ -155,6 +159,39 @@ class Nav2HardwareBridge(Node):
         # Check if we have any publishers
         if n_publishers == 0:
             self.get_logger().warn('No publishers on cmd_vel topic - Nav2 may not be running properly')
+
+    def test_movement_callback(self):
+        """Send test movement commands to verify hardware chain."""
+        # Create a test Twist message
+        test_cmd = Twist()
+        
+        # Cycle through different movements
+        if self.test_state == 0:
+            # Forward
+            test_cmd.linear.x = 0.2
+            test_cmd.angular.z = 0.0
+            self.get_logger().info('Test: Moving Forward')
+        elif self.test_state == 1:
+            # Turn left
+            test_cmd.linear.x = 0.0
+            test_cmd.angular.z = 0.5
+            self.get_logger().info('Test: Turning Left')
+        elif self.test_state == 2:
+            # Turn right
+            test_cmd.linear.x = 0.0
+            test_cmd.angular.z = -0.5
+            self.get_logger().info('Test: Turning Right')
+        else:
+            # Stop
+            test_cmd.linear.x = 0.0
+            test_cmd.angular.z = 0.0
+            self.get_logger().info('Test: Stopping')
+        
+        # Process the test command as if it came from Nav2
+        self.cmd_vel_callback(test_cmd)
+        
+        # Cycle to next test state
+        self.test_state = (self.test_state + 1) % 4
 
 def main(args=None):
     rclpy.init(args=args)

@@ -91,6 +91,7 @@ def generate_launch_description():
                 'source_timeout': 1.0,
                 'stop_on_collision': True,
                 'observation_sources': ['scan'],
+                'polygons': [],
                 'scan': {
                     'type': 'scan',
                     'topic': '/scan',

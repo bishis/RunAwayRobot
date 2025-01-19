@@ -25,7 +25,7 @@ def generate_launch_description():
             parameters=[{
                 'laser_scan_topic': '/scan',
                 'odom_topic': '/odom_rf2o',
-                'publish_tf': 'true',
+                'publish_tf': True,
                 'base_frame_id': 'base_link',
                 'odom_frame_id': 'odom',
                 'init_pose_from_topic': '',
@@ -53,7 +53,7 @@ def generate_launch_description():
             launch_arguments={
                 'use_sim_time': 'false',
                 'params_file': nav2_params,
-                'map': '',  # Empty string for SLAM
+                'map': '',
                 'use_composition': 'false',
                 'autostart': 'true'
             }.items()
@@ -65,7 +65,7 @@ def generate_launch_description():
             executable='navigation_interface',
             name='navigation_interface',
             parameters=[{
-                'use_sim_time': 'false'
+                'use_sim_time': False
             }]
         ),
 
@@ -84,9 +84,9 @@ def generate_launch_description():
             name='lifecycle_manager',
             output='screen',
             parameters=[{
-                'use_sim_time': 'false',
-                'autostart': 'true',
-                'bond_timeout': 0.0,  # This one can stay as float
+                'use_sim_time': False,
+                'autostart': True,
+                'bond_timeout': 0.0,
                 'node_names': [
                     'map_server',
                     'amcl',

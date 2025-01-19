@@ -85,7 +85,8 @@ def generate_launch_description():
             parameters=[{
                 'use_sim_time': False,
                 'autostart': True,
-                'bond_timeout': 0.0,  # Disable bond timeout
+                'bond_timeout': 0.0,
+                'attempt_respawn_reconnection': True,
                 'node_names': [
                     'map_server',
                     'amcl',
@@ -98,11 +99,16 @@ def generate_launch_description():
             }]
         ),
 
-        # Our Lifecycle Manager
+        # Our Lifecycle Manager - start after Nav2 manager
         Node(
             package='motor_controller',
             executable='nav2_lifecycle_manager',
             name='nav2_lifecycle_manager',
-            output='screen'
+            output='screen',
+            parameters=[{
+                'use_sim_time': False
+            }],
+            # Add dependency on Nav2 lifecycle manager
+            arguments=['--wait-for-node', 'lifecycle_manager']
         )
     ]) 

@@ -33,6 +33,9 @@ class Nav2HardwareBridge(Node):
             10
         )
         
+        # Add debug timer to check cmd_vel
+        self.create_timer(1.0, self.debug_callback)
+        
         # Status variables
         self.last_cmd_time = self.get_clock().now()
         self.cmd_timeout = 0.5  # seconds
@@ -59,9 +62,13 @@ class Nav2HardwareBridge(Node):
             angular_z = max(-self.max_angular_speed, min(self.max_angular_speed, angular_z))
             
             # Convert to differential drive commands
-            # Similar to your navigation_controller implementation
             left_speed = linear_x - (angular_z * 0.1)  # 0.1 is wheel separation/2
             right_speed = linear_x + (angular_z * 0.1)
+            
+            # Normalize wheel speeds to [-1, 1]
+            max_speed = max(abs(left_speed), abs(right_speed), 1.0)
+            left_speed = left_speed / max_speed
+            right_speed = right_speed / max_speed
             
             # Log the calculated wheel speeds
             self.get_logger().info(
@@ -70,8 +77,8 @@ class Nav2HardwareBridge(Node):
             
             # Create wheel command message
             wheel_cmd = Twist()
-            wheel_cmd.linear.x = left_speed   # Using linear.x for left wheel
-            wheel_cmd.linear.y = right_speed  # Using linear.y for right wheel
+            wheel_cmd.linear.x = left_speed   # Left wheel (-1 to 1)
+            wheel_cmd.linear.y = right_speed  # Right wheel (-1 to 1)
             
             # Publish wheel commands
             self.wheel_cmd_pub.publish(wheel_cmd)
@@ -92,6 +99,11 @@ class Nav2HardwareBridge(Node):
             stop_cmd.linear.x = 0.0  # Left wheel
             stop_cmd.linear.y = 0.0  # Right wheel
             self.wheel_cmd_pub.publish(stop_cmd)
+
+    def debug_callback(self):
+        """Debug timer callback to check if we're receiving cmd_vel."""
+        time_since_cmd = (self.get_clock().now() - self.last_cmd_time).nanoseconds / 1e9
+        self.get_logger().info(f'Time since last cmd_vel: {time_since_cmd:.2f} seconds')
 
 def main(args=None):
     rclpy.init(args=args)

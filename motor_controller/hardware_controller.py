@@ -15,21 +15,22 @@ class HardwareController(Node):
             right_pin=self.declare_parameter('right_pin', 12).value
         )
         
-        # Subscribe to wheel speed commands
-        self.create_subscription(
+        # Subscribe to wheel speed commands with explicit QoS
+        self.cmd_vel_sub = self.create_subscription(
             Twist,
-            '/cmd_vel',
+            '/cmd_vel',  # Make sure to use absolute topic name
             self.wheel_velocity_callback,
             10
         )
         
         # Add counter for received commands
         self.command_count = 0
+        self.last_cmd_time = self.get_clock().now()
         
         self.get_logger().info('Hardware controller initialized and ready for commands')
         
-        # Create a timer to print status
-        self.create_timer(1.0, self.status_callback)
+        # Create a timer to print status more frequently
+        self.create_timer(0.5, self.status_callback)
         
     def convert_to_binary_speed(self, speed):
         """Convert decimal speed to binary (0 or 1)."""
@@ -50,6 +51,7 @@ class HardwareController(Node):
                 f"\nReceived wheel speeds:"
                 f"\n  Left: {left_speed:.3f}"
                 f"\n  Right: {right_speed:.3f}"
+                f"\n  Angular Z: {msg.angular.z:.3f}"  # Add angular velocity logging
             )
             
             # Apply speeds to motors
@@ -57,13 +59,22 @@ class HardwareController(Node):
             
             # Increment command counter
             self.command_count += 1
+            self.last_cmd_time = self.get_clock().now()
             
         except Exception as e:
             self.get_logger().error(f'Error setting motor speeds: {str(e)}')
     
     def status_callback(self):
         """Print periodic status updates."""
-        self.get_logger().info(f'Total commands received: {self.command_count}')
+        now = self.get_clock().now()
+        time_since_last = (now - self.last_cmd_time).nanoseconds / 1e9
+        
+        self.get_logger().info(
+            f'Status:'
+            f'\n  Total commands received: {self.command_count}'
+            f'\n  Time since last command: {time_since_last:.1f}s'
+            f'\n  Subscribers to cmd_vel: {self.cmd_vel_sub.get_publisher_count()}'
+        )
     
     def __del__(self):
         if hasattr(self, 'motors'):

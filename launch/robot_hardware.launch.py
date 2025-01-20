@@ -29,7 +29,11 @@ def generate_launch_description():
             parameters=[{
                 'left_pin': 18,
                 'right_pin': 12
-            }]
+            }],
+            remappings=[
+                # Make sure hardware controller listens to the right topic
+                ('/cmd_vel', '/cmd_vel'),  # Explicitly map cmd_vel
+            ]
         ),
 
         # Basic transform publisher for lidar

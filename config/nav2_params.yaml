@@ -92,10 +92,14 @@ bt_navigator:
     robot_base_frame: base_link
     transform_tolerance: 0.1
     default_bt_xml_filename: "$(find-pkg-share nav2_bt_navigator)/behavior_trees/navigate_w_replanning_and_recovery.xml"
+    navigators: ["navigate_to_pose", "navigate_through_poses"]
+    navigate_to_pose:
+      plugin: "nav2_bt_navigator/NavigateToPoseNavigator"
+    navigate_through_poses:
+      plugin: "nav2_bt_navigator/NavigateThroughPosesNavigator"
     plugin_lib_names:
     - nav2_compute_path_to_pose_action_bt_node
     - nav2_compute_path_through_poses_action_bt_node
-    - nav2_smooth_path_action_bt_node
     - nav2_follow_path_action_bt_node
     - nav2_back_up_action_bt_node
     - nav2_spin_action_bt_node
@@ -125,7 +129,6 @@ bt_navigator:
     - nav2_planner_selector_bt_node
     - nav2_controller_selector_bt_node
     - nav2_goal_checker_selector_bt_node
-
     error_code_names:
       - compute_path_error_code
       - follow_path_error_code

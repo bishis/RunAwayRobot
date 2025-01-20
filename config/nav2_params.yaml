@@ -22,7 +22,7 @@ controller_server:
 
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
-      debug_trajectory_details: True
+      debug_trajectory_details: true
       min_vel_x: 0.0
       min_vel_y: 0.0
       max_vel_x: 0.26
@@ -46,8 +46,8 @@ controller_server:
       transform_tolerance: 0.2
       xy_goal_tolerance: 0.25
       trans_stopped_velocity: 0.25
-      short_circuit_trajectory_evaluation: True
-      stateful: True
+      short_circuit_trajectory_evaluation: true
+      stateful: true
       critics:
         - "RotateToGoal"
         - "Oscillation"
@@ -124,7 +124,7 @@ local_costmap:
       z_voxels: 16
       max_obstacle_height: 2.0
       mark_threshold: 0
-      observation_sources: scan
+      observation_sources: ["scan"]
       scan:
         topic: /scan
         max_obstacle_height: 2.0
@@ -152,7 +152,7 @@ global_costmap:
     obstacle_layer:
       plugin: "nav2_costmap_2d::ObstacleLayer"
       enabled: true
-      observation_sources: scan
+      observation_sources: ["scan"]
       scan:
         topic: /scan
         max_obstacle_height: 2.0

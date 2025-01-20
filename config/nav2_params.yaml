@@ -88,61 +88,63 @@ recoveries_server:
       wait_time: 10.0
 
 local_costmap:
-  ros__parameters:
-    use_sim_time: false
-    update_frequency: 10.0
-    publish_frequency: 5.0
-    global_frame: "odom"
-    robot_base_frame: "base_link"
-    rolling_window: true
-    width: 6.0
-    height: 6.0
-    resolution: 0.05
-    plugins: ["obstacle_layer", "inflation_layer"]
-    obstacle_layer:
-      plugin: "nav2_costmap_2d::ObstacleLayer"
-      observation_sources: "scan"
-      scan:
-        topic: "/scan"
-        sensor_frame: "laser"
-        data_type: "LaserScan"
-        clearing: true
-        marking: true
-        max_obstacle_height: 2.0
-    inflation_layer:
-      plugin: "nav2_costmap_2d::InflationLayer"
-      inflation_radius: 0.6
-      cost_scaling_factor: 3.0
+  local_costmap:
+    ros__parameters:
+      use_sim_time: false
+      update_frequency: 10.0
+      publish_frequency: 5.0
+      global_frame: "odom"
+      robot_base_frame: "base_link"
+      rolling_window: true
+      width: 6.0
+      height: 6.0
+      resolution: 0.05
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        observation_sources: "scan"
+        scan:
+          topic: "/scan"
+          sensor_frame: "laser"
+          data_type: "LaserScan"
+          clearing: true
+          marking: true
+          max_obstacle_height: 2.0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.6
+        cost_scaling_factor: 3.0
 
 global_costmap:
-  ros__parameters:
-    use_sim_time: false
-    update_frequency: 5.0
-    publish_frequency: 2.0
-    global_frame: "map"
-    robot_base_frame: "base_link"
-    rolling_window: false
-    width: 12.0
-    height: 12.0
-    resolution: 0.05
-    plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
-    static_layer:
-      plugin: "nav2_costmap_2d::StaticLayer"
-      map_subscribe_transient_local: true
-    obstacle_layer:
-      plugin: "nav2_costmap_2d::ObstacleLayer"
-      observation_sources: "scan"
-      scan:
-        topic: "/scan"
-        sensor_frame: "laser"
-        data_type: "LaserScan"
-        clearing: true
-        marking: true
-        max_obstacle_height: 2.0
-    inflation_layer:
-      plugin: "nav2_costmap_2d::InflationLayer"
-      inflation_radius: 0.6
-      cost_scaling_factor: 3.0
+  global_costmap:
+    ros__parameters:
+      use_sim_time: false
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: "map"
+      robot_base_frame: "base_link"
+      rolling_window: false
+      width: 12.0
+      height: 12.0
+      resolution: 0.05
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        observation_sources: "scan"
+        scan:
+          topic: "/scan"
+          sensor_frame: "laser"
+          data_type: "LaserScan"
+          clearing: true
+          marking: true
+          max_obstacle_height: 2.0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.6
+        cost_scaling_factor: 3.0
 
 waypoint_follower:
   ros__parameters:

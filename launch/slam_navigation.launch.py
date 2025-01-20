@@ -27,25 +27,6 @@ def generate_launch_description():
         description='Full path to the ROS2 parameters file'
     )
 
-    # Additional required Nav2 arguments
-    declare_use_composition_cmd = DeclareLaunchArgument(
-        'use_composition',
-        default_value='false',
-        description='Use composed bringup if True'
-    )
-
-    declare_use_respawn_cmd = DeclareLaunchArgument(
-        'use_respawn',
-        default_value='false',
-        description='Whether to respawn if a node crashes'
-    )
-
-    declare_autostart_cmd = DeclareLaunchArgument(
-        'autostart',
-        default_value='true',
-        description='Automatically startup the nav2 stack'
-    )
-
     return LaunchDescription([
         # Network setup
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
@@ -54,9 +35,6 @@ def generate_launch_description():
         # Launch arguments
         declare_use_sim_time_cmd,
         declare_params_file_cmd,
-        declare_use_composition_cmd,
-        declare_use_respawn_cmd,
-        declare_autostart_cmd,
 
         # RF2O Odometry
         Node(
@@ -93,10 +71,10 @@ def generate_launch_description():
             ]),
             launch_arguments={
                 'use_sim_time': 'false', 
-                'params_file': params_file,
-                'use_composition': 'false',
-                'use_respawn': 'false',
-                'autostart': 'true'
+                'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
+                'use_composition': 'False',
+                'use_respawn': 'False',                
+                'autostart': 'True'
             }.items()
         ),
         

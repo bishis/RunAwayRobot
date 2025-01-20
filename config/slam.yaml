@@ -31,7 +31,4 @@ slam_toolbox:
     scan_buffer_size: 10
     scan_buffer_maximum_scan_distance: 10.0
     link_match_minimum_response_fine: 0.1
-    link_scan_maximum_distance: 1.5
-
-    # Simulation time
-    use_sim_time: false 
+    link_scan_maximum_distance: 1.5 

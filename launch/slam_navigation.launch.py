@@ -70,12 +70,9 @@ def generate_launch_description():
                 os.path.join(nav2_pkg_dir, 'launch', 'navigation_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': 'false',
+                'use_sim_time': 'false', 
                 'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
-                'autostart': 'true',
-                'map_subscribe_transient_local': 'true',
-                'cmd_vel_topic': '/cmd_vel',
-                'odom_topic': '/odom_rf2o'
+                'autostart': 'True'
             }.items()
         ),
         

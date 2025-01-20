@@ -184,20 +184,20 @@ collision_monitor:
     transform_tolerance: 0.2
     footprint_topic: "/local_costmap/published_footprint"
     publish_rate: 10.0
-    
+
 lifecycle_manager:
   ros__parameters:
     use_sim_time: false
     autostart: true
     node_names:
       [
+        "bt_navigator",
         "collision_monitor",
         "docking_server",
         "slam_toolbox",
         "planner_server",
         "controller_server",
         "recoveries_server",
-        "bt_navigator",
         "local_costmap",
         "global_costmap",
       ]

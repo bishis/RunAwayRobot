@@ -56,4 +56,7 @@
 
   <!-- Add SMAC planner -->
   <depend>nav2_smac_planner</depend>
+
+  <!-- Add ThetaStar planner -->
+  <depend>nav2_theta_star_planner</depend>
 </package> 

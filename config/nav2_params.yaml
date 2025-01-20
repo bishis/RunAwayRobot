@@ -60,23 +60,10 @@ planner_server:
     planner_frequency: 5.0
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_navfn_planner::NavfnPlanner"
+      plugin: "nav2_navfn_planner/NavfnPlanner"
       tolerance: 0.2
       use_astar: true
       allow_unknown: true
-      how_many_corners: 8
-      collision_checker: "computed"
-      w_euc_cost: 1.0
-      w_traversal_cost: 2.0
-      w_heuristic_cost: 1.0
-      use_final_approach_orientation: true
-      lookup_table_size: 20
-      allow_traversing_occupied_cells: false
-      minimum_turning_radius: 0.4
-      reverse_penalty: 2.1
-      change_penalty: 0.15
-      non_straight_penalty: 1.05
-      cost_penalty: 2.0
 
 bt_navigator:
   ros__parameters:
@@ -123,11 +110,6 @@ local_costmap:
         clearing: true
         marking: true
         max_obstacle_height: 2.0
-        min_obstacle_height: 0.0
-        obstacle_max_range: 2.5
-        obstacle_min_range: 0.0
-        raytrace_max_range: 3.0
-        raytrace_min_range: 0.0
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
       inflation_radius: 0.6
@@ -159,11 +141,6 @@ global_costmap:
         clearing: true
         marking: true
         max_obstacle_height: 2.0
-        min_obstacle_height: 0.0
-        obstacle_max_range: 2.5
-        obstacle_min_range: 0.0
-        raytrace_max_range: 3.0
-        raytrace_min_range: 0.0
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
       inflation_radius: 0.6
@@ -185,6 +162,20 @@ collision_monitor:
     source_timeout: 1.0
     base_shift_correction: true
     stop_pub_timeout: 2.0
+    
+    # Initialize polygons
+    polygons: ["footprint"]
+    footprint:
+      type: "polygon"
+      points:
+        - [0.2, 0.15]   # Front right
+        - [0.2, -0.15]  # Front left
+        - [-0.2, -0.15] # Back left
+        - [-0.2, 0.15]  # Back right
+      action_type: "stop"  # Action on collision
+      min_points: 3
+      visualize: true
+
     observation_sources: ["scan"]
     scan:
       type: "scan"
@@ -198,7 +189,6 @@ collision_monitor:
       obstacle_range: 2.5
       raytrace_range: 3.0
 
-# Update lifecycle manager to include collision monitor
 lifecycle_manager:
   ros__parameters:
     use_sim_time: false
@@ -219,6 +209,6 @@ lifecycle_manager:
 
 explore:
   ros__parameters:
-    planner_frequency: 1.5  # Faster planning for exploration
+    planner_frequency: 1.5
     progress_timeout: 15.0
-    explore_clear_threshold: 0.4  # For better detection of unexplored areas
+    explore_clear_threshold: 0.4

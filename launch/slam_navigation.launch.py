@@ -64,27 +64,20 @@ def generate_launch_description():
             }.items()
         ),
 
-        # Initial Pose Publisher
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='map_to_odom_publisher',
-            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
-        ),
-        
-        # Nav2 Navigation Stack
+        # Nav2 Navigation Stack (with all required arguments)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(nav2_pkg_dir, 'launch', 'navigation_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': 'false', 
+                'use_sim_time': 'false',
                 'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
-                'autostart': 'True'
+                'autostart': 'true',
+                'use_composition': 'false',
+                'use_respawn': 'false',
+                'log_level': 'info'
             }.items()
         ),
-        
-
         
         # RViz2
         Node(

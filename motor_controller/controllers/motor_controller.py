@@ -8,17 +8,11 @@ class MotorController:
     def __init__(self, left_pin=18, right_pin=12):
         # Initialize Servo objects for motors
         self.motor_left = Servo(
-            left_pin,
-            min_pulse_width=1.0/1000,
-            max_pulse_width=2.0/1000,
-            frame_width=20.0/1000
+            left_pin
         )
         
         self.motor_right = Servo(
-            right_pin,
-            min_pulse_width=1.0/1000,
-            max_pulse_width=2.0/1000,
-            frame_width=20.0/1000
+            right_pin
         )
         
         # Speed constants
@@ -59,10 +53,7 @@ class MotorController:
         
     def set_speeds(self, left_speed, right_speed):
         """Set speeds for both motors."""
-        # Clamp speeds to [-1, 1]
-        left_speed = max(-1.0, min(1.0, left_speed))
-        right_speed = max(-1.0, min(1.0, right_speed))
-        
+
         # Apply speeds to motors
         self.motor_left.value = left_speed
         self.motor_right.value = right_speed

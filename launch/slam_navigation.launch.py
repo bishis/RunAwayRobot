@@ -73,7 +73,8 @@ def generate_launch_description():
                 'use_sim_time': False,
                 'max_linear_speed': 0.5,
                 'max_angular_speed': 1.0,
-                'cmd_vel_topic': '/cmd_vel'
+                'cmd_vel_in_topic': '/cmd_vel',
+                'cmd_vel_out_topic': '/wheel_cmd_vel'
             }]
         ),
 

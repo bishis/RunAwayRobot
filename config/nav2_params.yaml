@@ -175,6 +175,17 @@ collision_monitor:
     base_frame_id: "base_link"
     odom_frame_id: "odom"
     observation_sources: ["scan"]
+    
+    # Add polygon parameters
+    polygons: ["base_footprint"]  # List of polygons to monitor
+    base_footprint:  # Define the robot's footprint
+      type: "polygon"
+      points: [[-0.15, -0.15], [-0.15,  0.15], [ 0.15,  0.15], [ 0.15, -0.15]]
+      action_type: "stop"  # Action to take when collision detected
+      min_points: 3       # Minimum points needed to detect collision
+      visualize: true     # Show polygon in rviz
+      polygon_height: 0.2 # Height of the collision polygon
+      enabled: true      # Enable this polygon
     scan:
       type: "scan"
       topic: "/scan"
@@ -190,17 +201,6 @@ collision_monitor:
     transform_tolerance: 0.2
     footprint_topic: "/local_costmap/published_footprint"
     publish_rate: 10.0
-    
-    # Add polygon parameters
-    polygons: ["base_footprint"]  # List of polygons to monitor
-    base_footprint:  # Define the robot's footprint
-      type: "polygon"
-      points: [[-0.15, -0.15], [-0.15,  0.15], [ 0.15,  0.15], [ 0.15, -0.15]]
-      action_type: "stop"  # Action to take when collision detected
-      min_points: 3       # Minimum points needed to detect collision
-      visualize: true     # Show polygon in rviz
-      polygon_height: 0.2 # Height of the collision polygon
-      enabled: true      # Enable this polygon
 
 lifecycle_manager:
   ros__parameters:

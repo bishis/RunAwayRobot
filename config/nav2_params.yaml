@@ -50,7 +50,16 @@ controller_server:
       trans_stopped_velocity: 0.25
       short_circuit_trajectory_evaluation: True
       stateful: True
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      critics:
+        [
+          "RotateToGoal",
+          "Oscillation",
+          "BaseObstacle",
+          "GoalAlign",
+          "PathAlign",
+          "PathDist",
+          "GoalDist",
+        ]
       BaseObstacle.scale: 0.02
       PathAlign.scale: 32.0
       PathAlign.forward_point_distance: 0.1
@@ -61,7 +70,6 @@ controller_server:
       RotateToGoal.scale: 32.0
       RotateToGoal.slowing_factor: 5.0
       RotateToGoal.lookahead_time: -1.0
-
 
 planner_server:
   ros__parameters:
@@ -110,7 +118,7 @@ local_costmap:
     resolution: 0.05
     robot_radius: 0.22
     plugins: ["voxel_layer", "inflation_layer"]
-    
+
     voxel_layer:
       plugin: "nav2_costmap_2d::VoxelLayer"
       enabled: true
@@ -127,7 +135,7 @@ local_costmap:
         clearing: true
         marking: true
         data_type: "LaserScan"
-        
+
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
       cost_scaling_factor: 3.0
@@ -144,7 +152,7 @@ global_costmap:
     resolution: 0.05
     track_unknown_space: true
     plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
-    
+
     obstacle_layer:
       plugin: "nav2_costmap_2d::ObstacleLayer"
       enabled: true
@@ -155,11 +163,11 @@ global_costmap:
         clearing: true
         marking: true
         data_type: "LaserScan"
-        
+
     static_layer:
       plugin: "nav2_costmap_2d::StaticLayer"
       map_subscribe_transient_local: true
-      
+
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
       cost_scaling_factor: 3.0
@@ -174,18 +182,16 @@ collision_monitor:
     use_sim_time: false
     base_frame_id: "base_link"
     odom_frame_id: "odom"
-    observation_sources: ["scan"]
-    
-    # Add polygon parameters
-    polygons: ["base_footprint"]  # List of polygons to monitor
-    base_footprint:  # Define the robot's footprint
+    observation_sources: "scan"
+    polygons: "base_footprint" # Changed from array to string
+    base_footprint:
       type: "polygon"
-      points: [[-0.15, -0.15], [-0.15,  0.15], [ 0.15,  0.15], [ 0.15, -0.15]]
-      action_type: "stop"  # Action to take when collision detected
-      min_points: 3       # Minimum points needed to detect collision
-      visualize: true     # Show polygon in rviz
-      polygon_height: 0.2 # Height of the collision polygon
-      enabled: true      # Enable this polygon
+      points: [[-0.22, -0.22], [-0.22, 0.22], [0.22, 0.22], [0.22, -0.22]]
+      action_type: "stop"
+      min_points: 3
+      visualize: true
+      polygon_height: 0.2
+      enabled: true
     scan:
       type: "scan"
       topic: "/scan"
@@ -206,16 +212,17 @@ lifecycle_manager:
   ros__parameters:
     use_sim_time: false
     autostart: true
-    node_names: [
-      "collision_monitor",
-      "slam_toolbox",
-      "planner_server",
-      "controller_server",
-      "recoveries_server",
-      "bt_navigator",
-      "local_costmap",
-      "global_costmap"
-    ]
+    node_names:
+      [
+        "collision_monitor",
+        "slam_toolbox",
+        "planner_server",
+        "controller_server",
+        "recoveries_server",
+        "bt_navigator",
+        "local_costmap",
+        "global_costmap",
+      ]
     configure_timeout: 20.0
     activate_timeout: 10.0
     startup_timeout: 30.0

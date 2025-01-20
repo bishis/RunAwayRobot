@@ -175,11 +175,7 @@ collision_monitor:
     polygons: ["base_footprint"]
     base_footprint:
       type: "polygon"
-      points:
-        - [-0.22, -0.22]
-        - [-0.22, 0.22]
-        - [0.22, 0.22]
-        - [0.22, -0.22]
+      points: "[[-0.22, -0.22], [-0.22, 0.22], [0.22, 0.22], [0.22, -0.22]]"
       action_type: "stop"
       min_points: 3
       visualize: true

@@ -93,16 +93,7 @@ bt_navigator:
     robot_base_frame: base_link
     transform_tolerance: 0.1
     default_bt_xml_filename: "$(find-pkg-share nav2_bt_navigator)/behavior_trees/navigate_w_replanning_and_recovery.xml"
-    
-    # Remove the navigators section that's causing conflicts
-    # navigators: ["navigate_to_pose"]
-    # navigate_to_pose:
-    #   plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
-
-    # Simplified plugin list to avoid conflicts
     plugin_lib_names:
-      - nav2_compute_path_to_pose_action_bt_node
-      - nav2_follow_path_action_bt_node
       - nav2_back_up_action_bt_node
       - nav2_spin_action_bt_node
       - nav2_wait_action_bt_node
@@ -119,7 +110,11 @@ bt_navigator:
       - nav2_time_expired_condition_bt_node
       - nav2_distance_traveled_condition_bt_node
       - nav2_single_trigger_bt_node
+      # Add these at the end
+      - nav2_compute_path_to_pose_action_bt_node
+      - nav2_follow_path_action_bt_node
 
+    # Required for proper error handling
     error_code_names:
       - compute_path_error_code
       - follow_path_error_code

@@ -23,7 +23,7 @@ def generate_launch_description():
         'collision_monitor',
         'planner_server',
         'controller_server',
-        'recoveries_server',
+        'behavior_server',
         'local_costmap',
         'global_costmap'
     ]
@@ -103,7 +103,7 @@ def generate_launch_description():
     start_recoveries_server_cmd = Node(
         package='nav2_behaviors',
         executable='behavior_server',
-        name='recoveries_server',
+        name='behavior_server',
         output='screen',
         parameters=[configured_params])
 

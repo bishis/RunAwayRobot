@@ -23,6 +23,7 @@ def generate_launch_description():
         'collision_monitor',
         'planner_server',
         'controller_server',
+        'recoveries_server',
         'local_costmap',
         'global_costmap'
     ]
@@ -108,6 +109,14 @@ def generate_launch_description():
                     'autostart': autostart,
                     'node_names': lifecycle_nodes}])
 
+    # Add recoveries server node
+    start_recoveries_server_cmd = Node(
+        package='nav2_recoveries',
+        executable='recoveries_server',
+        name='recoveries_server',
+        output='screen',
+        parameters=[configured_params])
+
     # Create the launch description and populate
     ld = LaunchDescription()
 
@@ -122,6 +131,7 @@ def generate_launch_description():
     ld.add_action(start_planner_server_cmd)
     ld.add_action(start_bt_navigator_cmd)
     ld.add_action(start_collision_monitor_cmd)
+    ld.add_action(start_recoveries_server_cmd)
     ld.add_action(start_local_costmap_cmd)
     ld.add_action(start_global_costmap_cmd)
     ld.add_action(start_lifecycle_manager_cmd)

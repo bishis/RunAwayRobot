@@ -22,7 +22,7 @@ controller_server:
 
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
-      debug_trajectory_details: true
+      debug_trajectory_details: True
       min_vel_x: 0.0
       min_vel_y: 0.0
       max_vel_x: 0.26
@@ -31,6 +31,8 @@ controller_server:
       min_speed_xy: 0.0
       max_speed_xy: 0.26
       min_speed_theta: 0.0
+      # Add high threshold velocity for turtlebot 3 issue.
+      # https://github.com/ROBOTIS-GIT/turtlebot3_simulations/issues/75
       acc_lim_x: 2.5
       acc_lim_y: 0.0
       acc_lim_theta: 3.2
@@ -46,9 +48,18 @@ controller_server:
       transform_tolerance: 0.2
       xy_goal_tolerance: 0.25
       trans_stopped_velocity: 0.25
-      short_circuit_trajectory_evaluation: true
-      stateful: true
-      critics: "RotateToGoal Oscillation BaseObstacle GoalAlign PathAlign PathDist GoalDist"
+      short_circuit_trajectory_evaluation: True
+      stateful: True
+      critics:
+        [
+          "RotateToGoal",
+          "Oscillation",
+          "BaseObstacle",
+          "GoalAlign",
+          "PathAlign",
+          "PathDist",
+          "GoalDist",
+        ]
       BaseObstacle.scale: 0.02
       PathAlign.scale: 32.0
       PathAlign.forward_point_distance: 0.1
@@ -117,7 +128,7 @@ local_costmap:
       z_voxels: 16
       max_obstacle_height: 2.0
       mark_threshold: 0
-      observation_sources: ["scan"]
+      observation_sources: scan
       scan:
         topic: /scan
         max_obstacle_height: 2.0
@@ -145,7 +156,7 @@ global_costmap:
     obstacle_layer:
       plugin: "nav2_costmap_2d::ObstacleLayer"
       enabled: true
-      observation_sources: ["scan"]
+      observation_sources: scan
       scan:
         topic: /scan
         max_obstacle_height: 2.0
@@ -172,15 +183,17 @@ collision_monitor:
     base_frame_id: "base_link"
     odom_frame_id: "odom"
     observation_sources: ["scan"]
-    polygons: ["base_footprint"]
-    base_footprint:
+
+    # Add polygon parameters
+    polygons: ["base_footprint"] # List of polygons to monitor
+    base_footprint: # Define the robot's footprint
       type: "polygon"
-      points: "[[-0.22, -0.22], [-0.22, 0.22], [0.22, 0.22], [0.22, -0.22]]"
-      action_type: "stop"
-      min_points: 3
-      visualize: true
-      polygon_height: 0.2
-      enabled: true
+      points: "[[-0.15, -0.15], [-0.15,  0.15], [ 0.15,  0.15], [ 0.15, -0.15]]"
+      action_type: "stop" # Action to take when collision detected
+      min_points: 3 # Minimum points needed to detect collision
+      visualize: true # Show polygon in rviz
+      polygon_height: 0.2 # Height of the collision polygon
+      enabled: true # Enable this polygon
     scan:
       type: "scan"
       topic: "/scan"
@@ -202,14 +215,16 @@ lifecycle_manager:
     use_sim_time: false
     autostart: true
     node_names:
-      - "collision_monitor"
-      - "slam_toolbox"
-      - "planner_server"
-      - "controller_server"
-      - "recoveries_server"
-      - "bt_navigator"
-      - "local_costmap"
-      - "global_costmap"
+      [
+        "collision_monitor",
+        "slam_toolbox",
+        "planner_server",
+        "controller_server",
+        "recoveries_server",
+        "bt_navigator",
+        "local_costmap",
+        "global_costmap",
+      ]
     configure_timeout: 20.0
     activate_timeout: 10.0
     startup_timeout: 30.0

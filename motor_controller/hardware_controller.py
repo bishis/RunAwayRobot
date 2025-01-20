@@ -4,13 +4,18 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from std_msgs.msg import Float32
+from .controllers.motor_controller import MotorController
+
 
 class HardwareController(Node):
     def __init__(self):
         super().__init__('hardware_controller')
         
         self.get_logger().info('Hardware Controller Starting...')
-        
+        self.motors = MotorController(
+            left_pin=self.declare_parameter('left_pin', 18).value,
+            right_pin=self.declare_parameter('right_pin', 12).value
+        )        
         # Subscribers
         self.cmd_vel_sub = self.create_subscription(
             Twist,
@@ -68,7 +73,8 @@ class HardwareController(Node):
         
         self.left_track_pub.publish(left_msg)
         self.right_track_pub.publish(right_msg)
-        
+        self.motors.set_speeds(left_normalized, right_normalized)
+
         # Final output
         self.get_logger().info(
             f'Published track speeds - L:{left_normalized:.2f} R:{right_normalized:.2f}'

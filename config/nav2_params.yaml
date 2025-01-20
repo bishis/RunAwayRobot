@@ -31,8 +31,6 @@ controller_server:
       min_speed_xy: 0.0
       max_speed_xy: 0.26
       min_speed_theta: 0.0
-      # Add high threshold velocity for turtlebot 3 issue.
-      # https://github.com/ROBOTIS-GIT/turtlebot3_simulations/issues/75
       acc_lim_x: 2.5
       acc_lim_y: 0.0
       acc_lim_theta: 3.2
@@ -51,15 +49,13 @@ controller_server:
       short_circuit_trajectory_evaluation: True
       stateful: True
       critics:
-        [
-          "RotateToGoal",
-          "Oscillation",
-          "BaseObstacle",
-          "GoalAlign",
-          "PathAlign",
-          "PathDist",
-          "GoalDist",
-        ]
+        - "RotateToGoal"
+        - "Oscillation"
+        - "BaseObstacle"
+        - "GoalAlign"
+        - "PathAlign"
+        - "PathDist"
+        - "GoalDist"
       BaseObstacle.scale: 0.02
       PathAlign.scale: 32.0
       PathAlign.forward_point_distance: 0.1
@@ -104,6 +100,20 @@ recoveries_server:
     wait:
       plugin: "nav2_recoveries/Wait"
       wait_time: 10.0
+
+docking_server:
+  ros__parameters:
+    use_sim_time: false
+    controller_frequency: 50.0
+    dock_plugins: ["StandardDockPlugin"]
+    
+    StandardDockPlugin:
+      plugin: "nav2_docking_plugins::StandardDockPlugin"
+      docking_tolerance: 0.05
+      max_attempts: 3
+      docking_timeout: 10.0
+      docking_distance: 0.5
+      goal_checker_plugin: "nav2_controller::SimpleGoalChecker"
 
 local_costmap:
   ros__parameters:
@@ -173,43 +183,6 @@ global_costmap:
       cost_scaling_factor: 3.0
       inflation_radius: 0.55
 
-waypoint_follower:
-  ros__parameters:
-    use_sim_time: false
-
-collision_monitor:
-  ros__parameters:
-    use_sim_time: false
-    base_frame_id: "base_link"
-    odom_frame_id: "odom"
-    observation_sources: ["scan"]
-
-    # Add polygon parameters
-    polygons: ["base_footprint"] # List of polygons to monitor
-    base_footprint: # Define the robot's footprint
-      type: "polygon"
-      points: "[[-0.15, -0.15], [-0.15,  0.15], [ 0.15,  0.15], [ 0.15, -0.15]]"
-      action_type: "stop" # Action to take when collision detected
-      min_points: 3 # Minimum points needed to detect collision
-      visualize: true # Show polygon in rviz
-      polygon_height: 0.2 # Height of the collision polygon
-      enabled: true # Enable this polygon
-    scan:
-      type: "scan"
-      topic: "/scan"
-      min_height: 0.0
-      max_height: 2.0
-      obstacle_range: 2.5
-      raytrace_range: 3.0
-      observation_persistence: 0.0
-      inf_is_valid: false
-      marking: true
-      clearing: true
-      data_type: "LaserScan"
-    transform_tolerance: 0.2
-    footprint_topic: "/local_costmap/published_footprint"
-    publish_rate: 10.0
-
 lifecycle_manager:
   ros__parameters:
     use_sim_time: false
@@ -217,6 +190,7 @@ lifecycle_manager:
     node_names:
       [
         "collision_monitor",
+        "docking_server",
         "slam_toolbox",
         "planner_server",
         "controller_server",

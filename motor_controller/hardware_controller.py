@@ -51,7 +51,7 @@ class HardwareController(Node):
         self.right_track_pub.publish(right_msg)
         
         # Debug output
-        self.get_logger().debug(
+        self.get_logger().info(
             f'Converted cmd_vel({linear_x:.2f}, {angular_z:.2f}) to tracks L:{left_normalized:.2f} R:{right_normalized:.2f}'
         )
     

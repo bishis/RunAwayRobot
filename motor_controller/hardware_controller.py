@@ -18,7 +18,7 @@ class HardwareController(Node):
         # Subscribe to wheel speed commands
         self.create_subscription(
             Twist,
-            '/wheel_cmd_vel',
+            '/cmd_vel',
             self.wheel_velocity_callback,
             10
         )

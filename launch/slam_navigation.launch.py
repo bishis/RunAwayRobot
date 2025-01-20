@@ -63,21 +63,20 @@ def generate_launch_description():
                 'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
             }.items()
         ),
-
-        # Nav2 Navigation Stack (with all required arguments)
+        
+        # Nav2 Navigation Stack
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(nav2_pkg_dir, 'launch', 'navigation_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': 'false',
+                'use_sim_time': 'false', 
                 'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
-                'autostart': 'true',
-                'use_composition': 'false',
-                'use_respawn': 'false',
-                'log_level': 'info'
+                'autostart': 'True'
             }.items()
         ),
+        
+
         
         # RViz2
         Node(

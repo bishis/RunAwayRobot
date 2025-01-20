@@ -100,6 +100,13 @@ def generate_launch_description():
         output='screen',
         parameters=[configured_params])
 
+    start_recoveries_server_cmd = Node(
+        package='nav2_behaviors',
+        executable='behavior_server',
+        name='recoveries_server',
+        output='screen',
+        parameters=[configured_params])
+
     start_lifecycle_manager_cmd = Node(
         package='nav2_lifecycle_manager',
         executable='lifecycle_manager',
@@ -108,14 +115,6 @@ def generate_launch_description():
         parameters=[{'use_sim_time': use_sim_time,
                     'autostart': autostart,
                     'node_names': lifecycle_nodes}])
-
-    # Add recoveries server node
-    start_recoveries_server_cmd = Node(
-        package='nav2_recoveries',
-        executable='recoveries_server',
-        name='recoveries_server',
-        output='screen',
-        parameters=[configured_params])
 
     # Create the launch description and populate
     ld = LaunchDescription()

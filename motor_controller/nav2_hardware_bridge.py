@@ -20,7 +20,7 @@ class Nav2HardwareBridge(Node):
         # Parameters
         self.declare_parameter('max_linear_speed', 0.5)  # m/s
         self.declare_parameter('max_angular_speed', 1.0)  # rad/s
-        self.declare_parameter('cmd_vel_topic', 'cmd_vel')  # Make topic configurable
+        self.declare_parameter('cmd_vel_topic', '/cmd_vel')  # Add leading slash
         
         self.max_linear_speed = self.get_parameter('max_linear_speed').value
         self.max_angular_speed = self.get_parameter('max_angular_speed').value
@@ -30,20 +30,20 @@ class Nav2HardwareBridge(Node):
         self.get_logger().info(
             f'\nTopic Configuration:'
             f'\n  Subscribing to cmd_vel topic: {cmd_vel_topic}'
-            f'\n  Publishing to wheel_cmd_vel topic: wheel_cmd_vel'
+            f'\n  Publishing to wheel_cmd_vel topic: /cmd_vel'  # Change to /cmd_vel
         )
         
         # Publishers and Subscribers
         self.cmd_vel_sub = self.create_subscription(
             Twist,
-            cmd_vel_topic,
+            cmd_vel_topic,  # From parameter
             self.cmd_vel_callback,
             10
         )
         
         self.wheel_cmd_pub = self.create_publisher(
             Twist,
-            'wheel_cmd_vel',
+            '/cmd_vel',  # Change to /cmd_vel to match hardware_controller
             10
         )
         

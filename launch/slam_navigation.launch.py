@@ -64,6 +64,19 @@ def generate_launch_description():
             }.items()
         ),
         
+        # Add Nav2 Hardware Bridge
+        Node(
+            package='motor_controller',
+            executable='nav2_hardware_bridge',
+            name='nav2_hardware_bridge',
+            parameters=[{
+                'use_sim_time': False,
+                'max_linear_speed': 0.5,
+                'max_angular_speed': 1.0,
+                'cmd_vel_topic': '/cmd_vel'
+            }]
+        ),
+
         # Nav2 Navigation Stack
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([

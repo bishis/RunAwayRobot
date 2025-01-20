@@ -60,10 +60,20 @@ planner_server:
     planner_frequency: 5.0
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_navfn_planner/NavfnPlanner"
-      tolerance: 0.2  # Reduced for precise path following
+      plugin: "nav2_smac_planner/SmacPlanner2D"
+      tolerance: 0.2
       use_astar: true
       allow_unknown: true
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+      max_planning_time: 5.0
+      motion_model_for_search: "MOORE"
+      angle_quantization_bins: 72
+      minimum_turning_radius: 0.4
+      reverse_penalty: 2.0
+      change_penalty: 0.2
+      non_straight_penalty: 1.2
+      cost_penalty: 2.0
 
 bt_navigator:
   ros__parameters:

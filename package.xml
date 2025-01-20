@@ -53,4 +53,7 @@
   <!-- Add these -->
   <depend>slam_toolbox</depend>
   <depend>nav2_lifecycle_manager</depend>
+
+  <!-- Add SMAC planner -->
+  <depend>nav2_smac_planner</depend>
 </package> 

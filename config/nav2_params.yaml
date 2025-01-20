@@ -6,27 +6,37 @@ controller_server:
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 0.3
+    
+    # Fix the checker configurations
     progress_checker_plugin: "progress_checker"
     goal_checker_plugin: "goal_checker"
     controller_plugins: ["FollowPath"]
-
-    # Add required parameters
-    odom_topic: "odom"
-    use_realtime_priority: false
-    expected_controller_frequency: 20.0
-    max_controller_duration: 0.5
-    controller_patience: 5.0
-
+    
+    # Specify current checkers
+    current_goal_checker: "goal_checker"
+    current_progress_checker: "progress_checker"
+    
+    # Other parameters
+    odom_topic: "/odom"
+    cmd_vel_topic: "/cmd_vel"
+    transform_tolerance: 1.0
+    
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.5
-      movement_time_allowance: 10.0
+      movement_time_allowance: 20.0
 
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.25
       yaw_goal_tolerance: 0.25
       stateful: true
+
+    # Update required parameters
+    use_realtime_priority: false
+    expected_controller_frequency: 20.0
+    max_controller_duration: 0.5
+    controller_patience: 15.0
 
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
@@ -39,19 +49,19 @@ controller_server:
       min_speed_xy: 0.0
       max_speed_xy: 0.26
       min_speed_theta: 0.0
-      acc_lim_x: 2.5
+      acc_lim_x: 1.0
       acc_lim_y: 0.0
-      acc_lim_theta: 3.2
-      decel_lim_x: -2.5
+      acc_lim_theta: 1.5
+      decel_lim_x: -1.0
       decel_lim_y: 0.0
-      decel_lim_theta: -3.2
+      decel_lim_theta: -1.5
       vx_samples: 20
       vy_samples: 5
       vtheta_samples: 20
-      sim_time: 1.7
+      sim_time: 2.0
       linear_granularity: 0.05
       angular_granularity: 0.025
-      transform_tolerance: 0.2
+      transform_tolerance: 1.0
       xy_goal_tolerance: 0.25
       trans_stopped_velocity: 0.25
       short_circuit_trajectory_evaluation: True

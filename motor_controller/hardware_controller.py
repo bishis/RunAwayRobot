@@ -4,6 +4,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from std_msgs.msg import Float32
+from sensor_msgs.msg import LaserScan
 from .controllers.motor_controller import MotorController
 
 
@@ -24,12 +25,38 @@ class HardwareController(Node):
             self.cmd_vel_callback,
             10)
         
+        # Subscribe to laser scan data
+        self.scan_sub = self.create_subscription(
+            LaserScan,
+            '/scan',
+            self.scan_callback,
+            10)
+        
         # Robot parameters
         self.track_width = 0.3  # Distance between tracks in meters
         self.max_linear_speed = 0.1  # Max linear speed from nav2 params
         self.max_angular_speed = 0.5  # Max angular speed from nav2 params
         
+        # Obstacle detection parameters
+        self.min_obstacle_distance = 0.3  # Meters
+        self.last_obstacle_warning = self.get_clock().now()
+        self.warning_interval = 1.0  # Seconds between warnings
+        
         self.get_logger().info('Hardware Controller initialized')
+    
+    def scan_callback(self, msg: LaserScan):
+        """Process laser scan data and check for obstacles"""
+        # Find the minimum distance in the scan
+        ranges = [r for r in msg.ranges if r > msg.range_min and r < msg.range_max]
+        if ranges:
+            min_distance = min(ranges)
+            
+            # Check if it's time to print a new warning
+            now = self.get_clock().now()
+            if (min_distance < self.min_obstacle_distance and 
+                (now - self.last_obstacle_warning).nanoseconds / 1e9 >= self.warning_interval):
+                self.get_logger().warn(f'Obstacle detected! Distance: {min_distance:.2f}m')
+                self.last_obstacle_warning = now
     
     def cmd_vel_callback(self, msg: Twist):
         """Convert cmd_vel into left/right motor commands"""

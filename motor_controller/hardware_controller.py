@@ -65,6 +65,15 @@ class HardwareController(Node):
         left_normalized = self.normalize_speed(left_speed)
         right_normalized = self.normalize_speed(right_speed)
         
+        if left_normalized > 0:
+            left_normalized = 1
+        if right_normalized > 0:
+            right_normalized = 1
+        if left_normalized < 0:
+            left_normalized = -1
+        if right_normalized < 0:
+            right_normalized = -1
+        
         # Create and publish messages
         left_msg = Float32()
         right_msg = Float32()

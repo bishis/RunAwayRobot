@@ -42,20 +42,34 @@ class HardwareController(Node):
     def wheel_velocity_callback(self, msg):
         """Handle incoming wheel velocity commands."""
         try:
-            # Extract wheel speeds from Twist message
-            left_speed = msg.linear.x   # Left wheel speed
-            right_speed = msg.linear.y  # Right wheel speed
+            # Convert Twist to differential drive commands
+            linear_x = msg.linear.x    # Forward/backward motion
+            angular_z = msg.angular.z   # Rotational motion
+            
+            # Calculate wheel speeds for differential drive
+            # Track width is the distance between wheels (adjust as needed)
+            track_width = 0.3  # meters
+            
+            # Convert twist to differential drive
+            left_speed = linear_x - (angular_z * track_width / 2.0)
+            right_speed = linear_x + (angular_z * track_width / 2.0)
             
             # Print received command details
             self.get_logger().info(
-                f"\nReceived wheel speeds:"
+                f"\nReceived cmd_vel:"
+                f"\n  Linear X: {linear_x:.3f} m/s"
+                f"\n  Angular Z: {angular_z:.3f} rad/s"
+                f"\nCalculated wheel speeds:"
                 f"\n  Left: {left_speed:.3f}"
                 f"\n  Right: {right_speed:.3f}"
-                f"\n  Angular Z: {msg.angular.z:.3f}"  # Add angular velocity logging
             )
             
+            # Convert to binary speeds (-1, 0, 1)
+            left_binary = self.convert_to_binary_speed(left_speed)
+            right_binary = self.convert_to_binary_speed(right_speed)
+            
             # Apply speeds to motors
-            self.motors.set_speeds(left_speed, right_speed)
+            self.motors.set_speeds(left_binary, right_binary)
             
             # Increment command counter
             self.command_count += 1

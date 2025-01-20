@@ -72,10 +72,25 @@ def generate_launch_description():
             launch_arguments={
                 'use_sim_time': 'false', 
                 'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
-                'use_composition': 'False',
-                'use_respawn': 'False',                
-                'autostart': 'True'
+                'use_composition': 'false',
+                'use_respawn': 'true',  # Enable respawning
+                'autostart': 'true'
             }.items()
+        ),
+        
+        # Add Nav2 Hardware Bridge after Nav2 stack
+        Node(
+            package='motor_controller',
+            executable='nav2_hardware_bridge',
+            name='nav2_hardware_bridge',
+            parameters=[{
+                'use_sim_time': False,
+                'cmd_vel_topic': '/cmd_vel'
+            }],
+            remappings=[
+                ('/tf', 'tf'),
+                ('/tf_static', 'tf_static')
+            ]
         ),
         
         # RViz2

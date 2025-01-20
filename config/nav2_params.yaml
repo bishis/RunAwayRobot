@@ -128,7 +128,7 @@ local_costmap:
     resolution: 0.05
     footprint: "[[-0.15, -0.15], [-0.15, 0.15], [0.15, 0.15], [0.15, -0.15]]"
     plugins: ["voxel_layer", "inflation_layer"]
-
+    
     voxel_layer:
       plugin: "nav2_costmap_2d::VoxelLayer"
       enabled: true
@@ -162,12 +162,11 @@ global_costmap:
     publish_frequency: 1.0
     global_frame: map
     robot_base_frame: base_link
-    footprint: [[-0.15, -0.15], [-0.15, 0.15], [0.15, 0.15], [0.15, -0.15]]
+    footprint: "[[-0.15, -0.15], [-0.15, 0.15], [0.15, 0.15], [0.15, -0.15]]"
     resolution: 0.05
     track_unknown_space: true
-    always_send_full_costmap: true
     plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
-
+    
     obstacle_layer:
       plugin: "nav2_costmap_2d::ObstacleLayer"
       enabled: true
@@ -186,6 +185,7 @@ global_costmap:
     static_layer:
       plugin: "nav2_costmap_2d::StaticLayer"
       map_subscribe_transient_local: true
+      enabled: true
 
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"

@@ -5,6 +5,7 @@ slam_toolbox:
     map_frame: map
     base_frame: base_link
     scan_topic: /scan
+    scan_frame: laser_frame
 
     # SLAM mode
     mode: mapping

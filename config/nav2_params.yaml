@@ -234,22 +234,22 @@ collision_monitor:
     footprint_topic: "/local_costmap/published_footprint"
     publish_rate: 10.0
 
-lifecycle_manager:
-  ros__parameters:
-    use_sim_time: false
-    autostart: true
-    node_names:
-      [
-        "collision_monitor",
-        "docking_server",
-        "slam_toolbox",
-        "planner_server",
-        "controller_server",
-        "recoveries_server",
-        "bt_navigator",
-        "local_costmap",
-        "global_costmap",
-      ]
-    configure_timeout: 20.0
-    activate_timeout: 10.0
-    startup_timeout: 30.0
+# lifecycle_manager:
+#   ros__parameters:
+#     use_sim_time: false
+#     autostart: true
+#     node_names:
+#       [
+#         "collision_monitor",
+#         "docking_server",
+#         "slam_toolbox",
+#         "planner_server",
+#         "controller_server",
+#         "recoveries_server",
+#         "bt_navigator",
+#         "local_costmap",
+#         "global_costmap",
+#       ]
+#     configure_timeout: 20.0
+#     activate_timeout: 10.0
+#     startup_timeout: 30.0

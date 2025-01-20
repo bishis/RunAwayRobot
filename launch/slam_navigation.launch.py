@@ -72,7 +72,6 @@ def generate_launch_description():
             launch_arguments={
                 'use_sim_time': 'false', 
                 'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
-                'use_composition': 'False',
                 'autostart': 'True'
             }.items()
         ),

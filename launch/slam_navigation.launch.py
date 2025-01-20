@@ -63,6 +63,14 @@ def generate_launch_description():
                 'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
             }.items()
         ),
+
+        # Initial Pose Publisher
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='map_to_odom_publisher',
+            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
+        ),
         
         # Nav2 Navigation Stack
         IncludeLaunchDescription(

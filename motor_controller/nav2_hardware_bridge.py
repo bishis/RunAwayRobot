@@ -20,14 +20,14 @@ class Nav2HardwareBridge(Node):
         # Publishers and Subscribers
         self.cmd_vel_sub = self.create_subscription(
             Twist,
-            '/cmd_vel',
+            '/cmd_vel_nav',  # Subscribe to Nav2's output
             self.cmd_vel_callback,
             10
         )
         
         self.wheel_cmd_pub = self.create_publisher(
             Twist,
-            '/cmd_vel',  # Publishing to same topic hardware controller listens to
+            '/cmd_vel',  # Publish to hardware controller
             10
         )
         
@@ -44,6 +44,12 @@ class Nav2HardwareBridge(Node):
             linear_x = msg.linear.x
             angular_z = msg.angular.z
             
+            self.get_logger().info(
+                f"\nReceived Nav2 command:"
+                f"\n  Linear X: {linear_x}"
+                f"\n  Angular Z: {angular_z}"
+            )
+            
             # Convert to differential drive commands
             # When turning, one wheel forward, one backward
             if abs(angular_z) > 0.1:
@@ -58,6 +64,13 @@ class Nav2HardwareBridge(Node):
             wheel_cmd = Twist()
             wheel_cmd.linear.x = float(left_speed)   # Left wheel
             wheel_cmd.linear.y = float(right_speed)  # Right wheel
+            
+            # Log the command being sent
+            self.get_logger().info(
+                f"Sending wheel commands:"
+                f"\n  Left: {left_speed}"
+                f"\n  Right: {right_speed}"
+            )
             
             # Publish wheel commands
             self.wheel_cmd_pub.publish(wheel_cmd)

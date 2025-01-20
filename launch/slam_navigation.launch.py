@@ -30,9 +30,20 @@ def generate_launch_description():
         description='Full path to the ROS2 parameters file'
     )
 
+    # SLAM Toolbox lifecycle manager
+    slam_lifecycle_manager_cmd = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='lifecycle_manager_slam',
+        output='screen',
+        parameters=[{'use_sim_time': use_sim_time,
+                    'autostart': True,
+                    'node_names': ['slam_toolbox']}]
+    )
+
     # Include the navigation launch file with a delay
     navigation_launch = TimerAction(
-        period=10.0,  # 5 second delay to ensure SLAM is running
+        period=10.0,  # 10 second delay to ensure SLAM is running
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -78,6 +89,9 @@ def generate_launch_description():
                 'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
             }.items()
         ),
+
+        # SLAM lifecycle manager
+        slam_lifecycle_manager_cmd,
         
         # RViz2
         Node(

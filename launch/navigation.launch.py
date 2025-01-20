@@ -21,7 +21,6 @@ def generate_launch_description():
     lifecycle_nodes = [
         'bt_navigator',
         'collision_monitor',
-        'slam_toolbox',
         'planner_server',
         'controller_server',
         'local_costmap',

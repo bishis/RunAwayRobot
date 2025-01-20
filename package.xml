@@ -35,6 +35,7 @@
   <depend>nav2_waypoint_follower</depend>
   <depend>nav_2d_utils</depend>
   <depend>dwb_core</depend>
+  <depend>dwb_controller</depend>
   <depend>dwb_critics</depend>
   <depend>dwb_plugins</depend>
 

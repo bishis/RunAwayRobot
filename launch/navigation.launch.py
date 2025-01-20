@@ -18,10 +18,16 @@ def generate_launch_description():
     params_file = LaunchConfiguration('params_file')
     
     # Launch configuration variables specific to simulation
-    lifecycle_nodes = ['controller_server',
-                      'planner_server',
-                      'bt_navigator',
-                      'collision_monitor']
+    lifecycle_nodes = [
+        'bt_navigator',
+        'collision_monitor',
+        'docking_server',
+        'slam_toolbox',
+        'planner_server',
+        'controller_server',
+        'local_costmap',
+        'global_costmap'
+    ]
 
     # Declare the launch arguments
     declare_namespace_cmd = DeclareLaunchArgument(
@@ -68,10 +74,36 @@ def generate_launch_description():
         output='screen',
         parameters=[configured_params])
 
-
     start_bt_navigator_cmd = Node(
         package='nav2_bt_navigator',
         executable='bt_navigator',
+        output='screen',
+        parameters=[configured_params])
+
+    start_collision_monitor_cmd = Node(
+        package='nav2_collision_monitor',
+        executable='collision_monitor',
+        output='screen',
+        parameters=[configured_params])
+
+    start_docking_server_cmd = Node(
+        package='nav2_docking',
+        executable='docking_server',
+        output='screen',
+        parameters=[configured_params])
+
+    # Costmap nodes
+    start_local_costmap_cmd = Node(
+        package='nav2_costmap_2d',
+        executable='nav2_costmap_2d',
+        name='local_costmap',
+        output='screen',
+        parameters=[configured_params])
+
+    start_global_costmap_cmd = Node(
+        package='nav2_costmap_2d',
+        executable='nav2_costmap_2d',
+        name='global_costmap',
         output='screen',
         parameters=[configured_params])
 
@@ -97,6 +129,10 @@ def generate_launch_description():
     ld.add_action(start_controller_server_cmd)
     ld.add_action(start_planner_server_cmd)
     ld.add_action(start_bt_navigator_cmd)
+    ld.add_action(start_collision_monitor_cmd)
+    ld.add_action(start_docking_server_cmd)
+    ld.add_action(start_local_costmap_cmd)
+    ld.add_action(start_global_costmap_cmd)
     ld.add_action(start_lifecycle_manager_cmd)
 
     return ld 

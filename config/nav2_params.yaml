@@ -1,20 +1,14 @@
 controller_server:
   ros__parameters:
     use_sim_time: false
-    controller_frequency: 10.0
-    odom_topic: "/odom"
-    use_local_pub: false
-    transform_tolerance: 0.5
-    cmd_vel_topic: "/cmd_vel_nav"
+    controller_frequency: 20.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
-    failure_tolerance: 0.3
     progress_checker_plugin: "progress_checker"
     goal_checker_plugins: ["general_goal_checker"]
     controller_plugins: ["FollowPath"]
 
-    # Add controller server specific parameters
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.5
@@ -49,6 +43,7 @@ controller_server:
       sim_time: 1.7
       linear_granularity: 0.05
       angular_granularity: 0.025
+      transform_tolerance: 0.2
       xy_goal_tolerance: 0.25
       trans_stopped_velocity: 0.25
       short_circuit_trajectory_evaluation: True
@@ -230,18 +225,18 @@ lifecycle_manager:
   ros__parameters:
     use_sim_time: false
     autostart: true
-    node_names: [
-      "slam_toolbox",  # SLAM first
-      "controller_server",  # Then controller
-      "planner_server",
-      "recoveries_server",
-      "bt_navigator",
-      "collision_monitor",
-      "local_costmap",
-      "global_costmap"
-    ]
-    configure_timeout: 30.0  # Increase timeouts
-    activate_timeout: 30.0
-    startup_timeout: 60.0
-    heartbeat_timeout: 30.0
-    node_timeout: 10.0
+    node_names:
+      [
+        "collision_monitor",
+        "docking_server",
+        "slam_toolbox",
+        "planner_server",
+        "controller_server",
+        "recoveries_server",
+        "bt_navigator",
+        "local_costmap",
+        "global_costmap",
+      ]
+    configure_timeout: 20.0
+    activate_timeout: 10.0
+    startup_timeout: 30.0

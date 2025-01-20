@@ -49,11 +49,7 @@ def generate_launch_description():
                 'odom_frame_id': 'odom',
                 'init_pose_from_topic': '',
                 'freq': 20.0
-            }],
-            remappings=[
-                ('/scan', '/scan'),
-                ('/odom_rf2o', '/odom')
-            ]
+            }]
         ),
 
         # SLAM Toolbox
@@ -68,19 +64,6 @@ def generate_launch_description():
             }.items()
         ),
         
-        # Add Nav2 Hardware Bridge
-        Node(
-            package='motor_controller',
-            executable='nav2_hardware_bridge',
-            name='nav2_hardware_bridge',
-            parameters=[{
-                'use_sim_time': False,
-                'max_linear_speed': 0.5,
-                'max_angular_speed': 1.0,
-                'cmd_vel_topic': '/cmd_vel'
-            }]
-        ),
-
         # Nav2 Navigation Stack
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
@@ -101,13 +84,5 @@ def generate_launch_description():
             executable='rviz2',
             name='rviz2',
             arguments=['-d', os.path.join(pkg_dir, 'config', 'nav2_view.rviz')]
-        ),
-
-        # Add TF publisher for odom to base_link
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='odom_to_base_link',
-            arguments=['0', '0', '0', '0', '0', '0', 'odom', 'base_link']
-        ),
+        )
     ])

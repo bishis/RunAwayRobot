@@ -3,7 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
-from .controllers.motor_controller import MotorController
+from motor_controller.controllers.motor_controller import MotorController
 
 class HardwareController(Node):
     def __init__(self):
@@ -18,7 +18,7 @@ class HardwareController(Node):
         # Subscribe to wheel speed commands
         self.create_subscription(
             Twist,
-            'wheel_cmd_vel',
+            '/cmd_vel',
             self.wheel_velocity_callback,
             10
         )
@@ -55,13 +55,6 @@ class HardwareController(Node):
             # Apply speeds to motors
             self.motors.set_speeds(left_speed, right_speed)
             
-            # Log the actual speeds being set
-            self.get_logger().info(
-                f"Applied speeds to motors:"
-                f"\n  Left: {left_speed:.3f}"
-                f"\n  Right: {right_speed:.3f}"
-            )
-            
             # Increment command counter
             self.command_count += 1
             
@@ -90,4 +83,4 @@ def main(args=None):
         rclpy.shutdown()
 
 if __name__ == '__main__':
-    main() 
+    main()

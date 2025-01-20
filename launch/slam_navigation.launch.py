@@ -36,15 +36,7 @@ def generate_launch_description():
         declare_use_sim_time_cmd,
         declare_params_file_cmd,
 
-        # Static TF Publishers
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='base_link_to_laser',
-            arguments=['0', '0', '0', '0', '0', '0', 'base_link', 'laser_frame']
-        ),
-
-        # RF2O Odometry first
+        # RF2O Odometry
         Node(
             package='rf2o_laser_odometry',
             executable='rf2o_laser_odometry_node',
@@ -75,7 +67,7 @@ def generate_launch_description():
         # Nav2 Navigation Stack
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
-                os.path.join(pkg_dir, 'launch', 'nav2_custom_launch.py')
+                os.path.join(nav2_pkg_dir, 'launch', 'bringup_launch.py')
             ]),
             launch_arguments={
                 'use_sim_time': 'false', 
@@ -84,28 +76,12 @@ def generate_launch_description():
                 'autostart': 'True'
             }.items()
         ),
-
-        # Hardware Bridge
-        Node(
-            package='motor_controller',
-            executable='nav2_hardware_bridge',
-            name='nav2_hardware_bridge',
-            parameters=[{
-                'max_linear_speed': 1.0,
-                'max_angular_speed': 1.0,
-                'cmd_vel_topic': '/cmd_vel'  # Add leading slash
-            }],
-            remappings=[
-                ('cmd_vel', '/cmd_vel'),
-                ('wheel_cmd_vel', 'wheel_cmd_vel')
-            ]
-        ),
-
-        # RViz2 last
+        
+        # RViz2
         Node(
             package='rviz2',
             executable='rviz2',
             name='rviz2',
             arguments=['-d', os.path.join(pkg_dir, 'config', 'nav2_view.rviz')]
         )
-    ]) 
+    ])

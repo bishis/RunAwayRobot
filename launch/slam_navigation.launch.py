@@ -5,6 +5,8 @@ from launch.actions import SetEnvironmentVariable, IncludeLaunchDescription, Dec
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
+from launch.substitutions import PathJoinSubstitution
 
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
@@ -25,6 +27,13 @@ def generate_launch_description():
         'params_file',
         default_value=os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
         description='Full path to the ROS2 parameters file'
+    )
+
+    # Include the navigation launch file
+    navigation_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([pkg_dir, 'launch', 'navigation.launch.py'])
+        )
     )
 
     return LaunchDescription([
@@ -84,5 +93,8 @@ def generate_launch_description():
             executable='rviz2',
             name='rviz2',
             arguments=['-d', os.path.join(pkg_dir, 'config', 'nav2_view.rviz')]
-        )
+        ),
+
+        # Add the actions to launch all of the navigation nodes
+        navigation_launch
     ])

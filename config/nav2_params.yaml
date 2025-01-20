@@ -11,15 +11,8 @@ bt_navigator:
     goals_blackboard_id: goals
     path_blackboard_id: path
     
-    # Navigator configurations
-    navigators: ["navigate_to_pose"]  # Removed navigate_through_poses to avoid conflicts
-    navigate_to_pose:
-      plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
-    
-    # Core BT plugins that don't conflict
+    # Remove navigator configurations temporarily to test
     plugin_lib_names:
-      - nav2_compute_path_to_pose_action_bt_node
-      - nav2_follow_path_action_bt_node
       - nav2_back_up_action_bt_node
       - nav2_spin_action_bt_node
       - nav2_wait_action_bt_node
@@ -38,11 +31,6 @@ bt_navigator:
       - nav2_time_expired_condition_bt_node
       - nav2_distance_traveled_condition_bt_node
       - nav2_single_trigger_bt_node
-
-    # Action server timeouts
-    action_server_result_timeout: 900.0
-    action_server_goal_timeout: 900.0
-    action_server_cancel_timeout: 100.0
 
     error_code_names:
       - compute_path_error_code

@@ -60,7 +60,7 @@ planner_server:
     planner_frequency: 5.0
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_theta_star_planner/ThetaStarPlanner"
+      plugin: "nav2_navfn_planner::NavfnPlanner"
       tolerance: 0.2
       use_astar: true
       allow_unknown: true

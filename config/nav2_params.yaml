@@ -186,20 +186,27 @@ collision_monitor:
     base_shift_correction: true
     stop_pub_timeout: 2.0
     
-    # Add required polygons parameter
-    polygons: ["footprint"]
+    # Polygons as a simple list, not a sequence
+    polygons:
+      - footprint
+    
+    # Footprint configuration
     footprint:
       type: "polygon"
+      # Points as a simple list
       points:
-        - [0.2, 0.15]   # Front right
-        - [0.2, -0.15]  # Front left
-        - [-0.2, -0.15] # Back left
-        - [-0.2, 0.15]  # Back right
-      action_type: "stop"  # Action to take when collision detected
+        - [0.2, 0.15]
+        - [0.2, -0.15]
+        - [-0.2, -0.15]
+        - [-0.2, 0.15]
+      action_type: "stop"
       min_points: 3
       visualize: true
-      
-    observation_sources: ["scan"]
+    
+    # Observation sources as a simple list
+    observation_sources:
+      - scan
+    
     scan:
       type: "scan"
       topic: "/scan"

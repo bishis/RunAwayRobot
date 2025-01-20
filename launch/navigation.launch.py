@@ -68,11 +68,6 @@ def generate_launch_description():
         output='screen',
         parameters=[configured_params])
 
-    start_recoveries_server_cmd = Node(
-        package='nav2_recoveries',
-        executable='recoveries_server',
-        output='screen',
-        parameters=[configured_params])
 
     start_bt_navigator_cmd = Node(
         package='nav2_bt_navigator',
@@ -101,7 +96,6 @@ def generate_launch_description():
     # Add the actions to launch all of the navigation nodes
     ld.add_action(start_controller_server_cmd)
     ld.add_action(start_planner_server_cmd)
-    ld.add_action(start_recoveries_server_cmd)
     ld.add_action(start_bt_navigator_cmd)
     ld.add_action(start_lifecycle_manager_cmd)
 

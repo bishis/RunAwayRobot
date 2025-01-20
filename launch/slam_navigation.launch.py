@@ -71,7 +71,7 @@ def generate_launch_description():
             ]),
             launch_arguments={
                 'use_sim_time': 'false', 
-                'params_file': params_file,
+                'params_file': declare_params_file_cmd,
                 'use_composition': 'False',
                 'autostart': 'True'
             }.items()

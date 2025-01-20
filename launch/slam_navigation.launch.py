@@ -82,5 +82,17 @@ def generate_launch_description():
             executable='rviz2',
             name='rviz2',
             arguments=['-d', os.path.join(pkg_dir, 'config', 'nav2_view.rviz')]
-        )
+        ),
+
+        # Add transform checker
+        Node(
+            package='tf2_ros',
+            executable='tf2_monitor',
+            name='tf2_monitor',
+            arguments=[
+                'map', 'base_link',
+                'odom', 'base_link',
+                'base_link', 'laser'
+            ]
+        ),
     ])

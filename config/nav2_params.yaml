@@ -105,15 +105,16 @@ docking_server:
   ros__parameters:
     use_sim_time: false
     controller_frequency: 50.0
-    dock_plugins: ["StandardDockPlugin"]
-    
-    StandardDockPlugin:
-      plugin: "nav2_docking_plugins::StandardDockPlugin"
+    dock_plugins: ["SimpleChargingDock"]  # Use available plugin
+
+    SimpleChargingDock:
+      plugin: "opennav_docking::SimpleChargingDock"  # Correct plugin type
       docking_tolerance: 0.05
       max_attempts: 3
       docking_timeout: 10.0
       docking_distance: 0.5
       goal_checker_plugin: "nav2_controller::SimpleGoalChecker"
+
 
 local_costmap:
   ros__parameters:

@@ -1,5 +1,5 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -19,13 +19,13 @@ def generate_launch_description():
     
     # Launch configuration variables specific to simulation
     lifecycle_nodes = [
-        'local_costmap',  # Start costmaps first
-        'global_costmap',
-        'controller_server',
-        'planner_server',
-        'behavior_server',
         'bt_navigator',
-        'collision_monitor'
+        'collision_monitor',
+        'planner_server',
+        'controller_server',
+        'behavior_server',
+        'local_costmap',
+        'global_costmap'
     ]
 
     # Declare the launch arguments
@@ -100,64 +100,21 @@ def generate_launch_description():
         output='screen',
         parameters=[configured_params])
 
-    start_behavior_server_cmd = Node(
+    start_recoveries_server_cmd = Node(
         package='nav2_behaviors',
         executable='behavior_server',
         name='behavior_server',
         output='screen',
         parameters=[configured_params])
 
-    # Wrap node launches in TimerAction for sequential startup
-    start_local_costmap_with_delay = TimerAction(
-        period=2.0,  # 2 second delay before starting
-        actions=[start_local_costmap_cmd]
-    )
-
-    start_global_costmap_with_delay = TimerAction(
-        period=3.0,  # 3 second delay
-        actions=[start_global_costmap_cmd]
-    )
-
-    start_controller_with_delay = TimerAction(
-        period=4.0,
-        actions=[start_controller_server_cmd]
-    )
-
-    start_planner_with_delay = TimerAction(
-        period=5.0,
-        actions=[start_planner_server_cmd]
-    )
-
-    start_behavior_with_delay = TimerAction(
-        period=6.0,
-        actions=[start_behavior_server_cmd]
-    )
-
-    start_bt_with_delay = TimerAction(
-        period=7.0,
-        actions=[start_bt_navigator_cmd]
-    )
-
-    start_collision_with_delay = TimerAction(
-        period=8.0,
-        actions=[start_collision_monitor_cmd]
-    )
-
-    start_lifecycle_manager_with_delay = TimerAction(
-        period=10.0,  # Give plenty of time for other nodes to start
-        actions=[Node(
-            package='nav2_lifecycle_manager',
-            executable='lifecycle_manager',
-            name='lifecycle_manager_navigation',
-            output='screen',
-            parameters=[{'use_sim_time': use_sim_time,
-                        'autostart': autostart,
-                        'node_names': lifecycle_nodes,
-                        'bond_timeout': 10.0,          # Increased timeout
-                        'attempt_respawn': True,
-                        'bond_respawn_max_duration': 15.0,
-                        'bond_respawn_interval': 1.0}])]
-    )
+    start_lifecycle_manager_cmd = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='lifecycle_manager_navigation',
+        output='screen',
+        parameters=[{'use_sim_time': use_sim_time,
+                    'autostart': autostart,
+                    'node_names': lifecycle_nodes}])
 
     # Create the launch description and populate
     ld = LaunchDescription()
@@ -168,14 +125,14 @@ def generate_launch_description():
     ld.add_action(declare_params_file_cmd)
     ld.add_action(declare_autostart_cmd)
 
-    # Add the actions with delays
-    ld.add_action(start_local_costmap_with_delay)
-    ld.add_action(start_global_costmap_with_delay)
-    ld.add_action(start_controller_with_delay)
-    ld.add_action(start_planner_with_delay)
-    ld.add_action(start_behavior_with_delay)
-    ld.add_action(start_bt_with_delay)
-    ld.add_action(start_collision_with_delay)
-    ld.add_action(start_lifecycle_manager_with_delay)
+    # Add the actions to launch all of the navigation nodes
+    ld.add_action(start_controller_server_cmd)
+    ld.add_action(start_planner_server_cmd)
+    ld.add_action(start_bt_navigator_cmd)
+    ld.add_action(start_collision_monitor_cmd)
+    ld.add_action(start_recoveries_server_cmd)
+    ld.add_action(start_local_costmap_cmd)
+    ld.add_action(start_global_costmap_cmd)
+    ld.add_action(start_lifecycle_manager_cmd)
 
     return ld 

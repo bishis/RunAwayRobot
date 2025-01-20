@@ -73,6 +73,10 @@ planner_server:
 bt_navigator:
   ros__parameters:
     use_sim_time: false
+    global_frame: map
+    robot_base_frame: base_link
+    odom_frame: odom
+    transform_tolerance: 0.5
     default_bt_xml_filename: "navigate_w_replanning_and_recovery.xml"
 
 recoveries_server:
@@ -119,6 +123,7 @@ local_costmap:
         plugin: "nav2_costmap_2d::InflationLayer"
         inflation_radius: 0.6
         cost_scaling_factor: 3.0
+      transform_tolerance: 0.5
 
 global_costmap:
   global_costmap:
@@ -150,6 +155,7 @@ global_costmap:
         plugin: "nav2_costmap_2d::InflationLayer"
         inflation_radius: 0.6
         cost_scaling_factor: 3.0
+      transform_tolerance: 0.5
 
 waypoint_follower:
   ros__parameters:

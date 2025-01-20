@@ -171,7 +171,8 @@ lifecycle_manager:
       "recoveries_server",
       "bt_navigator",
       "local_costmap",
-      "global_costmap"
+      "global_costmap",
+      "collision_monitor"
     ]
 
 explore:
@@ -179,3 +180,28 @@ explore:
     planner_frequency: 1.5  # Faster planning for exploration
     progress_timeout: 15.0
     explore_clear_threshold: 0.4  # For better detection of unexplored areas
+
+collision_monitor:
+  ros__parameters:
+    use_sim_time: false
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    cmd_vel_in_topic: "cmd_vel"
+    cmd_vel_out_topic: "cmd_vel_smoothed"
+    transform_tolerance: 0.2
+    source_timeout: 1.0
+    stop_on_collision: true
+    scan_time_tolerance: 0.1
+    observation_sources: ["scan"]
+    scan:
+      type: "scan"
+      topic: "/scan"
+      min_height: 0.1
+      max_height: 0.5
+      clearing: true
+      marking: true
+      data_type: "LaserScan"
+      raytrace_range: 5.0
+      obstacle_range: 4.5
+      min_obstacle_height: 0.0
+      max_obstacle_height: 2.0

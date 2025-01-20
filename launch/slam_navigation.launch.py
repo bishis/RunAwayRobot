@@ -73,20 +73,6 @@ def generate_launch_description():
             }.items()
         ),
         
-        # Nav2 Navigation Stack
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([
-                os.path.join(nav2_pkg_dir, 'launch', 'navigation_launch.py')
-            ]),
-            launch_arguments={
-                'use_sim_time': 'false', 
-                'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
-                'use_composition': 'False',
-                'use_respawn': 'False',                
-                'autostart': 'True'
-            }.items()
-        ),
-        
         # RViz2
         Node(
             package='rviz2',

@@ -197,7 +197,6 @@ lifecycle_manager:
         "slam_toolbox",
         "planner_server",
         "controller_server",
-        "recoveries_server",
         "local_costmap",
         "global_costmap",
       ]

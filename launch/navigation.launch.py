@@ -20,7 +20,6 @@ def generate_launch_description():
     # Launch configuration variables specific to simulation
     lifecycle_nodes = ['controller_server',
                       'planner_server',
-                      'recoveries_server',
                       'bt_navigator',
                       'collision_monitor']
 

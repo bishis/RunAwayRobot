@@ -52,6 +52,18 @@ def generate_launch_description():
             }]
         ),
 
+        # SLAM Toolbox
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource([
+                os.path.join(get_package_share_directory('slam_toolbox'),
+                           'launch', 'online_async_launch.py')
+            ]),
+            launch_arguments={
+                'use_sim_time': 'false',
+                'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
+            }.items()
+        ),
+        
         # Nav2 Navigation Stack
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
@@ -64,17 +76,6 @@ def generate_launch_description():
             }.items()
         ),
         
-        # SLAM Toolbox
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([
-                os.path.join(get_package_share_directory('slam_toolbox'),
-                           'launch', 'online_async_launch.py')
-            ]),
-            launch_arguments={
-                'use_sim_time': 'false',
-                'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
-            }.items()
-        ),
 
         
         # RViz2

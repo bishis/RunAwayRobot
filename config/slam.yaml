@@ -5,24 +5,19 @@ slam_toolbox:
     map_frame: map
     base_frame: base_link
     scan_topic: /scan
-    use_sim_time: false
-
-    # Add these parameters
-    publish_frame_period: 0.05  # Publish TF more frequently
-    max_laser_range: 12.0
-    transform_timeout: 0.5
-    tf_buffer_duration: 30.0
 
     # SLAM mode
     mode: mapping
     debug_logging: false
     throttle_scans: 1
+    transform_timeout: 0.2
     update_timing: true
     publish_period: 0.5
     map_update_interval: 5.0
 
     # Map management
     resolution: 0.05
+    max_laser_range: 12.0
     minimum_time_interval: 0.5
     transform_publish_period: 0.05
     max_update_rate: 10.0
@@ -37,4 +32,6 @@ slam_toolbox:
     scan_buffer_maximum_scan_distance: 10.0
     link_match_minimum_response_fine: 0.1
     link_scan_maximum_distance: 1.5
- 
+
+    # Simulation time
+    use_sim_time: false 

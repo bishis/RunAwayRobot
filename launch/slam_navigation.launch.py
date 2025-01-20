@@ -52,7 +52,7 @@ def generate_launch_description():
             }]
         ),
 
-        # SLAM Toolbox (start this first)
+        # SLAM Toolbox
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(get_package_share_directory('slam_toolbox'),
@@ -64,13 +64,13 @@ def generate_launch_description():
             }.items()
         ),
 
-        # Nav2 Navigation Stack (start after SLAM)
+        # Nav2 Navigation Stack
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(nav2_pkg_dir, 'launch', 'navigation_launch.py')
             ]),
             launch_arguments={
-                'use_sim_time': 'false',
+                'use_sim_time': 'false', 
                 'params_file': os.path.join(pkg_dir, 'config', 'nav2_params.yaml'),
                 'autostart': 'True'
             }.items()

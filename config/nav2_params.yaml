@@ -4,7 +4,7 @@ bt_navigator:
     global_frame: map
     robot_base_frame: base_link
     transform_tolerance: 0.1
-    default_bt_xml_filename: "$(find-pkg-share nav2_bt_navigator)/behavior_trees/navigate_w_replanning_and_recovery.xml"
+    default_bt_xml_filename: "navigate_w_replanning_and_recovery.xml"
     
     # Blackboard variables
     goal_blackboard_id: goal

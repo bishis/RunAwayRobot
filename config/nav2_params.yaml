@@ -176,7 +176,7 @@ collision_monitor:
     odom_frame_id: "odom"
     observation_sources: ["scan"]
     scan:
-      type: "LaserScan"
+      type: "scan"
       topic: "/scan"
       min_height: 0.0
       max_height: 2.0

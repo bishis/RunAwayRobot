@@ -63,7 +63,7 @@ class HardwareController(Node):
         # Debug logging
         self.get_logger().debug(
             f'CMD_VEL: linear={linear_x:.2f} angular={angular_z:.2f} -> '
-            f'motors: L={left_cmd} R={right_cmd}'
+            f'motors: L={left_speed} R={right_speed}'
         )
     
     def convert_to_binary(self, speed: float) -> int:

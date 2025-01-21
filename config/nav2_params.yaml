@@ -88,18 +88,18 @@ controller_server:
       decel_lim_y: 0.0
       decel_lim_theta: -0.2
       vx_samples: 3
-      vtheta_samples: 6
+      vtheta_samples: 3
       sim_time: 1.0
-      xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 0.4
+      xy_goal_tolerance: 0.3
+      yaw_goal_tolerance: 0.5
       trans_stopped_velocity: 0.1
       theta_stopped_velocity: 0.1
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       BaseObstacle.scale: 1.0
-      PathAlign.scale: 4.0
-      GoalAlign.scale: 4.0
-      PathDist.scale: 4.0
-      GoalDist.scale: 4.0
+      PathAlign.scale: 2.0
+      GoalAlign.scale: 2.0
+      PathDist.scale: 2.0
+      GoalDist.scale: 2.0
       RotateToGoal.scale: 32.0
       RotateToGoal.slowing_factor: 2.0
       RotateToGoal.lookahead_time: 1.0
@@ -259,7 +259,7 @@ collision_monitor:
     base_footprint:
       type: "polygon"
       points: "[[-0.12, -0.12], [-0.12, 0.12], [0.12, 0.12], [0.12, -0.12]]"
-      action_type: "none"
+      action_type: "stop"
       min_points: 2
       visualize: true
       enabled: true

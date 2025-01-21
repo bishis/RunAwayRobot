@@ -51,11 +51,11 @@ class HardwareController(Node):
         right_speed = linear_x + (angular_z * self.track_width / 2.0)
         
         # Convert to binary commands (-1, 0, 1)
-        left_cmd = self.convert_to_binary(left_speed)
-        right_cmd = self.convert_to_binary(right_speed)
+        # left_speed = self.convert_to_binary(left_speed)
+        # right_speed = self.convert_to_binary(right_speed)
         
         # Send commands to motors
-        self.motors.set_speeds(left_cmd, right_cmd)
+        self.motors.set_speeds(left_speed, right_speed)
         
         # Update safety timer
         self.last_cmd_time = self.get_clock().now()

@@ -37,12 +37,52 @@ class HardwareController(Node):
         self.max_linear_speed = 0.1  # Max linear speed from nav2 params
         self.max_angular_speed = 0.5  # Max angular speed from nav2 params
         
+        # Motor control parameters
+        self.pulse_duration = 0.1  # Duration of each motor pulse in seconds
+        self.last_cmd_time = self.get_clock().now()
+        self.create_timer(self.pulse_duration, self.motor_control_timer)
+        
+        # Store current desired speeds
+        self.current_left = 0
+        self.current_right = 0
+        self.desired_left = 0
+        self.desired_right = 0
+        
         # Obstacle detection parameters
         self.min_obstacle_distance = 0.3  # Meters
         self.last_obstacle_warning = self.get_clock().now()
         self.warning_interval = 1.0  # Seconds between warnings
         
         self.get_logger().info('Hardware Controller initialized')
+    
+    def motor_control_timer(self):
+        """Timer callback to implement pulse-width control"""
+        now = self.get_clock().now()
+        dt = (now - self.last_cmd_time).nanoseconds / 1e9
+        
+        # If no command received recently, stop motors
+        if dt > 0.5:  # Stop if no commands for 0.5 seconds
+            self.motors.set_speeds(0, 0)
+            return
+            
+        # Calculate duty cycle based on desired speed
+        if abs(self.desired_left) > 0.3:  # Full speed
+            self.current_left = 1 if self.desired_left > 0 else -1
+        elif abs(self.desired_left) > 0:  # Pulse for lower speeds
+            if self.current_left == 0:
+                self.current_left = 1 if self.desired_left > 0 else -1
+            else:
+                self.current_left = 0
+                
+        if abs(self.desired_right) > 0.3:  # Full speed
+            self.current_right = 1 if self.desired_right > 0 else -1
+        elif abs(self.desired_right) > 0:  # Pulse for lower speeds
+            if self.current_right == 0:
+                self.current_right = 1 if self.desired_right > 0 else -1
+            else:
+                self.current_right = 0
+        
+        self.motors.set_speeds(self.current_left, self.current_right)
     
     def scan_callback(self, msg: LaserScan):
         """Process laser scan data and check for obstacles"""
@@ -68,21 +108,11 @@ class HardwareController(Node):
         left_speed = linear_x - (angular_z * self.track_width / 2.0)
         right_speed = linear_x + (angular_z * self.track_width / 2.0)
         
-        # Normalize and convert to binary (-1 or 1)
-        left_speed = self.normalize_speed(left_speed)
-        right_speed = self.normalize_speed(right_speed)
+        # Normalize speeds
+        self.desired_left = self.normalize_speed(left_speed)
+        self.desired_right = self.normalize_speed(right_speed)
         
-        # Convert to binary speeds (-1 or 1)
-        left_speed = 1 if left_speed > 0 else (-1 if left_speed < 0 else 0)
-        right_speed = 1 if right_speed > 0 else (-1 if right_speed < 0 else 0)
-        
-        # Send commands to motors
-        self.motors.set_speeds(left_speed, right_speed)
-        
-        # Log commands
-        self.get_logger().debug(
-            f'Motors: L:{left_speed:.0f} R:{right_speed:.0f} (cmd_vel: lin:{linear_x:.2f} ang:{angular_z:.2f})'
-        )
+        self.last_cmd_time = self.get_clock().now()
     
     def normalize_speed(self, speed: float) -> float:
         """Normalize speed to -1 to 1 range"""

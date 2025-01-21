@@ -81,10 +81,10 @@ controller_server:
       min_speed_xy: 0.0
       max_speed_xy: 0.05
       min_speed_theta: 0.0
-      acc_lim_x: 0.2
+      acc_lim_x: 0.1
       acc_lim_y: 0.0
       acc_lim_theta: 0.3
-      decel_lim_x: -0.2
+      decel_lim_x: -0.1
       decel_lim_y: 0.0
       decel_lim_theta: -0.3
       vx_samples: 3
@@ -96,10 +96,10 @@ controller_server:
       theta_stopped_velocity: 0.1
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       BaseObstacle.scale: 0.8
-      PathAlign.scale: 8.0
-      GoalAlign.scale: 8.0
-      PathDist.scale: 8.0
-      GoalDist.scale: 8.0
+      PathAlign.scale: 6.0
+      GoalAlign.scale: 6.0
+      PathDist.scale: 6.0
+      GoalDist.scale: 6.0
       RotateToGoal.scale: 32.0
       RotateToGoal.slowing_factor: 2.0
       RotateToGoal.lookahead_time: 1.0
@@ -250,7 +250,7 @@ collision_monitor:
     polygon_height: 0.5
     base_footprint:
       type: "polygon"
-      points: "[[-0.10, -0.10], [-0.10, 0.10], [0.10, 0.10], [0.10, -0.10]]"
+      points: "[[-0.14, -0.14], [-0.14, 0.14], [0.14, 0.14], [0.14, -0.14]]"
       action_type: "stop"
       min_points: 2
       visualize: true

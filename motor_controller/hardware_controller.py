@@ -48,9 +48,14 @@ class HardwareController(Node):
         self.target_left = 0
         self.target_right = 0
         
-        # Movement thresholds
-        self.min_speed_threshold = 0.2  # Minimum speed to start moving
-        self.speed_increment = 0.3      # How quickly to change speeds
+        # Movement thresholds - adjusted for better forward motion
+        self.min_speed_threshold = 0.1   # Reduced from 0.2 for easier start
+        self.speed_increment = 0.1       # Reduced from 0.3 for smoother changes
+        self.forward_boost = 1.2         # Boost factor for forward motion
+        
+        # Add movement state tracking
+        self.moving_forward = False
+        self.rotation_only = False
         
         # Obstacle detection parameters
         self.min_obstacle_distance = 0.3  # Meters
@@ -68,16 +73,44 @@ class HardwareController(Node):
         if dt > 0.5:
             self.target_left = 0
             self.target_right = 0
+            self.moving_forward = False
+            self.rotation_only = False
+        
+        # Detect movement type
+        self.moving_forward = (abs(self.target_left - self.target_right) < 0.1 and 
+                             abs(self.target_left) > 0.1)
+        self.rotation_only = (abs(self.target_left + self.target_right) < 0.1 and 
+                            abs(self.target_left) > 0.1)
+        
+        # Adjust speeds based on movement type
+        if self.moving_forward:
+            # Apply forward boost and use lower threshold
+            left_target = self.target_left * self.forward_boost
+            right_target = self.target_right * self.forward_boost
+            threshold = self.min_speed_threshold * 0.5
+        else:
+            left_target = self.target_left
+            right_target = self.target_right
+            threshold = self.min_speed_threshold
         
         # Smoothly adjust speeds
-        self.left_speed = self.adjust_speed(self.left_speed, self.target_left)
-        self.right_speed = self.adjust_speed(self.right_speed, self.target_right)
+        self.left_speed = self.adjust_speed(self.left_speed, left_target)
+        self.right_speed = self.adjust_speed(self.right_speed, right_target)
         
-        # Apply minimum threshold
-        left_out = self.apply_threshold(self.left_speed)
-        right_out = self.apply_threshold(self.right_speed)
+        # Apply thresholds
+        left_out = self.apply_threshold(self.left_speed, threshold)
+        right_out = self.apply_threshold(self.right_speed, threshold)
+        
+        # Ensure synchronized start for forward motion
+        if self.moving_forward and (left_out != 0 or right_out != 0):
+            left_out = 1 if self.target_left > 0 else -1
+            right_out = left_out
         
         self.motors.set_speeds(left_out, right_out)
+        
+        # Debug logging
+        if self.moving_forward:
+            self.get_logger().debug(f'Forward motion: L={left_out} R={right_out}')
     
     def adjust_speed(self, current: float, target: float) -> float:
         """Smoothly adjust speed towards target"""
@@ -88,9 +121,12 @@ class HardwareController(Node):
         else:
             return current - self.speed_increment
     
-    def apply_threshold(self, speed: float) -> int:
+    def apply_threshold(self, speed: float, threshold: float = None) -> int:
         """Apply minimum threshold and convert to -1/0/1"""
-        if abs(speed) < self.min_speed_threshold:
+        if threshold is None:
+            threshold = self.min_speed_threshold
+            
+        if abs(speed) < threshold:
             return 0
         return 1 if speed > 0 else -1
     

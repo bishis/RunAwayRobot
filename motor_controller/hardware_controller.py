@@ -49,10 +49,6 @@ class HardwareController(Node):
         # Movement thresholds
         self.min_speed_threshold = 0.2    # Increased threshold for more decisive movements
         
-        # Movement state tracking
-        self.moving_forward = False
-        self.rotating = False
-        
         # Obstacle detection parameters
         self.min_obstacle_distance = 0.3  # Meters
         self.last_obstacle_warning = self.get_clock().now()
@@ -146,9 +142,7 @@ class HardwareController(Node):
         self.get_logger().info(
             f'Diagnostics:\n'
             f'  CMD_VEL frequency: {self.cmd_vel_count} Hz\n'
-            f'  Current speeds: L={self.left_speed:.2f} R={self.right_speed:.2f}\n'
             f'  Target speeds: L={self.target_left:.2f} R={self.target_right:.2f}\n'
-            f'  Moving forward: {self.moving_forward}\n'
             f'  Time since last cmd: {dt:.3f}s'
         )
         self.cmd_vel_count = 0

@@ -62,12 +62,22 @@ class HardwareController(Node):
         self.last_obstacle_warning = self.get_clock().now()
         self.warning_interval = 1.0  # Seconds between warnings
         
+        # Add timing diagnostics
+        self.last_control_time = self.get_clock().now()
+        self.cmd_vel_count = 0
+        self.create_timer(1.0, self.print_diagnostics)  # Print stats every second
+        
         self.get_logger().info('Hardware Controller initialized')
     
     def motor_control_timer(self):
         """Timer callback for smooth motor control"""
         now = self.get_clock().now()
         dt = (now - self.last_cmd_time).nanoseconds / 1e9
+        
+        # Log control loop timing
+        control_dt = (now - self.last_control_time).nanoseconds / 1e9
+        if control_dt > 0.1:  # Log if control loop is slower than expected
+            self.get_logger().warn(f'Control loop delayed: {control_dt:.3f}s')
         
         # Stop if no recent commands
         if dt > 0.5:
@@ -144,9 +154,16 @@ class HardwareController(Node):
     
     def cmd_vel_callback(self, msg: Twist):
         """Convert cmd_vel into motor control parameters"""
+        self.cmd_vel_count += 1
+        self.last_control_time = self.get_clock().now()
+        
         # Extract velocities
         linear_x = msg.linear.x
         angular_z = msg.angular.z
+        
+        self.get_logger().debug(
+            f'CMD_VEL received: linear={linear_x:.3f} angular={angular_z:.3f}'
+        )
         
         # Convert to differential drive
         left_speed = linear_x - (angular_z * self.track_width / 2.0)
@@ -163,6 +180,21 @@ class HardwareController(Node):
         max_speed = self.max_linear_speed + (self.max_angular_speed * self.track_width / 2.0)
         normalized = speed / max_speed
         return max(min(normalized, 1.0), -1.0)
+
+    def print_diagnostics(self):
+        """Print diagnostic information"""
+        now = self.get_clock().now()
+        dt = (now - self.last_control_time).nanoseconds / 1e9
+        
+        self.get_logger().info(
+            f'Diagnostics:\n'
+            f'  CMD_VEL frequency: {self.cmd_vel_count} Hz\n'
+            f'  Current speeds: L={self.left_speed:.2f} R={self.right_speed:.2f}\n'
+            f'  Target speeds: L={self.target_left:.2f} R={self.target_right:.2f}\n'
+            f'  Moving forward: {self.moving_forward}\n'
+            f'  Time since last cmd: {dt:.3f}s'
+        )
+        self.cmd_vel_count = 0
 
 def main(args=None):
     rclpy.init(args=args)

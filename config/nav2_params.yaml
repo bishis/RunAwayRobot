@@ -37,7 +37,7 @@ bt_navigator:
 controller_server:
   ros__parameters:
     use_sim_time: false
-    controller_frequency: 20.0
+    controller_frequency: 10.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
@@ -66,18 +66,18 @@ controller_server:
     # Add goal checker parameters
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.35
-      yaw_goal_tolerance: 0.5
+      xy_goal_tolerance: 0.2
+      yaw_goal_tolerance: 0.3
       stateful: true
 
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: true
-      min_vel_x: -0.05
+      min_vel_x: -0.03
       min_vel_y: 0.0
-      max_vel_x: 0.05
+      max_vel_x: 0.03
       max_vel_y: 0.0
-      max_vel_theta: 0.3
+      max_vel_theta: 0.5
       min_speed_xy: 0.0
       max_speed_xy: 0.05
       min_speed_theta: 0.0
@@ -90,16 +90,16 @@ controller_server:
       vx_samples: 3
       vtheta_samples: 8
       sim_time: 1.0
-      xy_goal_tolerance: 0.4
-      yaw_goal_tolerance: 0.5
+      xy_goal_tolerance: 0.2
+      yaw_goal_tolerance: 0.3
       trans_stopped_velocity: 0.1
       theta_stopped_velocity: 0.1
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.8
-      PathAlign.scale: 12.0
-      GoalAlign.scale: 6.0
-      PathDist.scale: 12.0
-      GoalDist.scale: 6.0
+      BaseObstacle.scale: 1.0
+      PathAlign.scale: 8.0
+      GoalAlign.scale: 8.0
+      PathDist.scale: 8.0
+      GoalDist.scale: 8.0
       RotateToGoal.scale: 32.0
       RotateToGoal.slowing_factor: 2.0
       RotateToGoal.lookahead_time: 1.0
@@ -160,10 +160,10 @@ local_costmap:
     global_frame: odom
     robot_base_frame: base_link
     rolling_window: true
-    width: 3
-    height: 3
+    width: 2.0
+    height: 2.0
     resolution: 0.05
-    footprint: "[[-0.2, -0.2], [-0.2, 0.2], [0.2, 0.2], [0.2, -0.2]]"
+    footprint: "[[-0.12, -0.12], [-0.12, 0.12], [0.12, 0.12], [0.12, -0.12]]"
     plugins: ["voxel_layer", "inflation_layer"]
     
     voxel_layer:
@@ -182,16 +182,16 @@ local_costmap:
         clearing: true
         marking: true
         data_type: "LaserScan"
-        raytrace_max_range: 2.0
-        raytrace_min_range: 0.02
-        obstacle_max_range: 1.5
-        obstacle_min_range: 0.02
+        raytrace_max_range: 1.5
+        raytrace_min_range: 0.01
+        obstacle_max_range: 1.0
+        obstacle_min_range: 0.01
         inf_is_valid: false
 
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
-      cost_scaling_factor: 2.5
-      inflation_radius: 0.4
+      cost_scaling_factor: 3.0
+      inflation_radius: 0.2
 
 global_costmap:
   ros__parameters:
@@ -200,7 +200,7 @@ global_costmap:
     publish_frequency: 2.0
     global_frame: map
     robot_base_frame: base_link
-    footprint: "[[-0.2, -0.2], [-0.2, 0.2], [0.2, 0.2], [0.2, -0.2]]"
+    footprint: "[[-0.12, -0.12], [-0.12, 0.12], [0.12, 0.12], [0.12, -0.12]]"
     resolution: 0.05
     track_unknown_space: true
     plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -228,8 +228,8 @@ global_costmap:
 
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
-      cost_scaling_factor: 2.5
-      inflation_radius: 0.4
+      cost_scaling_factor: 3.0
+      inflation_radius: 0.2
 
 collision_monitor:
   ros__parameters:
@@ -245,8 +245,8 @@ collision_monitor:
       topic: "/scan"
       min_height: 0.0
       max_height: 2.0
-      obstacle_range: 1.0
-      raytrace_range: 1.5
+      obstacle_range: 0.8
+      raytrace_range: 1.0
       observation_persistence: 0.5
       inf_is_valid: false
       marking: true
@@ -256,9 +256,9 @@ collision_monitor:
     polygon_height: 0.5
     base_footprint:
       type: "polygon"
-      points: "[[-0.14, -0.14], [-0.14, 0.14], [0.14, 0.14], [0.14, -0.14]]"
+      points: "[[-0.12, -0.12], [-0.12, 0.12], [0.12, 0.12], [0.12, -0.12]]"
       action_type: "stop"
-      min_points: 2
+      min_points: 1
       visualize: true
       enabled: true
     footprint_topic: "/local_costmap/published_footprint"

@@ -73,8 +73,8 @@ class HardwareController(Node):
         right_speed = self.normalize_speed(right_speed)
         
         # Convert to binary speeds (-1 or 1)
-        left_speed = 1 if left_speed > 0 else (-1 if left_speed < 0 else 0)
-        right_speed = 1 if right_speed > 0 else (-1 if right_speed < 0 else 0)
+        # left_speed = 1 if left_speed > 0 else (-1 if left_speed < 0 else 0)
+        # right_speed = 1 if right_speed > 0 else (-1 if right_speed < 0 else 0)
         
         # Send commands to motors
         self.motors.set_speeds(left_speed, right_speed)

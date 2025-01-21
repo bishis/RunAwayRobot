@@ -38,7 +38,7 @@ class HardwareController(Node):
         self.max_angular_speed = 0.5  # Max angular speed from nav2 params
         
         # Motor control parameters
-        self.control_period = 0.05  # 50ms control period (20Hz)
+        self.control_period = 0.1  # Increased to 100ms for more stable control
         self.last_cmd_time = self.get_clock().now()
         self.create_timer(self.control_period, self.motor_control_timer)
         
@@ -48,14 +48,17 @@ class HardwareController(Node):
         self.target_left = 0
         self.target_right = 0
         
-        # Movement thresholds - adjusted for better forward motion
-        self.min_speed_threshold = 0.1   # Reduced from 0.2 for easier start
-        self.speed_increment = 0.1       # Reduced from 0.3 for smoother changes
-        self.forward_boost = 1.2         # Boost factor for forward motion
+        # Movement thresholds - adjusted for binary control
+        self.min_speed_threshold = 0.15    # Increased to reduce rapid switching
+        self.speed_increment = 0.05        # Smaller increments for smoother transitions
+        self.forward_boost = 1.0           # Removed boost as it causes instability
         
-        # Add movement state tracking
+        # Movement state tracking with hysteresis
         self.moving_forward = False
         self.rotation_only = False
+        self.state_change_threshold = 0.2   # Prevent rapid state changes
+        self.last_state_change = self.get_clock().now()
+        self.min_state_time = 0.3          # Minimum time before state change
         
         # Obstacle detection parameters
         self.min_obstacle_distance = 0.3  # Meters
@@ -74,71 +77,50 @@ class HardwareController(Node):
         now = self.get_clock().now()
         dt = (now - self.last_cmd_time).nanoseconds / 1e9
         
-        # Log control loop timing
-        control_dt = (now - self.last_control_time).nanoseconds / 1e9
-        if control_dt > 0.1:  # Log if control loop is slower than expected
-            self.get_logger().warn(f'Control loop delayed: {control_dt:.3f}s')
-        
         # Stop if no recent commands
         if dt > 0.5:
             self.target_left = 0
             self.target_right = 0
             self.moving_forward = False
             self.rotation_only = False
+            self.motors.set_speeds(0, 0)
+            return
         
-        # Detect movement type
-        self.moving_forward = (abs(self.target_left - self.target_right) < 0.1 and 
-                             abs(self.target_left) > 0.1)
-        self.rotation_only = (abs(self.target_left + self.target_right) < 0.1 and 
-                            abs(self.target_left) > 0.1)
+        # Check if enough time has passed for state change
+        state_dt = (now - self.last_state_change).nanoseconds / 1e9
+        can_change_state = state_dt > self.min_state_time
         
-        # Adjust speeds based on movement type
+        # Detect movement type with hysteresis
+        if can_change_state:
+            new_moving_forward = (abs(self.target_left - self.target_right) < self.state_change_threshold and 
+                                abs(self.target_left) > self.min_speed_threshold)
+            new_rotation_only = (abs(self.target_left + self.target_right) < self.state_change_threshold and 
+                               abs(self.target_left) > self.min_speed_threshold)
+            
+            if new_moving_forward != self.moving_forward or new_rotation_only != self.rotation_only:
+                self.last_state_change = now
+                self.moving_forward = new_moving_forward
+                self.rotation_only = new_rotation_only
+        
+        # Determine motor outputs based on movement type
         if self.moving_forward:
-            # Apply forward boost and use lower threshold
-            left_target = self.target_left * self.forward_boost
-            right_target = self.target_right * self.forward_boost
-            threshold = self.min_speed_threshold * 0.5
-        else:
-            left_target = self.target_left
-            right_target = self.target_right
-            threshold = self.min_speed_threshold
-        
-        # Smoothly adjust speeds
-        self.left_speed = self.adjust_speed(self.left_speed, left_target)
-        self.right_speed = self.adjust_speed(self.right_speed, right_target)
-        
-        # Apply thresholds
-        left_out = self.apply_threshold(self.left_speed, threshold)
-        right_out = self.apply_threshold(self.right_speed, threshold)
-        
-        # Ensure synchronized start for forward motion
-        if self.moving_forward and (left_out != 0 or right_out != 0):
+            # Use same direction for both motors in forward motion
+            direction = 1 if (self.target_left + self.target_right) > 0 else -1
+            left_out = right_out = direction
+        elif self.rotation_only:
+            # Pure rotation
             left_out = 1 if self.target_left > 0 else -1
-            right_out = left_out
+            right_out = -left_out
+        else:
+            # Mixed motion - use thresholds to determine outputs
+            left_out = 1 if self.target_left > self.min_speed_threshold else (-1 if self.target_left < -self.min_speed_threshold else 0)
+            right_out = 1 if self.target_right > self.min_speed_threshold else (-1 if self.target_right < -self.min_speed_threshold else 0)
         
         self.motors.set_speeds(left_out, right_out)
         
         # Debug logging
         if self.moving_forward:
             self.get_logger().debug(f'Forward motion: L={left_out} R={right_out}')
-    
-    def adjust_speed(self, current: float, target: float) -> float:
-        """Smoothly adjust speed towards target"""
-        if abs(current - target) < self.speed_increment:
-            return target
-        elif current < target:
-            return current + self.speed_increment
-        else:
-            return current - self.speed_increment
-    
-    def apply_threshold(self, speed: float, threshold: float = None) -> int:
-        """Apply minimum threshold and convert to -1/0/1"""
-        if threshold is None:
-            threshold = self.min_speed_threshold
-            
-        if abs(speed) < threshold:
-            return 0
-        return 1 if speed > 0 else -1
     
     def scan_callback(self, msg: LaserScan):
         """Process laser scan data and check for obstacles"""

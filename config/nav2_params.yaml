@@ -259,8 +259,8 @@ collision_monitor:
     base_footprint:
       type: "polygon"
       points: "[[-0.12, -0.12], [-0.12, 0.12], [0.12, 0.12], [0.12, -0.12]]"
-      action_type: "stop"
-      min_points: 1
+      action_type: "back_up"
+      min_points: 2
       visualize: true
       enabled: true
     footprint_topic: "/local_costmap/published_footprint"

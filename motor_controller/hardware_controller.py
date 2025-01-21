@@ -38,16 +38,19 @@ class HardwareController(Node):
         self.max_angular_speed = 0.5  # Max angular speed from nav2 params
         
         # Motor control parameters
-        self.control_period = 0.5  # Control period in seconds (longer for smoother motion)
+        self.control_period = 0.05  # 50ms control period (20Hz)
         self.last_cmd_time = self.get_clock().now()
-        self.create_timer(0.1, self.motor_control_timer)  # 10Hz control loop
+        self.create_timer(self.control_period, self.motor_control_timer)
         
-        # Store motor states
-        self.left_active_time = 0.0
-        self.right_active_time = 0.0
-        self.left_direction = 0
-        self.right_direction = 0
-        self.cycle_start_time = self.get_clock().now()
+        # Store current motor states
+        self.left_speed = 0
+        self.right_speed = 0
+        self.target_left = 0
+        self.target_right = 0
+        
+        # Movement thresholds
+        self.min_speed_threshold = 0.2  # Minimum speed to start moving
+        self.speed_increment = 0.3      # How quickly to change speeds
         
         # Obstacle detection parameters
         self.min_obstacle_distance = 0.3  # Meters
@@ -63,26 +66,33 @@ class HardwareController(Node):
         
         # Stop if no recent commands
         if dt > 0.5:
-            self.motors.set_speeds(0, 0)
-            return
+            self.target_left = 0
+            self.target_right = 0
         
-        # Calculate time in current control period
-        cycle_time = (now - self.cycle_start_time).nanoseconds / 1e9
+        # Smoothly adjust speeds
+        self.left_speed = self.adjust_speed(self.left_speed, self.target_left)
+        self.right_speed = self.adjust_speed(self.right_speed, self.target_right)
         
-        # Start new control period if needed
-        if cycle_time >= self.control_period:
-            self.cycle_start_time = now
-            cycle_time = 0.0
+        # Apply minimum threshold
+        left_out = self.apply_threshold(self.left_speed)
+        right_out = self.apply_threshold(self.right_speed)
         
-        # Determine motor states based on duty cycle
-        left_on = cycle_time < self.left_active_time
-        right_on = cycle_time < self.right_active_time
-        
-        # Set motor speeds
-        left_speed = self.left_direction if left_on else 0
-        right_speed = self.right_direction if right_on else 0
-        
-        self.motors.set_speeds(left_speed, right_speed)
+        self.motors.set_speeds(left_out, right_out)
+    
+    def adjust_speed(self, current: float, target: float) -> float:
+        """Smoothly adjust speed towards target"""
+        if abs(current - target) < self.speed_increment:
+            return target
+        elif current < target:
+            return current + self.speed_increment
+        else:
+            return current - self.speed_increment
+    
+    def apply_threshold(self, speed: float) -> int:
+        """Apply minimum threshold and convert to -1/0/1"""
+        if abs(speed) < self.min_speed_threshold:
+            return 0
+        return 1 if speed > 0 else -1
     
     def scan_callback(self, msg: LaserScan):
         """Process laser scan data and check for obstacles"""
@@ -107,14 +117,8 @@ class HardwareController(Node):
         right_speed = linear_x + (angular_z * self.track_width / 2.0)
         
         # Normalize speeds
-        left_norm = self.normalize_speed(left_speed)
-        right_norm = self.normalize_speed(right_speed)
-        
-        # Convert normalized speeds to duty cycle and direction
-        self.left_active_time = abs(left_norm) * self.control_period
-        self.right_active_time = abs(right_norm) * self.control_period
-        self.left_direction = 1 if left_norm > 0 else (-1 if left_norm < 0 else 0)
-        self.right_direction = 1 if right_norm > 0 else (-1 if right_norm < 0 else 0)
+        self.target_left = self.normalize_speed(left_speed)
+        self.target_right = self.normalize_speed(right_speed)
         
         self.last_cmd_time = self.get_clock().now()
     

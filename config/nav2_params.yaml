@@ -248,7 +248,7 @@ collision_monitor:
     polygon_height: 0.5
     base_footprint:
       type: "polygon"
-      points: "[[-0.25, -0.25], [-0.25, 0.25], [0.25, 0.25], [0.25, -0.25]]"
+      points: "[[-0.20, -0.20], [-0.20, 0.20], [0.20, 0.20], [0.20, -0.20]]"
       action_type: "stop"
       min_points: 2
       visualize: true

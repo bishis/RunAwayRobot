@@ -27,9 +27,18 @@ def generate_launch_description():
             executable='hardware_controller',
             name='hardware_controller',
             parameters=[{
-                'left_pin': 18,
-                'right_pin': 12
-            }]
+                'wheel_separation': 0.24,     # Adjust based on your robot
+                'max_linear_speed': 0.1,      # Max 0.1 m/s
+                'max_angular_speed': 1.0,     # Max 1 rad/s (~57 degrees/s)
+                'linear_threshold': 0.01,     # Minimum linear speed
+                'angular_threshold': 0.05,    # Minimum angular speed
+                'forward_min_duty': 0.080,    # Minimum forward PWM
+                'forward_max_duty': 0.100,    # Maximum forward PWM
+                'reverse_min_duty': 0.065,    # Minimum reverse PWM
+                'neutral_duty': 0.0725,       # Neutral PWM
+                'speed_exponent': 1.5,        # Less aggressive curve
+            }],
+            output='screen'
         ),
 
         # Basic transform publisher for lidar

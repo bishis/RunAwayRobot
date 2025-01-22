@@ -102,6 +102,11 @@ class HardwareController(Node):
         left_percent = (left_speed / self.max_linear_speed) * 100.0
         right_percent = (right_speed / self.max_linear_speed) * 100.0
         
+        # Debug raw values
+        self.get_logger().info(
+            f'Raw speeds - Left: {left_speed:.3f} m/s, Right: {right_speed:.3f} m/s'
+        )
+        
         # Prioritize turning at low speeds
         if abs(angular_z) > self.angular_threshold:
             # Enhance turning by increasing difference between wheels

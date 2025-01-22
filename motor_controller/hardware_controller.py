@@ -61,12 +61,17 @@ class HardwareController(Node):
         dt = (now - self.last_cmd_time).nanoseconds / 1e9
         
         if dt > self.safety_timeout:
-            self.motors.set_speeds(0, 0)
+            # Use exact neutral value for stop
+            self.motors.set_speeds(self.neutral, self.neutral)
             self.get_logger().warn('Safety stop triggered', once=True)
     
     def map_speed(self, speed_percent: float) -> float:
         """Map speed (-100% to +100%) to PWM duty cycle"""
-        if speed_percent >= 0:
+        # Return exact neutral for very small speeds
+        if abs(speed_percent) < 1.0:  # 1% threshold
+            return self.neutral
+            
+        if speed_percent > 0:
             # Forward: Apply exponential scaling
             normalized = (speed_percent / 100.0) ** self.exponent
             return self.forward_min + normalized * (self.forward_max - self.forward_min)

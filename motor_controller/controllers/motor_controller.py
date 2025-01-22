@@ -7,15 +7,23 @@ class MotorController:
     
     def __init__(self, left_pin: int, right_pin: int):
         """Initialize motor controller with PWM"""
-        # PWM calibration values - adjusted for more precise control
-        self.NEUTRAL = 0.0725  # Adjusted neutral position
-        self.DEADBAND = 0.002  # Tight deadband around neutral
-        self.MIN_FORWARD = 0.085  # Minimum forward duty cycle
-        self.MAX_FORWARD = 0.10   # Maximum forward duty cycle
-        self.MIN_REVERSE = 0.060  # Minimum reverse duty cycle
-        self.MAX_REVERSE = 0.045  # Maximum reverse duty cycle
+        # PWM calibration values - adjusted for better turning
+        self.NEUTRAL = 0.0725
+        self.DEADBAND = 0.002
         
-        # Initialize motors at exact neutral
+        # Forward settings
+        self.MIN_FORWARD = 0.080  # Reduced for better low-speed control
+        self.MAX_FORWARD = 0.100
+        
+        # Reverse settings
+        self.MIN_REVERSE = 0.065
+        self.MAX_REVERSE = 0.050
+        
+        # Turn settings
+        self.MIN_TURN = 0.075  # Minimum PWM change for turning
+        self.MAX_TURN = 0.090  # Maximum PWM for turning
+        
+        # Initialize motors
         self.left_motor = PWMOutputDevice(
             left_pin, 
             frequency=50,
@@ -65,23 +73,45 @@ class MotorController:
         time.sleep(0.1)
     
     def set_speeds(self, left_pwm: float, right_pwm: float):
-        """Set motor speeds using PWM values with precise deadband"""
+        """Set motor speeds with improved turning control"""
         # Apply deadband around neutral
         if abs(left_pwm - self.NEUTRAL) < self.DEADBAND:
             left_pwm = self.NEUTRAL
         if abs(right_pwm - self.NEUTRAL) < self.DEADBAND:
             right_pwm = self.NEUTRAL
         
-        # Apply limits and deadband
+        # Detect turning
+        is_turning = abs(left_pwm - right_pwm) > self.DEADBAND
+        
+        if is_turning:
+            # Enhance turn by increasing difference between wheels
+            if abs(left_pwm) > abs(right_pwm):
+                left_pwm = self._adjust_turn_speed(left_pwm)
+                right_pwm = self._adjust_turn_speed(-right_pwm)
+            else:
+                left_pwm = self._adjust_turn_speed(-left_pwm)
+                right_pwm = self._adjust_turn_speed(right_pwm)
+        
+        # Apply final limits
         left_pwm = self._apply_deadband(left_pwm)
         right_pwm = self._apply_deadband(right_pwm)
         
-        # Debug output for troubleshooting
+        # Debug output
         print(f"PWM values - Left: {left_pwm:.4f}, Right: {right_pwm:.4f}")
         
         # Set motor values
         self.left_motor.value = left_pwm
         self.right_motor.value = right_pwm
+    
+    def _adjust_turn_speed(self, speed: float) -> float:
+        """Adjust speed for turning"""
+        if abs(speed) < self.MIN_TURN:
+            return self.NEUTRAL
+        
+        if speed > 0:
+            return min(speed, self.MAX_TURN)
+        else:
+            return max(speed, -self.MAX_TURN)
     
     def _apply_deadband(self, pwm: float) -> float:
         """Apply deadband and limits with hysteresis"""

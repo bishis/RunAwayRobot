@@ -41,6 +41,15 @@ class HardwareController(Node):
         self.neutral = self.get_parameter('neutral_duty').value
         self.exponent = self.get_parameter('speed_exponent').value
         
+        # Robot physical parameters
+        self.track_width = 0.25  # Distance between wheels in meters
+        self.max_linear_speed = 0.1  # m/s
+        self.max_angular_speed = 1.0  # rad/s
+        
+        # Adjust thresholds for better turning
+        self.linear_threshold = 0.01  # Reduced to allow slower movements
+        self.angular_threshold = 0.05  # Reduced for more responsive turning
+        
         # Subscribe to navigation commands
         self.cmd_vel_sub = self.create_subscription(
             Twist,
@@ -81,21 +90,36 @@ class HardwareController(Node):
             return self.reverse_min + normalized * (self.neutral - self.reverse_min)
     
     def cmd_vel_callback(self, msg: Twist):
-        """Convert cmd_vel to calibrated motor commands"""
-        # Prioritize rotation for better control
-        if abs(msg.angular.z) > self.angular_threshold:
-            # Convert angular velocity to differential drive
-            left_percent = -100.0 * (msg.angular.z / 1.0)  # Scale to ±100%
-            right_percent = 100.0 * (msg.angular.z / 1.0)
-        else:
-            # Convert linear velocity to forward/reverse
-            if abs(msg.linear.x) < self.linear_threshold:
-                left_percent = right_percent = 0.0
-            else:
-                speed_percent = 100.0 * (msg.linear.x / 0.1)  # Scale to ±100%
-                left_percent = right_percent = speed_percent
+        """Convert cmd_vel to differential drive commands"""
+        linear_x = msg.linear.x
+        angular_z = msg.angular.z
         
-        self.get_logger().info(f'Received speed: {left_percent}, {right_percent}')
+        # Calculate differential drive
+        left_speed = linear_x - (angular_z * self.track_width / 2.0)
+        right_speed = linear_x + (angular_z * self.track_width / 2.0)
+        
+        # Convert to percentages (-100 to 100)
+        left_percent = (left_speed / self.max_linear_speed) * 100.0
+        right_percent = (right_speed / self.max_linear_speed) * 100.0
+        
+        # Prioritize turning at low speeds
+        if abs(angular_z) > self.angular_threshold:
+            # Enhance turning by increasing difference between wheels
+            turn_boost = 1.5
+            if abs(left_percent) < abs(right_percent):
+                left_percent *= turn_boost
+            else:
+                right_percent *= turn_boost
+        
+        # Clamp values
+        left_percent = max(-100.0, min(100.0, left_percent))
+        right_percent = max(-100.0, min(100.0, right_percent))
+        
+        self.get_logger().info(
+            f'CMD_VEL: lin={linear_x:.3f} ang={angular_z:.3f} -> '
+            f'Speeds: L={left_percent:.1f}% R={right_percent:.1f}%'
+        )
+        
         # Map speeds and apply to motors
         left_pwm = self.map_speed(left_percent)
         right_pwm = self.map_speed(right_percent)
@@ -103,12 +127,6 @@ class HardwareController(Node):
         
         # Update safety timer
         self.last_cmd_time = self.get_clock().now()
-        
-        # Debug logging
-        self.get_logger().debug(
-            f'CMD_VEL: lin={msg.linear.x:.2f} ang={msg.angular.z:.2f} -> '
-            f'PWM: L={left_pwm:.3f} R={right_pwm:.3f}'
-        )
 
 def main(args=None):
     rclpy.init(args=args)

@@ -7,20 +7,29 @@ class MotorController:
     
     def __init__(self, left_pin: int, right_pin: int):
         """Initialize motor controller with PWM"""
-        # PWM calibration values
-        self.NEUTRAL = 0.075  # Neutral/stop position
-        self.MIN_FORWARD = 0.09  # Minimum forward duty cycle
-        self.MAX_FORWARD = 0.10  # Maximum forward duty cycle
-        self.MIN_REVERSE = 0.05  # Minimum reverse duty cycle
-        self.MAX_REVERSE = 0.06  # Maximum reverse duty cycle
+        # PWM calibration values - adjusted for more precise control
+        self.NEUTRAL = 0.0725  # Adjusted neutral position
+        self.DEADBAND = 0.002  # Tight deadband around neutral
+        self.MIN_FORWARD = 0.085  # Minimum forward duty cycle
+        self.MAX_FORWARD = 0.10   # Maximum forward duty cycle
+        self.MIN_REVERSE = 0.060  # Minimum reverse duty cycle
+        self.MAX_REVERSE = 0.045  # Maximum reverse duty cycle
         
-        # Initialize motors with neutral position
-        self.left_motor = PWMOutputDevice(left_pin, frequency=50, initial_value=self.NEUTRAL)
-        self.right_motor = PWMOutputDevice(right_pin, frequency=50, initial_value=self.NEUTRAL)
+        # Initialize motors at exact neutral
+        self.left_motor = PWMOutputDevice(
+            left_pin, 
+            frequency=50,
+            initial_value=self.NEUTRAL
+        )
+        self.right_motor = PWMOutputDevice(
+            right_pin,
+            frequency=50,
+            initial_value=self.NEUTRAL
+        )
         
-        # Ensure motors are stopped at start
-        self.stop()
-        time.sleep(0.1)  # Give servos time to reach neutral
+        # Force stop at initialization
+        self.force_stop()
+        time.sleep(0.2)  # Longer delay to ensure stable neutral
         
         # Speed constants
         self.FULL_SPEED = 1.0
@@ -49,42 +58,67 @@ class MotorController:
         self.left_motor.value = self.TURN_SPEED
         self.right_motor.value = -self.TURN_SPEED
         
-    def stop(self):
-        """Stop motors (neutral position)"""
+    def force_stop(self):
+        """Force motors to exact neutral position"""
         self.left_motor.value = self.NEUTRAL
         self.right_motor.value = self.NEUTRAL
-        time.sleep(0.1)  # Give servos time to reach neutral
-        
+        time.sleep(0.1)
+    
     def set_speeds(self, left_pwm: float, right_pwm: float):
-        """Set motor speeds using PWM values"""
-        # If speeds are very close to zero, use exact neutral
-        if abs(left_pwm - self.NEUTRAL) < 0.001:
+        """Set motor speeds using PWM values with precise deadband"""
+        # Apply deadband around neutral
+        if abs(left_pwm - self.NEUTRAL) < self.DEADBAND:
             left_pwm = self.NEUTRAL
-        if abs(right_pwm - self.NEUTRAL) < 0.001:
+        if abs(right_pwm - self.NEUTRAL) < self.DEADBAND:
             right_pwm = self.NEUTRAL
-            
-        # Ensure values are in valid range and apply deadband
+        
+        # Apply limits and deadband
         left_pwm = self._apply_deadband(left_pwm)
         right_pwm = self._apply_deadband(right_pwm)
         
-        # Apply PWM values
+        # Debug output for troubleshooting
+        print(f"PWM values - Left: {left_pwm:.4f}, Right: {right_pwm:.4f}")
+        
+        # Set motor values
         self.left_motor.value = left_pwm
         self.right_motor.value = right_pwm
-        
+    
     def _apply_deadband(self, pwm: float) -> float:
-        """Apply deadband and limits to PWM value"""
+        """Apply deadband and limits with hysteresis"""
+        if abs(pwm - self.NEUTRAL) < self.DEADBAND:
+            return self.NEUTRAL
+            
         if pwm > self.NEUTRAL:  # Forward
             if pwm < self.MIN_FORWARD:
                 return self.NEUTRAL
             return min(pwm, self.MAX_FORWARD)
-        elif pwm < self.NEUTRAL:  # Reverse
+        else:  # Reverse
             if pwm > self.MIN_REVERSE:
                 return self.NEUTRAL
             return max(pwm, self.MAX_REVERSE)
-        return self.NEUTRAL
+    
+    def stop(self):
+        """Stop motors with controlled deceleration"""
+        # Gradually move to neutral
+        current_left = self.left_motor.value
+        current_right = self.right_motor.value
+        
+        steps = 5
+        for i in range(steps):
+            left_step = current_left + (self.NEUTRAL - current_left) * (i + 1) / steps
+            right_step = current_right + (self.NEUTRAL - current_right) * (i + 1) / steps
+            self.left_motor.value = left_step
+            self.right_motor.value = right_step
+            time.sleep(0.02)
+        
+        # Final force to neutral
+        self.force_stop()
     
     def __del__(self):
-        """Cleanup on object destruction."""
-        self.stop()
-        self.left_motor.close()
-        self.right_motor.close() 
+        """Cleanup with controlled stop"""
+        try:
+            self.stop()
+            self.left_motor.close()
+            self.right_motor.close()
+        except:
+            pass 

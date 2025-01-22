@@ -48,7 +48,7 @@ class HardwareController(Node):
             self.cmd_vel_callback,
             10
         )
-        
+        self.get_logger().info('Subscribed to cmd_vel')
         # Safety timer
         self.last_cmd_time = self.get_clock().now()
         self.safety_timer = self.create_timer(0.1, self.safety_check)
@@ -89,6 +89,7 @@ class HardwareController(Node):
                 speed_percent = 100.0 * (msg.linear.x / 0.1)  # Scale to ±100%
                 left_percent = right_percent = speed_percent
         
+        self.get_logger().info(f'Received speed: {left_percent}, {right_percent}')
         # Map speeds and apply to motors
         left_pwm = self.map_speed(left_percent)
         right_pwm = self.map_speed(right_percent)

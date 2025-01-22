@@ -67,8 +67,8 @@ class HardwareController(Node):
     
     def map_speed(self, speed_percent: float) -> float:
         """Map speed (-100% to +100%) to PWM duty cycle"""
-        # Return exact neutral for very small speeds
-        if abs(speed_percent) < 1.0:  # 1% threshold
+        # More precise neutral threshold
+        if abs(speed_percent) < 0.5:  # Reduced threshold to 0.5%
             return self.neutral
             
         if speed_percent > 0:
@@ -76,8 +76,9 @@ class HardwareController(Node):
             normalized = (speed_percent / 100.0) ** self.exponent
             return self.forward_min + normalized * (self.forward_max - self.forward_min)
         else:
-            # Reverse: Linear mapping
-            return self.reverse_min + (speed_percent / 100.0) * (self.neutral - self.reverse_min)
+            # Reverse: Linear mapping with adjusted neutral
+            normalized = abs(speed_percent) / 100.0
+            return self.reverse_min + normalized * (self.neutral - self.reverse_min)
     
     def cmd_vel_callback(self, msg: Twist):
         """Convert cmd_vel to calibrated motor commands"""

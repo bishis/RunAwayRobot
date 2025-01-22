@@ -3,7 +3,7 @@ bt_navigator:
     use_sim_time: false
     global_frame: map
     robot_base_frame: base_link
-    transform_tolerance: 0.1
+    transform_tolerance: 0.3
     default_bt_xml_filename: "/opt/ros/jazzy/share/nav2_bt_navigator/behavior_trees/navigate_w_replanning_and_recovery.xml"
     
     # Blackboard variables
@@ -37,11 +37,11 @@ bt_navigator:
 controller_server:
   ros__parameters:
     use_sim_time: false
-    controller_frequency: 5.0
-    min_x_velocity_threshold: 0.001
-    min_y_velocity_threshold: 0.001
-    min_theta_velocity_threshold: 0.001
-    failure_tolerance: 0.3
+    controller_frequency: 3.0
+    min_x_velocity_threshold: 0.3
+    min_y_velocity_threshold: 0.3
+    min_theta_velocity_threshold: 0.3
+    failure_tolerance: 0.6
     progress_checker_plugin: "progress_checker"
     goal_checker_plugin: "goal_checker"
     controller_plugins: ["FollowPath"]
@@ -51,7 +51,7 @@ controller_server:
     cmd_vel_topic: "/cmd_vel"
     transform_tolerance: 1.0
     enable_controller_plugin_verification: false
-    controller_patience: 15.0
+    controller_patience: 25.0
     max_controller_duration: 0.5
     enable_heartbeat: true
     heartbeat_interval: 0.25
@@ -60,50 +60,44 @@ controller_server:
     # Add progress checker parameters
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.5
-      movement_time_allowance: 10.0
+      required_movement_radius: 0.4
+      movement_time_allowance: 15.0
 
     # Add goal checker parameters
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.2
-      yaw_goal_tolerance: 0.3
+      xy_goal_tolerance: 0.5
+      yaw_goal_tolerance: 1.0
       stateful: true
 
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
-      debug_trajectory_details: true
-      min_vel_x: -0.03
-      min_vel_y: 0.0
-      max_vel_x: 0.03
+      debug_trajectory_details: false
+      min_vel_x: -0.1
+      max_vel_x: 0.1
       max_vel_y: 0.0
-      max_vel_theta: 0.3
+      max_vel_theta: 0.8
       min_speed_xy: 0.0
-      max_speed_xy: 0.05
+      max_speed_xy: 0.1
       min_speed_theta: 0.0
-      acc_lim_x: 0.05
+      acc_lim_x: 0.0
       acc_lim_y: 0.0
-      acc_lim_theta: 0.2
-      decel_lim_x: -0.05
+      acc_lim_theta: 0.0
+      decel_lim_x: 0.0
       decel_lim_y: 0.0
-      decel_lim_theta: -0.2
+      decel_lim_theta: 0.0
       vx_samples: 3
       vtheta_samples: 3
-      sim_time: 1.0
-      xy_goal_tolerance: 0.3
-      yaw_goal_tolerance: 0.5
-      trans_stopped_velocity: 0.1
+      sim_time: 2.0
+      xy_goal_tolerance: 0.5
+      yaw_goal_tolerance: 1.0
+      trans_stopped_velocity: 0.05
       theta_stopped_velocity: 0.1
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 1.0
-      PathAlign.scale: 2.0
-      GoalAlign.scale: 2.0
-      PathDist.scale: 2.0
-      GoalDist.scale: 2.0
-      RotateToGoal.scale: 32.0
-      RotateToGoal.slowing_factor: 2.0
-      RotateToGoal.lookahead_time: 1.0
-      transform_tolerance: 0.5
+      critics: ["RotateToGoal", "BaseObstacle", "GoalAlign"]
+      BaseObstacle.scale: 2.0
+      GoalAlign.scale: 1.0
+      RotateToGoal.scale: 100.0
+      RotateToGoal.lookahead_time: 0.0
 
 planner_server:
   ros__parameters:
@@ -112,16 +106,16 @@ planner_server:
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
-      tolerance: 0.5
+      tolerance: 1.0
       use_astar: true
       allow_unknown: true
       visualize_potential: true
       neutral_cost: 50
       scale: 3
-      cost_factor: 0.8
+      cost_factor: 0.5
       publish_potential: true
       use_quadratic: true
-      orientation_mode: 1
+      orientation_mode: 0
       use_grid_path: true
       allow_diagonal: false
       use_dijkstra: false
@@ -156,7 +150,7 @@ behavior_server:
 local_costmap:
   ros__parameters:
     use_sim_time: false
-    update_frequency: 10.0
+    update_frequency: 5.0
     publish_frequency: 5.0
     global_frame: odom
     robot_base_frame: base_link
@@ -183,16 +177,16 @@ local_costmap:
         clearing: true
         marking: true
         data_type: "LaserScan"
-        raytrace_max_range: 1.5
+        raytrace_max_range: 1.0
         raytrace_min_range: 0.01
-        obstacle_max_range: 1.0
+        obstacle_max_range: 0.8
         obstacle_min_range: 0.01
         inf_is_valid: false
 
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
       cost_scaling_factor: 3.0
-      inflation_radius: 0.2
+      inflation_radius: 0.4
 
 global_costmap:
   ros__parameters:
@@ -217,9 +211,9 @@ global_costmap:
         clearing: true
         marking: true
         data_type: "LaserScan"
-        raytrace_max_range: 2.0
+        raytrace_max_range: 1.5
         raytrace_min_range: 0.05
-        obstacle_max_range: 1.5
+        obstacle_max_range: 1.0
         obstacle_min_range: 0.05
         inf_is_valid: false
 
@@ -231,7 +225,7 @@ global_costmap:
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
       cost_scaling_factor: 3.0
-      inflation_radius: 0.2
+      inflation_radius: 0.4
 
 collision_monitor:
   ros__parameters:
@@ -247,8 +241,8 @@ collision_monitor:
       topic: "/scan"
       min_height: 0.0
       max_height: 2.0
-      obstacle_range: 0.8
-      raytrace_range: 1.0
+      obstacle_range: 0.6
+      raytrace_range: 0.8
       observation_persistence: 0.5
       inf_is_valid: false
       marking: true

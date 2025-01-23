@@ -7,12 +7,12 @@ class MotorController:
     
     def __init__(self, left_pin: int, right_pin: int):
         """Initialize motor controller with PWM"""
-        # PWM calibration values - adjusted for better turning
+        # PWM calibration values - wider ranges for better turning
         self.NEUTRAL = 0.0725      # Neutral position
-        self.DEADBAND = 0.002      # Deadband around neutral
-        self.MIN_FORWARD = 0.080   # Reduced minimum forward threshold
+        self.DEADBAND = 0.001      # Reduced deadband for more responsive control
+        self.MIN_FORWARD = 0.076   # Lower minimum forward for smoother transitions
         self.MAX_FORWARD = 0.100   # Maximum forward
-        self.MIN_REVERSE = 0.065   # Reduced minimum reverse threshold
+        self.MIN_REVERSE = 0.069   # Higher minimum reverse for better turning
         self.MAX_REVERSE = 0.045   # Maximum reverse
         
         # Initialize motors at exact neutral

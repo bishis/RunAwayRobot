@@ -96,17 +96,26 @@ class HardwareController(Node):
         linear_x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
         angular_z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
         
+        # Scale up angular component for more responsive turning
+        angular_scale = 1.5  # Increase turning effect
+        angular_z = angular_z * angular_scale
+        
         # Convert to differential drive
         left_speed = linear_x - (angular_z * self.wheel_separation / 2.0)
         right_speed = linear_x + (angular_z * self.wheel_separation / 2.0)
         
+        # Find the maximum speed commanded
+        max_speed = max(abs(left_speed), abs(right_speed))
+        
+        # If max speed exceeds limits, scale both speeds down proportionally
+        if max_speed > self.max_linear_speed:
+            scale = self.max_linear_speed / max_speed
+            left_speed *= scale
+            right_speed *= scale
+        
         # Convert to percentage of max speed (-100 to 100)
         left_percent = (left_speed / self.max_linear_speed) * 100.0
         right_percent = (right_speed / self.max_linear_speed) * 100.0
-        
-        # Clamp to valid range
-        left_percent = max(min(left_percent, 100.0), -100.0)
-        right_percent = max(min(right_percent, 100.0), -100.0)
         
         # Debug logging
         self.get_logger().info(

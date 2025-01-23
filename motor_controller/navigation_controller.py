@@ -18,12 +18,12 @@ class SimpleNavigationController(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         
         # Parameters
-        self.declare_parameter('path_simplification_tolerance', 0.2)  # Increased tolerance
-        self.declare_parameter('goal_tolerance', 0.15)  # More forgiving goal tolerance
-        self.declare_parameter('angular_tolerance', 0.2)  # More forgiving angle tolerance
-        self.declare_parameter('max_linear_speed', 0.08)  # Slower speed for better control
-        self.declare_parameter('max_angular_speed', 0.4)  # Slower turning
-        self.declare_parameter('lookahead_distance', 0.3)  # Look ahead for smoother paths
+        self.declare_parameter('path_simplification_tolerance', 0.3)  # Much more aggressive simplification
+        self.declare_parameter('goal_tolerance', 0.2)   # Even more forgiving
+        self.declare_parameter('angular_tolerance', 0.3) # Less precise turning
+        self.declare_parameter('max_linear_speed', 0.1)  # Back to normal speed
+        self.declare_parameter('max_angular_speed', 0.5) # Faster turning
+        self.declare_parameter('min_segment_length', 0.4) # Minimum segment length to consider
         
         # Path handling
         self.current_path = None
@@ -48,21 +48,32 @@ class SimpleNavigationController(Node):
         self.get_logger().info(f'Received new path with {len(self.simplified_path)} segments')
         
     def simplify_path(self, poses):
-        """Convert path into straight-line segments"""
+        """Aggressively simplify path into major segments"""
         if len(poses) < 2:
             return poses
             
-        tolerance = self.get_parameter('path_simplification_tolerance').value
+        # Start with first pose
         simplified = [poses[0]]
+        min_segment_length = self.get_parameter('min_segment_length').value
         
+        # Find significant direction changes
+        current_direction = None
         for i in range(1, len(poses)):
-            # Check if we need a new segment
-            if self.point_line_distance(poses[i].pose.position, 
-                                     simplified[-1].pose.position,
-                                     poses[i-1].pose.position) > tolerance:
-                simplified.append(poses[i-1])
+            dx = poses[i].pose.position.x - poses[i-1].pose.position.x
+            dy = poses[i].pose.position.y - poses[i-1].pose.position.y
+            new_direction = math.atan2(dy, dx)
+            
+            # Add point if direction changes significantly or distance is large
+            if current_direction is None or \
+               abs(self.normalize_angle(new_direction - current_direction)) > math.pi/4 or \
+               self.distance_between_poses(simplified[-1], poses[i]) > min_segment_length:
+                simplified.append(poses[i])
+                current_direction = new_direction
         
-        simplified.append(poses[-1])
+        # Always include last pose
+        if simplified[-1] != poses[-1]:
+            simplified.append(poses[-1])
+        
         return simplified
         
     def point_line_distance(self, point, line_start, line_end):
@@ -97,7 +108,7 @@ class SimpleNavigationController(Node):
             return None
             
     def control_loop(self):
-        """Main control loop for path following"""
+        """Simplified control loop focusing on straight-line movements"""
         if not self.simplified_path or self.current_segment >= len(self.simplified_path):
             self.stop_robot()
             return
@@ -106,46 +117,34 @@ class SimpleNavigationController(Node):
         if not robot_pose:
             return
             
-        # Get lookahead point instead of immediate target
-        lookahead_point = self.get_lookahead_point(robot_pose)
-        if not lookahead_point:
-            return
-            
-        # Calculate distance and angle to lookahead point
-        dx = lookahead_point.x - robot_pose.transform.translation.x
-        dy = lookahead_point.y - robot_pose.transform.translation.y
+        target = self.simplified_path[self.current_segment]
+        
+        # Calculate distance and angle to target
+        dx = target.pose.position.x - robot_pose.transform.translation.x
+        dy = target.pose.position.y - robot_pose.transform.translation.y
         distance = math.sqrt(dx*dx + dy*dy)
         target_angle = math.atan2(dy, dx)
         
         # Get robot's current heading
         _, _, yaw = self.euler_from_quaternion(robot_pose.transform.rotation)
-        
-        # Calculate angle difference
         angle_diff = self.normalize_angle(target_angle - yaw)
         
-        # Generate control commands
         cmd = Twist()
         
-        # Smoother control logic
+        # Simple state machine: either turn or move
         if abs(angle_diff) > self.get_parameter('angular_tolerance').value:
-            # Pure rotation when angle is large
-            if abs(angle_diff) > math.pi/4:  # 45 degrees
-                cmd.angular.z = self.get_parameter('max_angular_speed').value * math.copysign(1, angle_diff)
-            else:
-                # Combined movement for smaller angles
-                cmd.angular.z = self.get_parameter('max_angular_speed').value * (angle_diff / (math.pi/4))
-                cmd.linear.x = self.get_parameter('max_linear_speed').value * (1 - abs(angle_diff)/(math.pi/4))
+            # Pure rotation to target
+            cmd.angular.z = self.get_parameter('max_angular_speed').value * math.copysign(1, angle_diff)
+            cmd.linear.x = 0.0
         else:
-            # Move forward with small angular corrections
+            # Move straight to target
             cmd.linear.x = self.get_parameter('max_linear_speed').value
-            cmd.angular.z = self.get_parameter('max_angular_speed').value * (angle_diff / (math.pi/4))
+            cmd.angular.z = 0.0  # No turning while moving forward
         
-        # Publish command
         self.cmd_vel_pub.publish(cmd)
         
-        # Update segment if we're close enough to target
-        target = self.simplified_path[self.current_segment]
-        if self.distance_to_point(robot_pose, target.pose.position) < self.get_parameter('goal_tolerance').value:
+        # Update segment if close enough
+        if distance < self.get_parameter('goal_tolerance').value:
             self.current_segment += 1
 
     def get_lookahead_point(self, robot_pose):

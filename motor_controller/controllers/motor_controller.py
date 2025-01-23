@@ -23,12 +23,20 @@ class MotorController:
         self.right_motor.value = self._clamp_pwm(right_pwm)
 
     def _clamp_pwm(self, value: float) -> float:
-        """Ensure PWM stays within safe operational range"""
+        """Ensure PWM stays within safe operational range with smooth transitions"""
+        if abs(value - self.neutral) < 0.05:  # Dead zone for stability
+            return self.neutral
+        
         if value > self.neutral:
-            return min(max(value, self.forward_min), self.forward_max)
-        elif value < self.neutral:
-            return max(min(value, self.reverse_min), self.reverse_max)
-        return self.neutral
+            # Scale the forward range
+            normalized = (value - self.neutral) / (1.0 - self.neutral)
+            scaled = self.forward_min + normalized * (self.forward_max - self.forward_min)
+            return min(max(scaled, self.forward_min), self.forward_max)
+        else:
+            # Scale the reverse range
+            normalized = (self.neutral - value) / self.neutral
+            scaled = self.reverse_min + normalized * (self.reverse_max - self.reverse_min)
+            return max(min(scaled, self.reverse_min), self.reverse_max)
 
     def __del__(self):
         """Cleanup resources"""

@@ -43,7 +43,7 @@ def generate_launch_description():
 
     # Include the navigation launch file with a delay
     navigation_launch = TimerAction(
-        period=10.0,  # 10 second delay to ensure SLAM is running
+        period=3.0,  # 10 second delay to ensure SLAM is running
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(

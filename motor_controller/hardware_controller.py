@@ -17,10 +17,10 @@ class HardwareController(Node):
         self.declare_parameter('safety_timeout', 0.5)
         
         # PWM calibration parameters
-        self.declare_parameter('forward_min_duty', 0.08)
-        self.declare_parameter('forward_max_duty', 0.15)  # Increased for more power
-        self.declare_parameter('reverse_min_duty', 0.07)  # Closest to neutral
-        self.declare_parameter('reverse_max_duty', 0.02)  # Furthest from neutral
+        self.declare_parameter('forward_min_duty', 0.09)
+        self.declare_parameter('forward_max_duty', 0.10)
+        self.declare_parameter('reverse_min_duty', 0.05)  # Closest to neutral
+        self.declare_parameter('reverse_max_duty', 0.045)  # Furthest from neutral
         self.declare_parameter('neutral_duty', 0.075)
         self.declare_parameter('speed_exponent', 2.0)
         
@@ -102,13 +102,9 @@ class HardwareController(Node):
         left_percent = (left_speed / self.max_linear_speed) * 100.0
         right_percent = (right_speed / self.max_linear_speed) * 100.0
 
-        # Handle spot turns with smooth ramping
+        # Handle spot turns
         if abs(angular_z) > 0.1 and abs(linear_x) < 0.01:
-            # Calculate turn power based on angular velocity
-            turn_power = min(100.0, abs(angular_z) / self.max_angular_speed * 100.0)
-            # Apply exponential smoothing for gradual acceleration
-            turn_power = pow(turn_power / 100.0, self.speed_exponent) * 100.0
-            
+            turn_power = 100.0
             if angular_z > 0:  # CCW turn
                 left_percent = -turn_power
                 right_percent = turn_power

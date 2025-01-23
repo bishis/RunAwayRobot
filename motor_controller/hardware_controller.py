@@ -19,8 +19,8 @@ class HardwareController(Node):
         # PWM calibration parameters
         self.declare_parameter('forward_min_duty', 0.09)
         self.declare_parameter('forward_max_duty', 0.10)
-        self.declare_parameter('reverse_min_duty', 0.05)  # Closest to neutral
-        self.declare_parameter('reverse_max_duty', 0.03)  # Furthest from neutral - corrected to be less than reverse_min
+        self.declare_parameter('reverse_min_duty', 0.06)  # Closest to neutral
+        self.declare_parameter('reverse_max_duty', 0.05)  # Furthest from neutral
         self.declare_parameter('neutral_duty', 0.075)
         self.declare_parameter('speed_exponent', 2.0)
         
@@ -86,7 +86,7 @@ class HardwareController(Node):
             # Map to reverse range
             return self.get_parameter('neutral_duty').value - \
                    normalized * (self.get_parameter('neutral_duty').value - 
-                               self.get_parameter('reverse_max_duty').value)
+                               self.get_parameter('reverse_min_duty').value)
 
     def cmd_vel_callback(self, msg: Twist):
         """Convert Twist commands to motor speeds"""
@@ -104,7 +104,7 @@ class HardwareController(Node):
 
         # Handle spot turns
         if abs(angular_z) > 0.1 and abs(linear_x) < 0.01:
-            turn_power = 50.0  # Reduced from 100.0 for smoother turns
+            turn_power = 100.0
             if angular_z > 0:  # CCW turn
                 left_percent = -turn_power
                 right_percent = turn_power
@@ -112,7 +112,7 @@ class HardwareController(Node):
                 left_percent = turn_power
                 right_percent = -turn_power
 
-        # Convert to PWM values with direction-aware mapping
+        # Convert to PWM values
         left_pwm = self.map_speed(left_percent)
         right_pwm = self.map_speed(right_percent)
 

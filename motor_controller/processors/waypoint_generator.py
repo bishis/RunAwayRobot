@@ -1,9 +1,37 @@
 import math
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, PoseStamped
+from nav2_msgs.action import NavigateToPose
+from rclpy.action import ActionClient
+from rclpy.node import Node
+from rclpy.duration import Duration
 import rclpy
+from tf2_ros import TransformException
+from tf2_ros.buffer import Buffer
+from tf2_ros.transform_listener import TransformListener
 
-class WaypointGenerator:
-    def __init__(self, robot_radius, safety_margin, num_waypoints):
+class WaypointGenerator(Node):
+    """ROS2 node for generating and following waypoints for autonomous exploration."""
+
+    def __init__(self):
+        super().__init__('waypoint_generator')
+        
+        # Navigation parameters
+        self.robot_radius = 0.2  # meters
+        self.safety_margin = 0.3  # meters
+        self.num_waypoints = 5
+        
+        # Initialize the waypoint following client
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        
+        # Set up TF listener
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        
+        # Wait for navigation server
+        self.get_logger().info('Waiting for navigation action server...')
+        self.nav_client.wait_for_server()
+        self.get_logger().info('Navigation server connected!')
+
         self.robot_radius = robot_radius
         self.safety_margin = safety_margin
         self.num_waypoints = num_waypoints
@@ -111,4 +139,4 @@ class WaypointGenerator:
             
             if has_obstacle:
                 return True
-        return False 
+        return False

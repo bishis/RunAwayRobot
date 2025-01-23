@@ -102,9 +102,13 @@ class HardwareController(Node):
         left_percent = (left_speed / self.max_linear_speed) * 100.0
         right_percent = (right_speed / self.max_linear_speed) * 100.0
 
-        # Handle spot turns
+        # Handle spot turns with smooth ramping
         if abs(angular_z) > 0.1 and abs(linear_x) < 0.01:
-            turn_power = 100.0
+            # Calculate turn power based on angular velocity
+            turn_power = min(100.0, abs(angular_z) / self.max_angular_speed * 100.0)
+            # Apply exponential smoothing for gradual acceleration
+            turn_power = pow(turn_power / 100.0, self.speed_exponent) * 100.0
+            
             if angular_z > 0:  # CCW turn
                 left_percent = -turn_power
                 right_percent = turn_power

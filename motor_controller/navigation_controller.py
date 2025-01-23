@@ -18,12 +18,12 @@ class SimpleNavigationController(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         
         # Parameters
-        self.declare_parameter('path_simplification_tolerance', 0.3)  # Much more aggressive simplification
-        self.declare_parameter('goal_tolerance', 0.2)   # Even more forgiving
-        self.declare_parameter('angular_tolerance', 0.3) # Less precise turning
-        self.declare_parameter('max_linear_speed', 0.1)  # Back to normal speed
-        self.declare_parameter('max_angular_speed', 0.5) # Faster turning
-        self.declare_parameter('min_segment_length', 0.4) # Minimum segment length to consider
+        self.declare_parameter('path_simplification_tolerance', 0.2)  # Less aggressive simplification
+        self.declare_parameter('goal_tolerance', 0.15)   # More precise positioning
+        self.declare_parameter('angular_tolerance', 0.2) # More precise turning
+        self.declare_parameter('max_linear_speed', 0.1)  # Keep normal speed
+        self.declare_parameter('max_angular_speed', 0.4) # Slightly slower turning for better control
+        self.declare_parameter('min_segment_length', 0.25) # Shorter segments for tight spaces
         
         # Path handling
         self.current_path = None
@@ -108,7 +108,7 @@ class SimpleNavigationController(Node):
             return None
             
     def control_loop(self):
-        """Simplified control loop focusing on straight-line movements"""
+        """Enhanced control loop with micro-movements for tight spaces"""
         if not self.simplified_path or self.current_segment >= len(self.simplified_path):
             self.stop_robot()
             return
@@ -131,15 +131,31 @@ class SimpleNavigationController(Node):
         
         cmd = Twist()
         
-        # Simple state machine: either turn or move
-        if abs(angle_diff) > self.get_parameter('angular_tolerance').value:
-            # Pure rotation to target
-            cmd.angular.z = self.get_parameter('max_angular_speed').value * math.copysign(1, angle_diff)
-            cmd.linear.x = 0.0
+        # Enhanced state machine with micro-movements
+        angular_tolerance = self.get_parameter('angular_tolerance').value
+        if abs(angle_diff) > angular_tolerance:
+            # Determine if we're in a tight space
+            in_tight_space = distance < 0.5  # If target is close, consider it tight space
+            
+            if in_tight_space:
+                # Micro-rotation: alternate between small turns and tiny forward movements
+                if abs(angle_diff) > math.pi/2:
+                    # For large angle differences, do pure rotation
+                    cmd.angular.z = self.get_parameter('max_angular_speed').value * math.copysign(1, angle_diff)
+                    cmd.linear.x = 0.0
+                else:
+                    # For smaller angles, combine rotation with small forward movement
+                    cmd.angular.z = (self.get_parameter('max_angular_speed').value * 0.7) * math.copysign(1, angle_diff)
+                    cmd.linear.x = self.get_parameter('max_linear_speed').value * 0.3
+            else:
+                # Standard rotation for open spaces
+                cmd.angular.z = self.get_parameter('max_angular_speed').value * math.copysign(1, angle_diff)
+                cmd.linear.x = 0.0
         else:
-            # Move straight to target
+            # Forward movement with small angular corrections
             cmd.linear.x = self.get_parameter('max_linear_speed').value
-            cmd.angular.z = 0.0  # No turning while moving forward
+            # Small angular correction while moving
+            cmd.angular.z = (angle_diff / angular_tolerance) * self.get_parameter('max_angular_speed').value * 0.2
         
         self.cmd_vel_pub.publish(cmd)
         

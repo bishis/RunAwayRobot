@@ -116,6 +116,21 @@ def generate_launch_description():
                     'autostart': autostart,
                     'node_names': lifecycle_nodes}])
 
+    # Add this to your existing launch file
+    Node(
+        package='motor_controller',
+        executable='navigation_controller',
+        name='navigation_controller',
+        parameters=[{
+            'path_simplification_tolerance': 0.1,
+            'goal_tolerance': 0.1,
+            'angular_tolerance': 0.1,
+            'max_linear_speed': 0.1,
+            'max_angular_speed': 0.5,
+        }],
+        output='screen'
+    ),
+
     # Create the launch description and populate
     ld = LaunchDescription()
 

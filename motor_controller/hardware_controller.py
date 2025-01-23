@@ -24,9 +24,9 @@ class HardwareController(Node):
         self.declare_parameter('speed_exponent', 2.0)
         
         # Robot physical parameters
-        self.declare_parameter('wheel_separation', 0.24)  # Distance between wheels in meters
-        self.declare_parameter('max_linear_speed', 0.1)   # Max linear speed in m/s
-        self.declare_parameter('max_angular_speed', 1.0)  # Max angular speed in rad/s
+        self.declare_parameter('wheel_separation', 0.24)
+        self.declare_parameter('max_linear_speed', 0.1)
+        self.declare_parameter('max_angular_speed', 1.0)
         
         # Initialize motor controller
         self.motors = MotorController(
@@ -71,7 +71,6 @@ class HardwareController(Node):
         dt = (now - self.last_cmd_time).nanoseconds / 1e9
         
         if dt > self.safety_timeout:
-            # Use exact neutral value for stop
             self.motors.set_speeds(self.neutral, self.neutral)
             self.get_logger().warn('Safety stop triggered', once=True)
     
@@ -84,40 +83,36 @@ class HardwareController(Node):
             normalized = (speed_percent / 100.0) ** self.exponent
             return self.forward_min + normalized * (self.forward_max - self.forward_min)
         else:
-            # FIXED: Proper reverse mapping
             normalized = abs(speed_percent) / 100.0
             return self.neutral - normalized * (self.neutral - self.reverse_min)
     
-def cmd_vel_callback(self, msg: Twist):
-    """Improved motor command handling"""
-    # Clamp velocities
-    linear_x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
-    angular_z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
+    def cmd_vel_callback(self, msg: Twist):  # FIXED INDENTATION
+        """Improved motor command handling"""
+        # Clamp velocities
+        linear_x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
+        angular_z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
 
-    # Reduced angular scaling for better control
-    angular_z *= 1.5  # Instead of 3.0
+        # Reduced angular scaling
+        angular_z *= 1.5
 
-    # Differential drive calculation
-    left_speed = linear_x - (angular_z * self.wheel_separation / 2.0)
-    right_speed = linear_x + (angular_z * self.wheel_separation / 2.0)
+        # Differential drive calculation
+        left_speed = linear_x - (angular_z * self.wheel_separation / 2.0)
+        right_speed = linear_x + (angular_z * self.wheel_separation / 2.0)
 
-    # Convert to percentage of max speed (-100 to 100) FIRST!
-    left_percent = (left_speed / self.max_linear_speed) * 100.0  # ADD THIS BACK
-    right_percent = (right_speed / self.max_linear_speed) * 100.0  # ADD THIS BACK
+        # Convert to percentages
+        left_percent = (left_speed / self.max_linear_speed) * 100.0
+        right_percent = (right_speed / self.max_linear_speed) * 100.0
 
-    # FIXED: Proper minimum power application
-    MIN_POWER = 30.0
-    if abs(angular_z) > 0.05:
-        # Apply minimum power with sign preservation
-        if left_percent != 0:
-            left_sign = -1 if left_percent < 0 else 1
-            left_percent = left_sign * max(abs(left_percent), MIN_POWER)
-            
-        if right_percent != 0:
-            right_sign = -1 if right_percent < 0 else 1
-            right_percent = right_sign * max(abs(right_percent), MIN_POWER)
+        # Minimum power application
+        MIN_POWER = 30.0
+        if abs(angular_z) > 0.05:
+            if left_percent != 0:
+                left_sign = -1 if left_percent < 0 else 1
+                left_percent = left_sign * max(abs(left_percent), MIN_POWER)
+            if right_percent != 0:
+                right_sign = -1 if right_percent < 0 else 1
+                right_percent = right_sign * max(abs(right_percent), MIN_POWER)
 
-        
         # Debug logging
         self.get_logger().info(
             f'CMD_VEL: linear={linear_x:.3f} angular={angular_z:.3f}\n'
@@ -125,7 +120,7 @@ def cmd_vel_callback(self, msg: Twist):
             f'Percentages: left={left_percent:.1f}% right={right_percent:.1f}%'
         )
         
-        # Map speeds and apply to motors
+        # Map speeds and apply
         left_pwm = self.map_speed(left_percent)
         right_pwm = self.map_speed(right_percent)
         self.motors.set_speeds(left_pwm, right_pwm)

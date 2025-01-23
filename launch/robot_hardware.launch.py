@@ -29,14 +29,14 @@ def generate_launch_description():
             parameters=[{
                 'wheel_separation': 0.24,     # Distance between wheels
                 'max_linear_speed': 0.1,      # Max 0.1 m/s
-                'max_angular_speed': 1.5,     # Increased for better turning
+                'max_angular_speed': 2.0,     # Increased max turning speed
                 'linear_threshold': 0.01,     # Lower threshold
                 'angular_threshold': 0.02,    # Lower threshold for more responsive turning
-                'forward_min_duty': 0.080,    # Minimum 80% power
+                'forward_min_duty': 0.090,    # Increased minimum power (85%)
                 'forward_max_duty': 0.100,    # Maximum forward
-                'reverse_min_duty': 0.070,    # Minimum 80% reverse
+                'reverse_min_duty': 0.060,    # More aggressive reverse
                 'neutral_duty': 0.0725,       # Neutral position
-                'speed_exponent': 1.0,        # Linear response for better control
+                'speed_exponent': 1.0,        # Linear response
             }],
             output='screen'
         ),

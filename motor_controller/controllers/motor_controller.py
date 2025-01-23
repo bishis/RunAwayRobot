@@ -7,12 +7,12 @@ class MotorController:
     
     def __init__(self, left_pin: int, right_pin: int):
         """Initialize motor controller with PWM"""
-        # PWM calibration values - adjusted for strong turning
+        # PWM calibration values - adjusted for maximum turning power
         self.NEUTRAL = 0.0725      # Neutral position
         self.DEADBAND = 0.001      # Minimal deadband
-        self.MIN_FORWARD = 0.080   # Minimum 80% power
+        self.MIN_FORWARD = 0.085   # Increased minimum forward (85%)
         self.MAX_FORWARD = 0.100   # Maximum forward
-        self.MIN_REVERSE = 0.070   # Minimum 80% reverse power
+        self.MIN_REVERSE = 0.060   # More aggressive reverse
         self.MAX_REVERSE = 0.045   # Maximum reverse
         
         # Initialize motors at exact neutral
@@ -84,17 +84,17 @@ class MotorController:
         self.right_motor.value = right_pwm
     
     def _apply_deadband(self, pwm: float) -> float:
-        """Apply deadband and limits with minimum power for turning"""
+        """Apply deadband and limits with aggressive power for turning"""
         if abs(pwm - self.NEUTRAL) < self.DEADBAND:
             return self.NEUTRAL
             
         if pwm > self.NEUTRAL:  # Forward
-            # Ensure minimum power
+            # Always use high power when moving
             if pwm > self.NEUTRAL + self.DEADBAND:
                 return max(self.MIN_FORWARD, min(pwm, self.MAX_FORWARD))
             return self.NEUTRAL
         else:  # Reverse
-            # Ensure minimum power
+            # Always use high power when moving
             if pwm < self.NEUTRAL - self.DEADBAND:
                 return min(self.MIN_REVERSE, max(pwm, self.MAX_REVERSE))
             return self.NEUTRAL

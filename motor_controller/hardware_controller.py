@@ -116,7 +116,23 @@ class HardwareController(Node):
                 right_percent = min(-MIN_POWER, right_percent)
             elif right_speed > 0:
                 right_percent = max(MIN_POWER, right_percent)
-  
+
+        
+        # Debug logging
+        self.get_logger().info(
+            f'CMD_VEL: linear={linear_x:.3f} angular={angular_z:.3f}\n'
+            f'Wheel speeds: left={left_speed:.3f} right={right_speed:.3f}\n'
+            f'Percentages: left={left_percent:.1f}% right={right_percent:.1f}%'
+        )
+        
+        # Map speeds and apply to motors
+        left_pwm = self.map_speed(left_percent)
+        right_pwm = self.map_speed(right_percent)
+        self.motors.set_speeds(left_pwm, right_pwm)
+        
+        # Update safety timer
+        self.last_cmd_time = self.get_clock().now()
+
 def main(args=None):
     rclpy.init(args=args)
     node = HardwareController()

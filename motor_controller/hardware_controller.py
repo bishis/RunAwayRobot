@@ -100,18 +100,17 @@ class HardwareController(Node):
         left_percent = (left_speed / self.max_linear_speed) * 100.0
         right_percent = (right_speed / self.max_linear_speed) * 100.0
 
-        # Handle spot turns
-        if abs(angular_z) > 0.1 and abs(linear_x) < 0.01:
-            # Set explicit opposite wheel speeds
-            turn_power = 100.0  # Full power for turns
-            if angular_z > 0:  # Left turn
-                left_percent = -turn_power
-                right_percent = turn_power
-            else:  # Right turn
-                left_percent = turn_power
-                right_percent = -turn_power
+        # Special handling for spot turns (when angular velocity but no linear velocity)
+        if abs(angular_z) > 0.01 and abs(linear_x) < 0.01:
+            SPOT_TURN_POWER = 90.0  # Use 90% power for spot turns
+            if angular_z > 0:  # Counter-clockwise turn
+                left_percent = -SPOT_TURN_POWER
+                right_percent = SPOT_TURN_POWER
+            else:  # Clockwise turn
+                left_percent = SPOT_TURN_POWER
+                right_percent = -SPOT_TURN_POWER
         else:
-            # Normal movement handling
+            # Normal movement - ensure minimum power when moving
             MIN_POWER = 30.0
             if abs(left_percent) > 1.0:
                 left_sign = -1 if left_percent < 0 else 1
@@ -119,6 +118,7 @@ class HardwareController(Node):
             if abs(right_percent) > 1.0:
                 right_sign = -1 if right_percent < 0 else 1
                 right_percent = right_sign * max(abs(right_percent), MIN_POWER)
+
         # Debug logging
         self.get_logger().info(
             f'CMD_VEL: linear={linear_x:.3f} angular={angular_z:.3f}\n'

@@ -37,10 +37,10 @@ bt_navigator:
 controller_server:
   ros__parameters:
     use_sim_time: false
-    controller_frequency: 10.0
-    min_x_velocity_threshold: 0.02
+    controller_frequency: 5.0
+    min_x_velocity_threshold: 0.05
     min_y_velocity_threshold: 0.3
-    min_theta_velocity_threshold: 0.05
+    min_theta_velocity_threshold: 0.1
     failure_tolerance: 0.6
     progress_checker_plugin: "progress_checker"
     goal_checker_plugin: "goal_checker"
@@ -60,14 +60,14 @@ controller_server:
     # Add progress checker parameters
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.2
-      movement_time_allowance: 10.0
+      required_movement_radius: 0.3
+      movement_time_allowance: 15.0
 
     # Add goal checker parameters
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.1
-      yaw_goal_tolerance: 0.1
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.25
       stateful: true
 
     FollowPath:
@@ -77,38 +77,39 @@ controller_server:
       max_vel_x: 0.1
       min_vel_y: 0.0
       max_vel_y: 0.0
-      max_vel_theta: 1.0
+      max_vel_theta: 0.5
       min_speed_xy: 0.0
       max_speed_xy: 0.1
       min_speed_theta: 0.0
-      acc_lim_x: 0.2
+      acc_lim_x: 0.1
       acc_lim_y: 0.0
-      acc_lim_theta: 0.4
-      decel_lim_x: -0.2
+      acc_lim_theta: 0.2
+      decel_lim_x: -0.1
       decel_lim_y: 0.0
-      decel_lim_theta: -0.4
-      vx_samples: 20
+      decel_lim_theta: -0.2
+      vx_samples: 10
       vy_samples: 0
-      vtheta_samples: 40
+      vtheta_samples: 20
       sim_time: 1.5
-      path_distance_bias: 64.0
-      goal_distance_bias: 24.0
+      path_distance_bias: 32.0
+      goal_distance_bias: 20.0
       occdist_scale: 0.02
       twirling_scale: 0.0
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       BaseObstacle.scale: 0.5
-      PathAlign.scale: 64.0
-      GoalAlign.scale: 24.0
-      PathDist.scale: 64.0
-      GoalDist.scale: 24.0
+      PathAlign.scale: 32.0
+      GoalAlign.scale: 20.0
+      PathDist.scale: 32.0
+      GoalDist.scale: 20.0
       publish_cost_grid_pc: true
       publish_evaluation: true
       publish_global_plan: true
       publish_local_plan: true
       publish_trajectories: true
       publish_transformed_plan: true
-      trans_stopped_velocity: 0.01
-      theta_stopped_velocity: 0.01
+      trans_stopped_velocity: 0.05
+      theta_stopped_velocity: 0.05
+      path_max_discard_length: 0.5
 
 planner_server:
   ros__parameters:

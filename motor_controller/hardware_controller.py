@@ -86,14 +86,14 @@ class HardwareController(Node):
             normalized = abs(speed_percent) / 100.0
             return self.neutral - normalized * (self.neutral - self.reverse_min)
     
-    def cmd_vel_callback(self, msg: Twist):  # FIXED INDENTATION
+    def cmd_vel_callback(self, msg: Twist):
         """Improved motor command handling"""
         # Clamp velocities
         linear_x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
         angular_z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
 
-        # Reduced angular scaling
-        angular_z *= 1.5
+        # Reduced angular scaling for smoother turns
+        angular_z *= 1.0  # Reduced from 1.5 for more controlled turning
 
         # Differential drive calculation
         left_speed = linear_x - (angular_z * self.wheel_separation / 2.0)
@@ -103,13 +103,22 @@ class HardwareController(Node):
         left_percent = (left_speed / self.max_linear_speed) * 100.0
         right_percent = (right_speed / self.max_linear_speed) * 100.0
 
-        # Minimum power application
-        MIN_POWER = 30.0
-        if abs(angular_z) > 0.05:
-            if left_percent != 0:
+        # Special handling for spot turns
+        if abs(angular_z) > 0.1 and abs(linear_x) < 0.01:  # Detect spot turn
+            turn_power = 80.0  # Use 80% power for turns
+            if angular_z > 0:  # Turning left
+                left_percent = -turn_power
+                right_percent = turn_power
+            else:  # Turning right
+                left_percent = turn_power
+                right_percent = -turn_power
+        else:
+            # Normal movement - ensure minimum power when moving
+            MIN_POWER = 30.0
+            if abs(left_percent) > 1.0:  # Only apply if movement is intended
                 left_sign = -1 if left_percent < 0 else 1
                 left_percent = left_sign * max(abs(left_percent), MIN_POWER)
-            if right_percent != 0:
+            if abs(right_percent) > 1.0:  # Only apply if movement is intended
                 right_sign = -1 if right_percent < 0 else 1
                 right_percent = right_sign * max(abs(right_percent), MIN_POWER)
 

@@ -7,13 +7,17 @@ class MotorController:
     
     def __init__(self, left_pin: int, right_pin: int):
         """Initialize motor controller with PWM"""
-        # PWM calibration values - adjusted for maximum turning power
+        # PWM calibration values - adjusted for both forward and reverse turning
         self.NEUTRAL = 0.0725      # Neutral position
         self.DEADBAND = 0.001      # Minimal deadband
-        self.MIN_FORWARD = 0.085   # Increased minimum forward (85%)
-        self.MAX_FORWARD = 0.100   # Maximum forward
-        self.MIN_REVERSE = 0.060   # More aggressive reverse
-        self.MAX_REVERSE = 0.045   # Maximum reverse
+        
+        # Forward ranges (0.0725 -> 0.100)
+        self.MIN_FORWARD = 0.090   # 90% minimum forward
+        self.MAX_FORWARD = 0.100   # 100% maximum forward
+        
+        # Reverse ranges (0.0725 -> 0.045)
+        self.MIN_REVERSE = 0.055   # Stronger reverse (closer to max reverse)
+        self.MAX_REVERSE = 0.045   # Maximum reverse power
         
         # Initialize motors at exact neutral
         self.left_motor = PWMOutputDevice(
@@ -29,7 +33,7 @@ class MotorController:
         
         # Force stop at initialization
         self.force_stop()
-        time.sleep(0.2)  # Longer delay to ensure stable neutral
+        time.sleep(0.2)
         
         # Speed constants
         self.FULL_SPEED = 1.0
@@ -84,18 +88,19 @@ class MotorController:
         self.right_motor.value = right_pwm
     
     def _apply_deadband(self, pwm: float) -> float:
-        """Apply deadband and limits with aggressive power for turning"""
+        """Apply deadband and limits with aggressive power for both directions"""
         if abs(pwm - self.NEUTRAL) < self.DEADBAND:
             return self.NEUTRAL
             
         if pwm > self.NEUTRAL:  # Forward
-            # Always use high power when moving
+            # Always use high power when moving forward
             if pwm > self.NEUTRAL + self.DEADBAND:
                 return max(self.MIN_FORWARD, min(pwm, self.MAX_FORWARD))
             return self.NEUTRAL
         else:  # Reverse
-            # Always use high power when moving
+            # Always use high power when moving reverse
             if pwm < self.NEUTRAL - self.DEADBAND:
+                # Note: For reverse, MIN is closer to neutral than MAX
                 return min(self.MIN_REVERSE, max(pwm, self.MAX_REVERSE))
             return self.NEUTRAL
     

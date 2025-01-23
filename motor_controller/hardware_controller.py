@@ -97,7 +97,7 @@ class HardwareController(Node):
         angular_z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
         
         # Scale up angular component for more responsive turning
-        angular_scale = 3.0  # Significantly increased for stronger turning
+        angular_scale = 3.0  # Strong turning effect
         angular_z = angular_z * angular_scale
         
         # Convert to differential drive
@@ -117,31 +117,24 @@ class HardwareController(Node):
         left_percent = (left_speed / self.max_linear_speed) * 100.0
         right_percent = (right_speed / self.max_linear_speed) * 100.0
         
-        # Ensure VERY high minimum power for turning
-        MIN_TURN_POWER = 90.0  # Increased to 90% power for turning
-        if abs(angular_z) > 0.05:  # Lower threshold to detect turning
-            # For pure rotation or near-pure rotation
-            if abs(linear_x) < 0.02:
-                if left_speed < 0:
-                    left_percent = -95.0  # Almost full power reverse
-                else:
-                    left_percent = 95.0   # Almost full power forward
-                    
-                if right_speed < 0:
-                    right_percent = -95.0
-                else:
-                    right_percent = 95.0
-            else:
-                # For turning while moving
-                if left_percent < 0:
-                    left_percent = min(-MIN_TURN_POWER, left_percent)
-                elif left_percent > 0:
-                    left_percent = max(MIN_TURN_POWER, left_percent)
-                    
-                if right_percent < 0:
-                    right_percent = min(-MIN_TURN_POWER, right_percent)
-                elif right_percent > 0:
-                    right_percent = max(MIN_TURN_POWER, right_percent)
+        # Ensure high minimum power for any movement
+        MIN_POWER = 90.0  # 90% minimum power
+        
+        # Handle turning with high power in both directions
+        if abs(angular_z) > 0.05:  # If turning
+            if abs(linear_x) < 0.02:  # Pure rotation
+                # Set to 95% power in appropriate directions
+                left_sign = -1 if left_speed < 0 else 1
+                right_sign = -1 if right_speed < 0 else 1
+                left_percent = left_sign * 95.0
+                right_percent = right_sign * 95.0
+            else:  # Turning while moving
+                # Maintain direction but ensure minimum power
+                for speed in [left_percent, right_percent]:
+                    if speed < 0:
+                        speed = min(-MIN_POWER, speed)
+                    elif speed > 0:
+                        speed = max(MIN_POWER, speed)
         
         # Debug logging
         self.get_logger().info(

@@ -17,10 +17,10 @@ class HardwareController(Node):
         self.declare_parameter('safety_timeout', 0.5)
         
         # PWM calibration parameters
-        self.declare_parameter('forward_min_duty', 0.09)
-        self.declare_parameter('forward_max_duty', 0.10)
-        self.declare_parameter('reverse_min_duty', 0.05)  # Closest to neutral
-        self.declare_parameter('reverse_max_duty', 0.045)  # Furthest from neutral
+        self.declare_parameter('forward_min_duty', 0.08)
+        self.declare_parameter('forward_max_duty', 0.15)  # Increased for more power
+        self.declare_parameter('reverse_min_duty', 0.07)  # Closest to neutral
+        self.declare_parameter('reverse_max_duty', 0.02)  # Furthest from neutral
         self.declare_parameter('neutral_duty', 0.075)
         self.declare_parameter('speed_exponent', 2.0)
         

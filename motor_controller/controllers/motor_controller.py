@@ -36,7 +36,7 @@ class MotorController:
             # Scale the reverse range
             normalized = (self.neutral - value) / self.neutral
             scaled = self.reverse_min + normalized * (self.reverse_max - self.reverse_min)
-            return max(min(scaled, self.reverse_min), self.reverse_max)
+            return min(max(scaled, self.reverse_max), self.reverse_min)
 
     def __del__(self):
         """Cleanup resources"""

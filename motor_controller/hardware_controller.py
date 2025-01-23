@@ -11,8 +11,8 @@ class HardwareController(Node):
         
         # Initialize motor controller
         self.motors = MotorController(
-            left_pin=self.declare_parameter('left_pin', 18).value,
-            right_pin=self.declare_parameter('right_pin', 12).value
+            left_pin=self.declare_parameter('left_pin', 12).value,
+            right_pin=self.declare_parameter('right_pin', 13).value
         )
         
         # Subscribe to wheel speed commands

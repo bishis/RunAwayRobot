@@ -136,28 +136,29 @@ class SimpleNavigationController(Node):
         max_angular_speed = self.get_parameter('max_angular_speed').value
         max_linear_speed = self.get_parameter('max_linear_speed').value
         
-        # Enhanced turning strategy with dedicated modes
-        if abs(angle_diff) > math.pi/4:  # More aggressive threshold for spot turns
-            # Pure rotation mode - counter-rotate wheels
-            cmd.angular.z = max_angular_speed * math.copysign(1, angle_diff)
-            cmd.linear.x = 0.0
-        elif abs(angle_diff) > math.pi/6:  # Moderate turning
-            # Reduced forward motion with strong turning
+        # Improved turning strategy with hysteresis and smoother transitions
+        if abs(angle_diff) > math.pi/3:  # More conservative threshold for spot turns
+            # Pure rotation mode with gentle start/stop
             cmd.angular.z = max_angular_speed * 0.8 * math.copysign(1, angle_diff)
-            cmd.linear.x = max_linear_speed * 0.2  # Minimal forward motion
+            cmd.linear.x = 0.0
+        elif abs(angle_diff) > math.pi/8:  # Wider angle for combined motion
+            # Balanced forward motion with coordinated turning
+            turn_strength = min(1.0, abs(angle_diff) / (math.pi/4))
+            cmd.angular.z = max_angular_speed * 0.6 * turn_strength * math.copysign(1, angle_diff)
+            cmd.linear.x = max_linear_speed * (1 - turn_strength * 0.8)  # Gradual speed reduction
         else:
-            # Forward-biased movement with proportional turning
-            forward_factor = math.cos(angle_diff)  # Maximum forward speed when aligned
+            # Forward-biased movement with gentle course corrections
+            forward_factor = math.cos(angle_diff)**2  # Smoother speed transition
             cmd.linear.x = max_linear_speed * forward_factor
             
-            # Enhanced proportional turning
-            turn_factor = math.sin(angle_diff) * 1.5  # More responsive turning
+            # Proportional turning with reduced sensitivity
+            turn_factor = math.sin(angle_diff) * 0.8  # Less aggressive turning
             cmd.angular.z = max_angular_speed * turn_factor
             
-            # Fine adjustment with smoother transitions
+            # Minimal course corrections near target heading
             if abs(angle_diff) > angular_tolerance:
-                cmd.angular.z = max_angular_speed * 0.6 * math.copysign(1, angle_diff)
-                cmd.linear.x *= 0.8  # Gentler speed reduction
+                cmd.angular.z = max_angular_speed * 0.4 * math.copysign(1, angle_diff)
+                cmd.linear.x *= 0.9  # Very gentle speed reduction
         
         self.cmd_vel_pub.publish(cmd)
         

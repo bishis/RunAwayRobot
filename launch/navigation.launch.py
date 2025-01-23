@@ -122,11 +122,12 @@ def generate_launch_description():
         executable='navigation_controller',
         name='navigation_controller',
         parameters=[{
-            'path_simplification_tolerance': 0.1,
-            'goal_tolerance': 0.1,
-            'angular_tolerance': 0.1,
-            'max_linear_speed': 0.1,
-            'max_angular_speed': 0.5,
+            'path_simplification_tolerance': 0.2,
+            'goal_tolerance': 0.15,
+            'angular_tolerance': 0.2,
+            'max_linear_speed': 0.08,
+            'max_angular_speed': 0.4,
+            'lookahead_distance': 0.3,
         }],
         output='screen'
     ),

@@ -18,11 +18,12 @@ class SimpleNavigationController(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         
         # Parameters
-        self.declare_parameter('path_simplification_tolerance', 0.1)  # meters
-        self.declare_parameter('goal_tolerance', 0.1)  # meters
-        self.declare_parameter('angular_tolerance', 0.1)  # radians
-        self.declare_parameter('max_linear_speed', 0.1)  # m/s
-        self.declare_parameter('max_angular_speed', 0.5)  # rad/s
+        self.declare_parameter('path_simplification_tolerance', 0.2)  # Increased tolerance
+        self.declare_parameter('goal_tolerance', 0.15)  # More forgiving goal tolerance
+        self.declare_parameter('angular_tolerance', 0.2)  # More forgiving angle tolerance
+        self.declare_parameter('max_linear_speed', 0.08)  # Slower speed for better control
+        self.declare_parameter('max_angular_speed', 0.4)  # Slower turning
+        self.declare_parameter('lookahead_distance', 0.3)  # Look ahead for smoother paths
         
         # Path handling
         self.current_path = None
@@ -33,7 +34,7 @@ class SimpleNavigationController(Node):
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
         self.path_sub = self.create_subscription(Path, 'plan', self.path_callback, 10)
         
-        # Control loop
+        # Control loop at 10Hz
         self.control_timer = self.create_timer(0.1, self.control_loop)
         
     def path_callback(self, msg: Path):
@@ -105,12 +106,14 @@ class SimpleNavigationController(Node):
         if not robot_pose:
             return
             
-        # Get current segment target
-        target = self.simplified_path[self.current_segment]
-        
-        # Calculate distance and angle to target
-        dx = target.pose.position.x - robot_pose.transform.translation.x
-        dy = target.pose.position.y - robot_pose.transform.translation.y
+        # Get lookahead point instead of immediate target
+        lookahead_point = self.get_lookahead_point(robot_pose)
+        if not lookahead_point:
+            return
+            
+        # Calculate distance and angle to lookahead point
+        dx = lookahead_point.x - robot_pose.transform.translation.x
+        dy = lookahead_point.y - robot_pose.transform.translation.y
         distance = math.sqrt(dx*dx + dy*dy)
         target_angle = math.atan2(dy, dx)
         
@@ -123,19 +126,62 @@ class SimpleNavigationController(Node):
         # Generate control commands
         cmd = Twist()
         
-        # First align with the target
+        # Smoother control logic
         if abs(angle_diff) > self.get_parameter('angular_tolerance').value:
-            cmd.angular.z = self.get_parameter('max_angular_speed').value * (angle_diff / math.pi)
-        # Then move towards it
+            # Pure rotation when angle is large
+            if abs(angle_diff) > math.pi/4:  # 45 degrees
+                cmd.angular.z = self.get_parameter('max_angular_speed').value * math.copysign(1, angle_diff)
+            else:
+                # Combined movement for smaller angles
+                cmd.angular.z = self.get_parameter('max_angular_speed').value * (angle_diff / (math.pi/4))
+                cmd.linear.x = self.get_parameter('max_linear_speed').value * (1 - abs(angle_diff)/(math.pi/4))
         else:
-            cmd.linear.x = self.get_parameter('max_linear_speed').value * min(1.0, distance)
-            cmd.angular.z = self.get_parameter('max_angular_speed').value * (angle_diff / math.pi)
+            # Move forward with small angular corrections
+            cmd.linear.x = self.get_parameter('max_linear_speed').value
+            cmd.angular.z = self.get_parameter('max_angular_speed').value * (angle_diff / (math.pi/4))
         
-        # Check if we've reached the current segment target
-        if distance < self.get_parameter('goal_tolerance').value:
-            self.current_segment += 1
-            
+        # Publish command
         self.cmd_vel_pub.publish(cmd)
+        
+        # Update segment if we're close enough to target
+        target = self.simplified_path[self.current_segment]
+        if self.distance_to_point(robot_pose, target.pose.position) < self.get_parameter('goal_tolerance').value:
+            self.current_segment += 1
+
+    def get_lookahead_point(self, robot_pose):
+        """Find a point ahead on the path for smoother following"""
+        lookahead = self.get_parameter('lookahead_distance').value
+        
+        # Start from current segment
+        cumulative_dist = 0.0
+        current_pos = robot_pose.transform.translation
+        
+        for i in range(self.current_segment, len(self.simplified_path)):
+            target = self.simplified_path[i].pose.position
+            segment_dist = math.sqrt(
+                (target.x - current_pos.x)**2 + 
+                (target.y - current_pos.y)**2
+            )
+            
+            if cumulative_dist + segment_dist >= lookahead:
+                # Interpolate to get exact lookahead point
+                ratio = (lookahead - cumulative_dist) / segment_dist
+                return type('Point', (), {
+                    'x': current_pos.x + ratio * (target.x - current_pos.x),
+                    'y': current_pos.y + ratio * (target.y - current_pos.y)
+                })
+            
+            cumulative_dist += segment_dist
+            current_pos = target
+        
+        # If we can't look ahead far enough, return the last point
+        return self.simplified_path[-1].pose.position
+
+    def distance_to_point(self, robot_pose, point):
+        """Calculate distance from robot to a point"""
+        dx = point.x - robot_pose.transform.translation.x
+        dy = point.y - robot_pose.transform.translation.y
+        return math.sqrt(dx*dx + dy*dy)
         
     def stop_robot(self):
         """Stop the robot"""

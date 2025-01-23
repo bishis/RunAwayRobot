@@ -32,11 +32,11 @@ def generate_launch_description():
                 'max_angular_speed': 1.5,     # Increased for better turning
                 'linear_threshold': 0.01,     # Lower threshold
                 'angular_threshold': 0.02,    # Lower threshold for more responsive turning
-                'forward_min_duty': 0.076,    # Lower minimum for smoother control
+                'forward_min_duty': 0.080,    # Minimum 80% power
                 'forward_max_duty': 0.100,    # Maximum forward
-                'reverse_min_duty': 0.069,    # Adjusted for turning
+                'reverse_min_duty': 0.070,    # Minimum 80% reverse
                 'neutral_duty': 0.0725,       # Neutral position
-                'speed_exponent': 1.2,        # More linear response
+                'speed_exponent': 1.0,        # Linear response for better control
             }],
             output='screen'
         ),

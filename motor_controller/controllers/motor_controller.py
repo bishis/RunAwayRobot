@@ -7,12 +7,12 @@ class MotorController:
     
     def __init__(self, left_pin: int, right_pin: int):
         """Initialize motor controller with PWM"""
-        # PWM calibration values - wider ranges for better turning
+        # PWM calibration values - adjusted for strong turning
         self.NEUTRAL = 0.0725      # Neutral position
-        self.DEADBAND = 0.001      # Reduced deadband for more responsive control
-        self.MIN_FORWARD = 0.076   # Lower minimum forward for smoother transitions
+        self.DEADBAND = 0.001      # Minimal deadband
+        self.MIN_FORWARD = 0.080   # Minimum 80% power
         self.MAX_FORWARD = 0.100   # Maximum forward
-        self.MIN_REVERSE = 0.069   # Higher minimum reverse for better turning
+        self.MIN_REVERSE = 0.070   # Minimum 80% reverse power
         self.MAX_REVERSE = 0.045   # Maximum reverse
         
         # Initialize motors at exact neutral
@@ -84,18 +84,20 @@ class MotorController:
         self.right_motor.value = right_pwm
     
     def _apply_deadband(self, pwm: float) -> float:
-        """Apply deadband and limits with hysteresis"""
+        """Apply deadband and limits with minimum power for turning"""
         if abs(pwm - self.NEUTRAL) < self.DEADBAND:
             return self.NEUTRAL
             
         if pwm > self.NEUTRAL:  # Forward
-            if pwm < self.MIN_FORWARD:
-                return self.NEUTRAL
-            return min(pwm, self.MAX_FORWARD)
+            # Ensure minimum power
+            if pwm > self.NEUTRAL + self.DEADBAND:
+                return max(self.MIN_FORWARD, min(pwm, self.MAX_FORWARD))
+            return self.NEUTRAL
         else:  # Reverse
-            if pwm > self.MIN_REVERSE:
-                return self.NEUTRAL
-            return max(pwm, self.MAX_REVERSE)
+            # Ensure minimum power
+            if pwm < self.NEUTRAL - self.DEADBAND:
+                return min(self.MIN_REVERSE, max(pwm, self.MAX_REVERSE))
+            return self.NEUTRAL
     
     def stop(self):
         """Stop motors with controlled deceleration"""

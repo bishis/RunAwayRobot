@@ -97,7 +97,7 @@ class HardwareController(Node):
         angular_z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
         
         # Scale up angular component for more responsive turning
-        angular_scale = 1.5  # Increase turning effect
+        angular_scale = 2.0  # Increased for stronger turning
         angular_z = angular_z * angular_scale
         
         # Convert to differential drive
@@ -116,6 +116,19 @@ class HardwareController(Node):
         # Convert to percentage of max speed (-100 to 100)
         left_percent = (left_speed / self.max_linear_speed) * 100.0
         right_percent = (right_speed / self.max_linear_speed) * 100.0
+        
+        # Ensure minimum power for turning
+        MIN_TURN_POWER = 80.0  # Minimum 80% power for turning
+        if abs(angular_z) > 0.1:  # If turning significantly
+            if left_percent < 0:
+                left_percent = min(-MIN_TURN_POWER, left_percent)
+            elif left_percent > 0:
+                left_percent = max(MIN_TURN_POWER, left_percent)
+                
+            if right_percent < 0:
+                right_percent = min(-MIN_TURN_POWER, right_percent)
+            elif right_percent > 0:
+                right_percent = max(MIN_TURN_POWER, right_percent)
         
         # Debug logging
         self.get_logger().info(

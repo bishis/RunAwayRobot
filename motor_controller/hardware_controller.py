@@ -87,13 +87,10 @@ class HardwareController(Node):
             return self.neutral - normalized * (self.neutral - self.reverse_min)
     
     def cmd_vel_callback(self, msg: Twist):
-        """Improved motor command handling"""
+        """Improved motor command handling with proper spot turns"""
         # Clamp velocities
         linear_x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
         angular_z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
-
-        # Reduced angular scaling for smoother turns
-        angular_z *= 1.0  # Reduced from 1.5 for more controlled turning
 
         # Differential drive calculation
         left_speed = linear_x - (angular_z * self.wheel_separation / 2.0)
@@ -103,25 +100,25 @@ class HardwareController(Node):
         left_percent = (left_speed / self.max_linear_speed) * 100.0
         right_percent = (right_speed / self.max_linear_speed) * 100.0
 
-        # Special handling for spot turns
-        if abs(angular_z) > 0.1 and abs(linear_x) < 0.01:  # Detect spot turn
-            turn_power = 80.0  # Use 80% power for turns
-            if angular_z > 0:  # Turning left
+        # Handle spot turns
+        if abs(angular_z) > 0.1 and abs(linear_x) < 0.01:
+            # Set explicit opposite wheel speeds
+            turn_power = 100.0  # Full power for turns
+            if angular_z > 0:  # Left turn
                 left_percent = -turn_power
                 right_percent = turn_power
-            else:  # Turning right
+            else:  # Right turn
                 left_percent = turn_power
                 right_percent = -turn_power
         else:
-            # Normal movement - ensure minimum power when moving
+            # Normal movement handling
             MIN_POWER = 30.0
-            if abs(left_percent) > 1.0:  # Only apply if movement is intended
+            if abs(left_percent) > 1.0:
                 left_sign = -1 if left_percent < 0 else 1
                 left_percent = left_sign * max(abs(left_percent), MIN_POWER)
-            if abs(right_percent) > 1.0:  # Only apply if movement is intended
+            if abs(right_percent) > 1.0:
                 right_sign = -1 if right_percent < 0 else 1
                 right_percent = right_sign * max(abs(right_percent), MIN_POWER)
-
         # Debug logging
         self.get_logger().info(
             f'CMD_VEL: linear={linear_x:.3f} angular={angular_z:.3f}\n'

@@ -88,34 +88,34 @@ class HardwareController(Node):
             normalized = abs(speed_percent) / 100.0
             return self.neutral - normalized * (self.neutral - self.reverse_min)
     
-    def cmd_vel_callback(self, msg: Twist):
-        """Improved motor command handling"""
-        # Clamp velocities
-        linear_x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
-        angular_z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
+def cmd_vel_callback(self, msg: Twist):
+    """Improved motor command handling"""
+    # Clamp velocities
+    linear_x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
+    angular_z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
 
-        # Reduced angular scaling for better control
-        angular_z *= 1.5  # Instead of 3.0
+    # Reduced angular scaling for better control
+    angular_z *= 1.5  # Instead of 3.0
 
-        # Differential drive calculation
-        left_speed = linear_x - (angular_z * self.wheel_separation / 2.0)
-        right_speed = linear_x + (angular_z * self.wheel_separation / 2.0)
+    # Differential drive calculation
+    left_speed = linear_x - (angular_z * self.wheel_separation / 2.0)
+    right_speed = linear_x + (angular_z * self.wheel_separation / 2.0)
 
-        # Scaling logic remains similar but with better comments...
+    # Convert to percentage of max speed (-100 to 100) FIRST!
+    left_percent = (left_speed / self.max_linear_speed) * 100.0  # ADD THIS BACK
+    right_percent = (right_speed / self.max_linear_speed) * 100.0  # ADD THIS BACK
 
-        # FIXED: Proper minimum power application
-        MIN_POWER = 30.0  # Reduced from 90% to allow finer control
-        if abs(angular_z) > 0.05:
-            # Apply minimum power directly to variables
-            if left_speed < 0:
-                left_percent = min(-MIN_POWER, left_percent)
-            elif left_speed > 0:
-                left_percent = max(MIN_POWER, left_percent)
-                
-            if right_speed < 0:
-                right_percent = min(-MIN_POWER, right_percent)
-            elif right_speed > 0:
-                right_percent = max(MIN_POWER, right_percent)
+    # FIXED: Proper minimum power application
+    MIN_POWER = 30.0
+    if abs(angular_z) > 0.05:
+        # Apply minimum power with sign preservation
+        if left_percent != 0:
+            left_sign = -1 if left_percent < 0 else 1
+            left_percent = left_sign * max(abs(left_percent), MIN_POWER)
+            
+        if right_percent != 0:
+            right_sign = -1 if right_percent < 0 else 1
+            right_percent = right_sign * max(abs(right_percent), MIN_POWER)
 
         
         # Debug logging

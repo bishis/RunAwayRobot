@@ -16,7 +16,7 @@ class MotorController:
         self.MAX_FORWARD = 0.100   # 100% maximum forward
         
         # Reverse ranges (0.0725 -> 0.045)
-        self.MIN_REVERSE = 0.055   # Stronger reverse (closer to max reverse)
+        self.MIN_REVERSE = 0.055   # Stronger reverse
         self.MAX_REVERSE = 0.045   # Maximum reverse power
         
         # Initialize motors at exact neutral
@@ -69,7 +69,7 @@ class MotorController:
         time.sleep(0.1)
     
     def set_speeds(self, left_pwm: float, right_pwm: float):
-        """Set motor speeds using PWM values with precise deadband"""
+        """Set motor speeds using PWM values with synchronized application"""
         # Apply deadband around neutral
         if abs(left_pwm - self.NEUTRAL) < self.DEADBAND:
             left_pwm = self.NEUTRAL
@@ -83,7 +83,7 @@ class MotorController:
         # Debug output for troubleshooting
         print(f"PWM values - Left: {left_pwm:.4f}, Right: {right_pwm:.4f}")
         
-        # Set motor values
+        # Set both motor values simultaneously
         self.left_motor.value = left_pwm
         self.right_motor.value = right_pwm
     
@@ -105,21 +105,11 @@ class MotorController:
             return self.NEUTRAL
     
     def stop(self):
-        """Stop motors with controlled deceleration"""
-        # Gradually move to neutral
-        current_left = self.left_motor.value
-        current_right = self.right_motor.value
-        
-        steps = 5
-        for i in range(steps):
-            left_step = current_left + (self.NEUTRAL - current_left) * (i + 1) / steps
-            right_step = current_right + (self.NEUTRAL - current_right) * (i + 1) / steps
-            self.left_motor.value = left_step
-            self.right_motor.value = right_step
-            time.sleep(0.02)
-        
-        # Final force to neutral
-        self.force_stop()
+        """Stop motors with synchronized stop"""
+        # Set both motors to neutral simultaneously
+        self.left_motor.value = self.NEUTRAL
+        self.right_motor.value = self.NEUTRAL
+        time.sleep(0.1)  # Short delay to ensure stop
     
     def __del__(self):
         """Cleanup with controlled stop"""

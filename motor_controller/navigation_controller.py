@@ -136,25 +136,28 @@ class SimpleNavigationController(Node):
         max_angular_speed = self.get_parameter('max_angular_speed').value
         max_linear_speed = self.get_parameter('max_linear_speed').value
         
-        # Determine movement mode based on angle difference
-        if abs(angle_diff) > math.pi/2:
-            # Large angle difference - rotate in place
+        # Enhanced turning strategy with dedicated modes
+        if abs(angle_diff) > math.pi/4:  # More aggressive threshold for spot turns
+            # Pure rotation mode - counter-rotate wheels
             cmd.angular.z = max_angular_speed * math.copysign(1, angle_diff)
             cmd.linear.x = 0.0
+        elif abs(angle_diff) > math.pi/6:  # Moderate turning
+            # Reduced forward motion with strong turning
+            cmd.angular.z = max_angular_speed * 0.8 * math.copysign(1, angle_diff)
+            cmd.linear.x = max_linear_speed * 0.2  # Minimal forward motion
         else:
             # Forward-biased movement with proportional turning
-            # Calculate forward speed based on angle difference
             forward_factor = math.cos(angle_diff)  # Maximum forward speed when aligned
-            cmd.linear.x = max_linear_speed * max(0.3, forward_factor)
+            cmd.linear.x = max_linear_speed * forward_factor
             
-            # Calculate turning speed - proportional to angle difference
-            turn_factor = math.sin(angle_diff)  # Smooth turning based on angle
+            # Enhanced proportional turning
+            turn_factor = math.sin(angle_diff) * 1.5  # More responsive turning
             cmd.angular.z = max_angular_speed * turn_factor
             
-            # Additional correction for fine adjustments
+            # Fine adjustment with smoother transitions
             if abs(angle_diff) > angular_tolerance:
-                cmd.angular.z = max_angular_speed * 0.7 * math.copysign(1, angle_diff)
-                cmd.linear.x *= 0.7  # Reduce speed during larger corrections
+                cmd.angular.z = max_angular_speed * 0.6 * math.copysign(1, angle_diff)
+                cmd.linear.x *= 0.8  # Gentler speed reduction
         
         self.cmd_vel_pub.publish(cmd)
         

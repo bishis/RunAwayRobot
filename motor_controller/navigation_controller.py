@@ -33,6 +33,7 @@ class SimpleNavigationController(Node):
         # Publishers/Subscribers
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
         self.path_sub = self.create_subscription(Path, 'plan', self.path_callback, 10)
+        self.simplified_path_pub = self.create_publisher(Path, 'simplified_path', 10)  # For visualization
         
         # Control loop at 10Hz
         self.control_timer = self.create_timer(0.1, self.control_loop)
@@ -45,6 +46,13 @@ class SimpleNavigationController(Node):
         self.current_path = msg
         self.simplified_path = self.simplify_path(msg.poses)
         self.current_segment = 0
+        
+        # Publish simplified path for visualization
+        simplified_path_msg = Path()
+        simplified_path_msg.header = msg.header
+        simplified_path_msg.poses = self.simplified_path
+        self.simplified_path_pub.publish(simplified_path_msg)
+        
         self.get_logger().info(f'Received new path with {len(self.simplified_path)} segments')
         
     def simplify_path(self, poses):

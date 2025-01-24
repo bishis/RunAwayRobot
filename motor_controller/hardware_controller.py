@@ -52,7 +52,7 @@ class HardwareController(Node):
         # Subscribe to navigation commands
         self.cmd_vel_sub = self.create_subscription(
             Twist,
-            'cmd_vel_publish',
+            'cmd_vel',
             self.cmd_vel_callback,
             10
         )

@@ -41,6 +41,10 @@ class ExplorationController(Node):
         # Publisher for visualization markers
         self.marker_pub = self.create_publisher(MarkerArray, 'exploration_waypoints', 10)
         
+        # Publisher for navigation goals
+        self.nav_goal_pub = self.create_publisher(PoseStamped, 'goal_pose', 10)
+        self.current_goal = None
+        
     def map_callback(self, msg):
         """Store latest map data"""
         self.current_map = msg
@@ -155,6 +159,18 @@ class ExplorationController(Node):
             marker_array.markers.append(marker)
         
         self.marker_pub.publish(marker_array)
+        
+        # Send navigation goal if we have waypoints and no current goal
+        if waypoints and not self.current_goal:
+            goal = PoseStamped()
+            goal.header.frame_id = 'map'
+            goal.header.stamp = self.get_clock().now().to_msg()
+            goal.pose.position = waypoints[0]  # Navigate to first waypoint
+            goal.pose.orientation.w = 1.0  # Default orientation
+            
+            self.current_goal = goal
+            self.nav_goal_pub.publish(goal)
+            self.get_logger().info(f'Published navigation goal: x={goal.pose.position.x:.2f}, y={goal.pose.position.y:.2f}')
 
 def main(args=None):
     rclpy.init(args=args)

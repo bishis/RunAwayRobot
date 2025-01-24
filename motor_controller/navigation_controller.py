@@ -31,7 +31,7 @@ class SimpleNavigationController(Node):
         self.current_segment = 0
         
         # Publishers/Subscribers
-        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel_publish', 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
         self.path_sub = self.create_subscription(Path, 'plan', self.path_callback, 10)
         
         # Control loop at 10Hz

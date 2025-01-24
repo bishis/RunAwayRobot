@@ -1,4 +1,5 @@
 import math
+import numpy as np
 from geometry_msgs.msg import Point, PoseStamped
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
@@ -12,14 +13,14 @@ from tf2_ros.transform_listener import TransformListener
 class WaypointGenerator(Node):
     """ROS2 node for generating and following waypoints for autonomous exploration."""
 
-    def __init__(self, robot_radius=0.2, safety_margin=0.3, num_waypoints=5):
+    def __init__(self, robot_radius=0.15, safety_margin=0.2, num_waypoints=5):
         super().__init__('waypoint_generator')
         
         # Navigation parameters
         self.robot_radius = robot_radius
         self.safety_margin = safety_margin
         self.num_waypoints = num_waypoints
-        self.min_waypoint_spacing = robot_radius * 3
+        self.min_waypoint_spacing = robot_radius * 2.5
         
         # Initialize the waypoint following client
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')

@@ -4,9 +4,9 @@ import random
 from geometry_msgs.msg import Point
 
 class PathPlanner:
-    def __init__(self, safety_radius=0.25, num_samples=200, step_size=0.2):
-        self.robot_radius = 0.17
-        self.safety_margin = 0.10
+    def __init__(self, safety_radius=0.2, num_samples=200, step_size=0.15):
+        self.robot_radius = 0.15
+        self.safety_margin = 0.08
         self.safety_radius = safety_radius
         self.num_samples = num_samples
         self.step_size = step_size
@@ -263,4 +263,4 @@ class PathPlanner:
             
         except Exception as e:
             print(f"Error finding alternative path: {str(e)}")
-            return None 
+            return None

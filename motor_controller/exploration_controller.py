@@ -42,7 +42,7 @@ class ExplorationController(Node):
         self.create_timer(1.0, self.update_exploration)  # Increased frequency to 1Hz
         
         # Publisher for visualization markers
-        self.marker_pub = self.create_publisher(MarkerArray, 'visualization_marker_array', 10)  # Changed topic to standard RViz topic
+        self.marker_pub = self.create_publisher(MarkerArray, '/marker', 10)  # Changed to more standard RViz marker topic
         
         # Navigation action client
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -172,16 +172,17 @@ class ExplorationController(Node):
             marker.pose.position = point
             marker.pose.orientation.w = 1.0
             
-            marker.scale.x = 0.3
-            marker.scale.y = 0.3
-            marker.scale.z = 0.3
-            marker.lifetime = rclpy.duration.Duration(seconds=10).to_msg()  # Markers last for 10 seconds
+            # Make markers larger and more visible
+            marker.scale.x = 0.5
+            marker.scale.y = 0.5
+            marker.scale.z = 0.5
+            marker.lifetime = rclpy.duration.Duration(seconds=30).to_msg()  # Markers last longer
             
-            # Make markers more visible
-            if i % 2 == 0:  # Frontier points in bright blue
-                marker.color = ColorRGBA(r=0.2, g=0.2, b=1.0, a=0.8)
-            else:  # Boundary points in bright green
-                marker.color = ColorRGBA(r=0.2, g=1.0, b=0.2, a=0.8)
+            # Make markers more visible with brighter colors
+            if i % 2 == 0:  # Frontier points in bright magenta
+                marker.color = ColorRGBA(r=1.0, g=0.0, b=1.0, a=1.0)
+            else:  # Boundary points in bright cyan
+                marker.color = ColorRGBA(r=0.0, g=1.0, b=1.0, a=1.0)
             
             marker_array.markers.append(marker)
         

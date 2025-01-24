@@ -53,6 +53,24 @@ class ExplorationController(Node):
         
         self.get_logger().info('Exploration Controller initialized')
         
+    def goal_response_callback(self, future):
+        """Handle navigation goal response"""
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().warn('Navigation goal rejected!')
+            self.current_goal = None
+            return
+
+        self.get_logger().info('Navigation goal accepted')
+        self._get_result_future = goal_handle.get_result_async()
+        self._get_result_future.add_done_callback(self.get_result_callback)
+        
+    def get_result_callback(self, future):
+        """Handle navigation goal result"""
+        result = future.result().result
+        self.get_logger().info('Navigation goal completed')
+        self.current_goal = None  # Clear current goal to allow new goals
+        
     def map_callback(self, msg):
         """Store latest map data"""
         self.current_map = msg
@@ -165,9 +183,10 @@ class ExplorationController(Node):
             marker.pose.position = point
             marker.pose.orientation.w = 1.0
             
-            marker.scale.x = 0.2
-            marker.scale.y = 0.2
-            marker.scale.z = 0.2
+            marker.scale.x = 0.3
+            marker.scale.y = 0.3
+            marker.scale.z = 0.3
+            marker.lifetime = rclpy.duration.Duration(seconds=5).to_msg()  # Markers last for 5 seconds
             
             # Alternate colors for frontier and boundary points
             if i % 2 == 0:  # Frontier points in blue
@@ -190,7 +209,8 @@ class ExplorationController(Node):
             goal.pose.pose.orientation.w = 1.0  # Default orientation
             
             self.current_goal = goal
-            self.nav_client.send_goal_async(goal)
+            future = self.nav_client.send_goal_async(goal)
+            future.add_done_callback(self.goal_response_callback)
             self.get_logger().info(f'Sent navigation goal: x={goal.pose.pose.position.x:.2f}, y={goal.pose.pose.position.y:.2f}')
 
 def main(args=None):

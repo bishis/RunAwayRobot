@@ -18,12 +18,12 @@ class SimpleNavigationController(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         
         # Parameters
-        self.declare_parameter('path_simplification_tolerance', 0.2)  # Less aggressive simplification
-        self.declare_parameter('goal_tolerance', 0.15)   # More precise positioning
-        self.declare_parameter('angular_tolerance', 0.2) # More precise turning
-        self.declare_parameter('max_linear_speed', 0.1)  # Keep normal speed
-        self.declare_parameter('max_angular_speed', 0.4) # Slightly slower turning for better control
-        self.declare_parameter('min_segment_length', 0.25) # Shorter segments for tight spaces
+        self.declare_parameter('path_simplification_tolerance', 0.15)  # More precise path following
+        self.declare_parameter('goal_tolerance', 0.12)   # Tighter positioning
+        self.declare_parameter('angular_tolerance', 0.15) # More precise turning
+        self.declare_parameter('max_linear_speed', 0.08)  # Slower for better control
+        self.declare_parameter('max_angular_speed', 0.5) # Faster turning for tight spaces
+        self.declare_parameter('min_segment_length', 0.2) # Even shorter segments for better precision
         
         # Path handling
         self.current_path = None

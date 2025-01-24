@@ -42,7 +42,7 @@ class ExplorationController(Node):
         self.create_timer(1.0, self.update_exploration)  # Increased frequency to 1Hz
         
         # Publisher for visualization markers
-        self.marker_pub = self.create_publisher(MarkerArray, '/marker', 10)  # Changed to more standard RViz marker topic
+        self.marker_pub = self.create_publisher(MarkerArray, '/exploration_markers', 10)  # Dedicated topic for exploration markers
         
         # Navigation action client
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -173,10 +173,10 @@ class ExplorationController(Node):
             marker.pose.orientation.w = 1.0
             
             # Make markers larger and more visible
-            marker.scale.x = 0.5
-            marker.scale.y = 0.5
-            marker.scale.z = 0.5
-            marker.lifetime = rclpy.duration.Duration(seconds=30).to_msg()  # Markers last longer
+            marker.scale.x = 0.3
+            marker.scale.y = 0.3
+            marker.scale.z = 0.3
+            marker.lifetime = rclpy.duration.Duration(seconds=60).to_msg()  # Markers last longer for better visibility
             
             # Make markers more visible with brighter colors
             if i % 2 == 0:  # Frontier points in bright magenta

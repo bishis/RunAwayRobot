@@ -102,15 +102,28 @@ class HardwareController(Node):
         left_percent = (left_speed / self.max_linear_speed) * 100.0
         right_percent = (right_speed / self.max_linear_speed) * 100.0
 
-        # Handle spot turns
-        if abs(angular_z) > 0.1 and abs(linear_x) < 0.01:
-            turn_power = 100.0
-            if angular_z > 0:  # CCW turn
-                left_percent = -turn_power
-                right_percent = turn_power
-            else:  # CW turn
-                left_percent = turn_power
-                right_percent = -turn_power
+        # Enhanced spot turn handling
+        if abs(angular_z) > 0.05:  # Lower threshold for more responsive turning
+            # Calculate turn power based on angular velocity
+            turn_power = min(100.0, abs(angular_z) / self.max_angular_speed * 100.0)
+            
+            if abs(linear_x) < 0.02:  # Pure spot turn
+                # Full differential drive for spot turns
+                if angular_z > 0:  # CCW turn
+                    left_percent = -turn_power
+                    right_percent = turn_power
+                else:  # CW turn
+                    left_percent = turn_power
+                    right_percent = -turn_power
+            else:  # Turning while moving
+                # Blend turning with forward motion
+                turn_factor = turn_power / 100.0
+                if angular_z > 0:  # CCW turn
+                    left_percent *= (1.0 - turn_factor)
+                    right_percent *= (1.0 + turn_factor)
+                else:  # CW turn
+                    left_percent *= (1.0 + turn_factor)
+                    right_percent *= (1.0 - turn_factor)
 
         # Convert to PWM values
         left_pwm = self.map_speed(left_percent)

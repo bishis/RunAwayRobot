@@ -101,6 +101,9 @@ def generate_launch_description():
             arguments=['-d', os.path.join(pkg_dir, 'config', 'nav2_view.rviz')]
         ),
 
+        # Navigation with delay
+        navigation_launch
+        
         # Exploration Controller
         Node(
             package='motor_controller',
@@ -112,6 +115,4 @@ def generate_launch_description():
             }]
         ),
 
-        # Navigation with delay
-        navigation_launch
     ])

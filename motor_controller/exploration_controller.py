@@ -17,8 +17,9 @@ class ExplorationController(Node):
     def __init__(self):
         super().__init__('exploration_controller')
         
-        # Create waypoint generator
-        self.waypoint_generator = WaypointGenerator()
+        # Create waypoint generator with explicit parameters
+        self.waypoint_generator = WaypointGenerator(robot_radius=0.15, safety_margin=0.2, num_waypoints=5)
+        self.get_logger().info('Waypoint generator initialized with radius=0.15, margin=0.2, waypoints=5')
         
         # Subscribe to map updates
         self.map_sub = self.create_subscription(
@@ -27,6 +28,7 @@ class ExplorationController(Node):
             self.map_callback,
             10
         )
+        self.get_logger().info('Subscribed to map topic')
         
         # Set up TF listener for robot pose
         self.tf_buffer = Buffer()
@@ -40,7 +42,7 @@ class ExplorationController(Node):
         self.create_timer(1.0, self.update_exploration)  # Increased frequency to 1Hz
         
         # Publisher for visualization markers
-        self.marker_pub = self.create_publisher(MarkerArray, 'marker', 10)  # Changed topic to 'marker'
+        self.marker_pub = self.create_publisher(MarkerArray, 'visualization_marker_array', 10)  # Changed topic to standard RViz topic
         
         # Navigation action client
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -129,6 +131,7 @@ class ExplorationController(Node):
             self.current_map.info.width
         )
         
+        self.get_logger().debug('Generating waypoints...')
         # Generate waypoints
         waypoints = self.waypoint_generator.generate_waypoints(
             current_pose.pose,
@@ -138,6 +141,10 @@ class ExplorationController(Node):
             self.map_to_world
         )
         
+        if not waypoints:
+            self.get_logger().warn('No waypoints generated')
+            return
+            
         self.get_logger().info(f'Generated {len(waypoints)} waypoints')
         
         # Clear old markers
@@ -165,21 +172,24 @@ class ExplorationController(Node):
             marker.pose.position = point
             marker.pose.orientation.w = 1.0
             
-            marker.scale.x = 0.2
-            marker.scale.y = 0.2
-            marker.scale.z = 0.2
+            marker.scale.x = 0.3
+            marker.scale.y = 0.3
+            marker.scale.z = 0.3
+            marker.lifetime = rclpy.duration.Duration(seconds=10).to_msg()  # Markers last for 10 seconds
             
-            # Alternate colors for frontier and boundary points
-            if i % 2 == 0:  # Frontier points in blue
-                marker.color = ColorRGBA(r=0.0, g=0.0, b=1.0, a=1.0)
-            else:  # Boundary points in green
-                marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0)
+            # Make markers more visible
+            if i % 2 == 0:  # Frontier points in bright blue
+                marker.color = ColorRGBA(r=0.2, g=0.2, b=1.0, a=0.8)
+            else:  # Boundary points in bright green
+                marker.color = ColorRGBA(r=0.2, g=1.0, b=0.2, a=0.8)
             
             marker_array.markers.append(marker)
         
         if marker_array.markers:
             self.marker_pub.publish(marker_array)
-            self.get_logger().debug('Published visualization markers')
+            self.get_logger().info(f'Published {len(marker_array.markers)} visualization markers')
+        else:
+            self.get_logger().warn('No waypoints to visualize')
         
         # Send navigation goal if we have waypoints and no current goal
         if waypoints and not self.current_goal:

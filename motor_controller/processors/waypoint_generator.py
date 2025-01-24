@@ -60,26 +60,95 @@ class WaypointGenerator(Node):
         frontiers = []
         height, width = map_data.shape
         
+        # Improved frontier detection with clustering
+        visited = np.zeros((height, width), dtype=bool)
+        min_frontier_size = 3  # Minimum frontier cluster size
+        
         for my in range(1, height-1):
             for mx in range(1, width-1):
-                if map_data[my, mx] == 0:  # Free space
-                    if self._has_unknown_neighbor(map_data, mx, my):
-                        wx, wy = map_to_world(mx, my)
+                if map_data[my, mx] == 0 and not visited[my, mx]:  # Free space
+                    frontier_cluster = []
+                    stack = [(mx, my)]
+                    
+                    while stack:
+                        cx, cy = stack.pop()
+                        if visited[cy, cx]:
+                            continue
+                            
+                        visited[cy, cx] = True
+                        has_unknown = False
+                        
+                        # Check 8-connected neighbors
+                        for dy in [-1, 0, 1]:
+                            for dx in [-1, 0, 1]:
+                                nx, ny = cx + dx, cy + dy
+                                if (0 <= ny < height and 0 <= nx < width):
+                                    if map_data[ny, nx] == -1:  # Unknown space
+                                        has_unknown = True
+                                    elif (map_data[ny, nx] == 0 and 
+                                          not visited[ny, nx]):
+                                        stack.append((nx, ny))
+                        
+                        if has_unknown:
+                            frontier_cluster.append((cx, cy))
+                    
+                    # Only add large enough frontier clusters
+                    if len(frontier_cluster) >= min_frontier_size:
+                        # Add center point of the cluster
+                        center_x = sum(x for x, _ in frontier_cluster) / len(frontier_cluster)
+                        center_y = sum(y for _, y in frontier_cluster) / len(frontier_cluster)
+                        wx, wy = map_to_world(int(center_x), int(center_y))
                         if wx is not None and wy is not None:
                             frontiers.append((wx, wy))
+        
         return frontiers
 
     def _find_boundary_points(self, map_data, map_info, map_to_world):
         boundaries = []
         height, width = map_data.shape
+        min_clearance = 3  # Minimum cells from obstacles
+        max_clearance = 8  # Maximum cells from obstacles
         
+        # Create distance transform from obstacles
+        obstacle_map = (map_data > 50).astype(np.uint8)
+        distance_map = np.zeros((height, width), dtype=np.float32)
+        
+        # Calculate distance to nearest obstacle for each cell
+        for my in range(height):
+            for mx in range(width):
+                if map_data[my, mx] == 0:  # Free space
+                    min_dist = float('inf')
+                    for dy in range(-max_clearance, max_clearance + 1):
+                        ny = my + dy
+                        if 0 <= ny < height:
+                            for dx in range(-max_clearance, max_clearance + 1):
+                                nx = mx + dx
+                                if 0 <= nx < width and obstacle_map[ny, nx]:
+                                    dist = math.sqrt(dx*dx + dy*dy)
+                                    min_dist = min(min_dist, dist)
+                    distance_map[my, mx] = min_dist
+        
+        # Find boundary points with good clearance
         for my in range(1, height-1):
             for mx in range(1, width-1):
-                if map_data[my, mx] == 0:
-                    if self._is_valid_boundary(map_data, mx, my, height, width):
+                if (map_data[my, mx] == 0 and 
+                    min_clearance <= distance_map[my, mx] <= max_clearance):
+                    # Check if point is on the boundary between open and explored space
+                    has_unknown = False
+                    for dy in [-2, -1, 0, 1, 2]:
+                        for dx in [-2, -1, 0, 1, 2]:
+                            if (0 <= my+dy < height and 0 <= mx+dx < width):
+                                if map_data[my+dy, mx+dx] == -1:
+                                    has_unknown = True
+                                    break
+                        if has_unknown:
+                            break
+                    
+                    if has_unknown:
                         wx, wy = map_to_world(mx, my)
                         if wx is not None and wy is not None:
                             boundaries.append((wx, wy))
+        
         return boundaries
 
     def _get_candidate_points(self, frontiers, boundaries, points, x, y):

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-
 import rclpy
 from rclpy.node import Node
+from rclpy.action import ActionClient
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import PoseStamped
 from visualization_msgs.msg import MarkerArray, Marker
@@ -9,6 +9,7 @@ from std_msgs.msg import ColorRGBA
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
+from nav2_msgs.action import NavigateToPose
 from .processors.waypoint_generator import WaypointGenerator
 import numpy as np
 
@@ -41,9 +42,14 @@ class ExplorationController(Node):
         # Publisher for visualization markers
         self.marker_pub = self.create_publisher(MarkerArray, 'marker', 10)  # Changed topic to 'marker'
         
-        # Publisher for navigation goals
-        self.nav_goal_pub = self.create_publisher(PoseStamped, 'goal_pose', 10)
+        # Navigation action client
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self.current_goal = None
+        
+        # Wait for navigation server
+        self.get_logger().info('Waiting for navigation action server...')
+        self.nav_client.wait_for_server()
+        self.get_logger().info('Navigation server connected!')
         
         self.get_logger().info('Exploration Controller initialized')
         
@@ -177,15 +183,15 @@ class ExplorationController(Node):
         
         # Send navigation goal if we have waypoints and no current goal
         if waypoints and not self.current_goal:
-            goal = PoseStamped()
-            goal.header.frame_id = 'map'
-            goal.header.stamp = self.get_clock().now().to_msg()
-            goal.pose.position = waypoints[0]  # Navigate to first waypoint
-            goal.pose.orientation.w = 1.0  # Default orientation
+            goal = NavigateToPose.Goal()
+            goal.pose.header.frame_id = 'map'
+            goal.pose.header.stamp = self.get_clock().now().to_msg()
+            goal.pose.pose.position = waypoints[0]  # Navigate to first waypoint
+            goal.pose.pose.orientation.w = 1.0  # Default orientation
             
             self.current_goal = goal
-            self.nav_goal_pub.publish(goal)
-            self.get_logger().info(f'Published navigation goal: x={goal.pose.position.x:.2f}, y={goal.pose.position.y:.2f}')
+            self.nav_client.send_goal_async(goal)
+            self.get_logger().info(f'Sent navigation goal: x={goal.pose.pose.position.x:.2f}, y={goal.pose.pose.position.y:.2f}')
 
 def main(args=None):
     rclpy.init(args=args)

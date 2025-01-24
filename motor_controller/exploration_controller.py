@@ -4,10 +4,13 @@ import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import PoseStamped
+from visualization_msgs.msg import MarkerArray, Marker
+from std_msgs.msg import ColorRGBA
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 from .processors.waypoint_generator import WaypointGenerator
+import numpy as np
 
 class ExplorationController(Node):
     def __init__(self):
@@ -34,6 +37,9 @@ class ExplorationController(Node):
         
         # Timer for periodic updates
         self.create_timer(5.0, self.update_exploration)
+        
+        # Publisher for visualization markers
+        self.marker_pub = self.create_publisher(MarkerArray, 'exploration_waypoints', 10)
         
     def map_callback(self, msg):
         """Store latest map data"""
@@ -120,6 +126,35 @@ class ExplorationController(Node):
         )
         
         self.get_logger().info(f'Generated {len(waypoints)} waypoints')
+        
+        # Publish visualization markers
+        marker_array = MarkerArray()
+        
+        for i, point in enumerate(waypoints):
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = 'exploration_waypoints'
+            marker.id = i
+            marker.type = Marker.SPHERE
+            marker.action = Marker.ADD
+            
+            marker.pose.position = point
+            marker.pose.orientation.w = 1.0
+            
+            marker.scale.x = 0.2
+            marker.scale.y = 0.2
+            marker.scale.z = 0.2
+            
+            # Alternate colors for frontier and boundary points
+            if i % 2 == 0:  # Frontier points in blue
+                marker.color = ColorRGBA(r=0.0, g=0.0, b=1.0, a=1.0)
+            else:  # Boundary points in green
+                marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0)
+            
+            marker_array.markers.append(marker)
+        
+        self.marker_pub.publish(marker_array)
 
 def main(args=None):
     rclpy.init(args=args)

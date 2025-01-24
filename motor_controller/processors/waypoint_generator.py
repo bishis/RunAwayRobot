@@ -12,13 +12,14 @@ from tf2_ros.transform_listener import TransformListener
 class WaypointGenerator(Node):
     """ROS2 node for generating and following waypoints for autonomous exploration."""
 
-    def __init__(self):
+    def __init__(self, robot_radius=0.2, safety_margin=0.3, num_waypoints=5):
         super().__init__('waypoint_generator')
         
         # Navigation parameters
-        self.robot_radius = 0.2  # meters
-        self.safety_margin = 0.3  # meters
-        self.num_waypoints = 5
+        self.robot_radius = robot_radius
+        self.safety_margin = safety_margin
+        self.num_waypoints = num_waypoints
+        self.min_waypoint_spacing = robot_radius * 3
         
         # Initialize the waypoint following client
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -31,11 +32,6 @@ class WaypointGenerator(Node):
         self.get_logger().info('Waiting for navigation action server...')
         self.nav_client.wait_for_server()
         self.get_logger().info('Navigation server connected!')
-
-        self.robot_radius = robot_radius
-        self.safety_margin = safety_margin
-        self.num_waypoints = num_waypoints
-        self.min_waypoint_spacing = robot_radius * 3
         
     def generate_waypoints(self, current_pose, map_data, map_info, is_valid_point, map_to_world):
         """Generate waypoints prioritizing unexplored areas and boundary mapping."""
@@ -120,23 +116,22 @@ class WaypointGenerator(Node):
     def _has_unknown_neighbor(self, map_data, mx, my):
         for dy in [-1, 0, 1]:
             for dx in [-1, 0, 1]:
-                if map_data[my+dy, mx+dx] == -1:
+                if map_data[my+dy, mx+dx] == -1:  # -1 indicates unknown space
                     return True
         return False
 
     def _is_valid_boundary(self, map_data, mx, my, height, width):
         for radius in range(2, 5):
             has_obstacle = False
-            too_close = False
             
             for dy in range(-radius, radius+1):
                 for dx in range(-radius, radius+1):
                     if (0 <= my+dy < height and 0 <= mx+dx < width):
-                        if map_data[my+dy, mx+dx] > 50:
+                        if map_data[my+dy, mx+dx] > 50:  # Occupied space
                             if radius == 2:
-                                return False
+                                return False  # Too close to obstacle
                             has_obstacle = True
             
             if has_obstacle:
-                return True
+                return True  # Found a good boundary point
         return False

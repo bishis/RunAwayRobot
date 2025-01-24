@@ -134,9 +134,11 @@ class HardwareController(Node):
         self.last_cmd_time = self.get_clock().now()
         
         # Debug logging
-        self.get_logger().debug(
-            f'Speeds: L={left_percent:.1f}% R={right_percent:.1f}% | '
-            f'PWM: L={left_pwm:.4f} R={right_pwm:.4f}'
+        self.get_logger().info(
+            f'Wheel Speeds:\n'
+            f'  Left:  {left_percent:6.1f}% ({left_speed:6.3f} m/s) PWM: {left_pwm:.4f}\n'
+            f'  Right: {right_percent:6.1f}% ({right_speed:6.3f} m/s) PWM: {right_pwm:.4f}\n'
+            f'Command: Linear: {linear_x:6.3f} m/s Angular: {angular_z:6.3f} rad/s'
         )
 
 def main(args=None):

@@ -36,18 +36,21 @@ class ExplorationController(Node):
         self.current_pose = None
         
         # Timer for periodic updates
-        self.create_timer(5.0, self.update_exploration)
+        self.create_timer(1.0, self.update_exploration)  # Increased frequency to 1Hz
         
         # Publisher for visualization markers
-        self.marker_pub = self.create_publisher(MarkerArray, 'exploration_waypoints', 10)
+        self.marker_pub = self.create_publisher(MarkerArray, 'marker', 10)  # Changed topic to 'marker'
         
         # Publisher for navigation goals
         self.nav_goal_pub = self.create_publisher(PoseStamped, 'goal_pose', 10)
         self.current_goal = None
         
+        self.get_logger().info('Exploration Controller initialized')
+        
     def map_callback(self, msg):
         """Store latest map data"""
         self.current_map = msg
+        self.get_logger().debug('Received map update')
         
     def get_robot_pose(self):
         """Get current robot pose from TF"""
@@ -59,6 +62,7 @@ class ExplorationController(Node):
             )
             pose = PoseStamped()
             pose.header.frame_id = 'map'
+            pose.header.stamp = self.get_clock().now().to_msg()
             pose.pose.position.x = transform.transform.translation.x
             pose.pose.position.y = transform.transform.translation.y
             pose.pose.orientation = transform.transform.rotation
@@ -114,8 +118,7 @@ class ExplorationController(Node):
             return
             
         # Convert map message to numpy array for processing
-        map_data = [self.current_map.data[i] for i in range(len(self.current_map.data))]
-        map_data = np.array(map_data).reshape(
+        map_data = np.array(self.current_map.data).reshape(
             self.current_map.info.height,
             self.current_map.info.width
         )
@@ -130,6 +133,16 @@ class ExplorationController(Node):
         )
         
         self.get_logger().info(f'Generated {len(waypoints)} waypoints')
+        
+        # Clear old markers
+        clear_markers = MarkerArray()
+        clear_marker = Marker()
+        clear_marker.header.frame_id = 'map'
+        clear_marker.header.stamp = self.get_clock().now().to_msg()
+        clear_marker.ns = 'exploration_waypoints'
+        clear_marker.action = Marker.DELETEALL
+        clear_markers.markers.append(clear_marker)
+        self.marker_pub.publish(clear_markers)
         
         # Publish visualization markers
         marker_array = MarkerArray()
@@ -158,7 +171,9 @@ class ExplorationController(Node):
             
             marker_array.markers.append(marker)
         
-        self.marker_pub.publish(marker_array)
+        if marker_array.markers:
+            self.marker_pub.publish(marker_array)
+            self.get_logger().debug('Published visualization markers')
         
         # Send navigation goal if we have waypoints and no current goal
         if waypoints and not self.current_goal:

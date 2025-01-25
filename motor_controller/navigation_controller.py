@@ -80,38 +80,61 @@ class SimpleNavigationController(Node):
         linear_x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
         angular_z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
 
-        # Convert to wheel velocities
-        left_speed = linear_x - (angular_z * self.wheel_separation / 2.0)
-        right_speed = linear_x + (angular_z * self.wheel_separation / 2.0)
-
-        # Convert to percentages (ensure proper direction)
-        left_percent = (left_speed / self.max_linear_speed) * 100.0
-        right_percent = (right_speed / self.max_linear_speed) * 100.0
-
-        # Enhanced spot turn handling with direction fix
-        if abs(angular_z) > self.angular_threshold:
-            turn_power = min(100.0, abs(angular_z) / self.max_angular_speed * 100.0)
-            
-            if abs(linear_x) < self.linear_threshold:  # Pure spot turn
-                if angular_z > 0:  # CCW turn
-                    left_percent = -turn_power
-                    right_percent = turn_power
-                else:  # CW turn
-                    left_percent = turn_power
-                    right_percent = -turn_power
+        # Get neutral PWM value
+        neutral = self.get_parameter('neutral_duty').value
+        forward = self.get_parameter('forward_max_duty').value
+        reverse = self.get_parameter('reverse_max_duty').value
 
         # Create wheel speeds message
         wheel_speeds = Twist()
-        wheel_speeds.linear.x = self.map_speed(left_percent)   # Left wheel
-        wheel_speeds.angular.z = self.map_speed(right_percent) # Right wheel
+
+        # Handle pure rotation
+        if abs(angular_z) > self.angular_threshold and abs(linear_x) < self.linear_threshold:
+            if angular_z > 0:  # CCW turn - left reverse, right forward
+                wheel_speeds.linear.x = reverse   # Left wheel reverse
+                wheel_speeds.angular.z = forward  # Right wheel forward
+            else:  # CW turn - left forward, right reverse
+                wheel_speeds.linear.x = forward   # Left wheel forward
+                wheel_speeds.angular.z = reverse  # Right wheel reverse
         
+        # Handle straight motion
+        elif abs(linear_x) > self.linear_threshold and abs(angular_z) < self.angular_threshold:
+            if linear_x > 0:  # Forward
+                wheel_speeds.linear.x = forward   # Left wheel forward
+                wheel_speeds.angular.z = forward  # Right wheel forward
+            else:  # Reverse
+                wheel_speeds.linear.x = reverse   # Left wheel reverse
+                wheel_speeds.angular.z = reverse  # Right wheel reverse
+        
+        # Handle combined motion (turn while moving)
+        elif abs(linear_x) > self.linear_threshold and abs(angular_z) > self.angular_threshold:
+            if linear_x > 0:  # Forward + turn
+                if angular_z > 0:  # CCW turn
+                    wheel_speeds.linear.x = neutral  # Left wheel stop
+                    wheel_speeds.angular.z = forward # Right wheel forward
+                else:  # CW turn
+                    wheel_speeds.linear.x = forward  # Left wheel forward
+                    wheel_speeds.angular.z = neutral # Right wheel stop
+            else:  # Reverse + turn
+                if angular_z > 0:  # CCW turn
+                    wheel_speeds.linear.x = reverse  # Left wheel reverse
+                    wheel_speeds.angular.z = neutral # Right wheel stop
+                else:  # CW turn
+                    wheel_speeds.linear.x = neutral  # Left wheel stop
+                    wheel_speeds.angular.z = reverse # Right wheel reverse
+        
+        # Stop if no significant motion commanded
+        else:
+            wheel_speeds.linear.x = neutral
+            wheel_speeds.angular.z = neutral
+
         # Debug logging
         self.get_logger().info(
             f'CMD_VEL Input:\n'
             f'  Linear: {linear_x:6.3f} m/s, Angular: {angular_z:6.3f} rad/s\n'
             f'Wheel Speeds:\n'
-            f'  Left:  {left_percent:6.1f}% -> PWM: {wheel_speeds.linear.x:.4f}\n'
-            f'  Right: {right_percent:6.1f}% -> PWM: {wheel_speeds.angular.z:.4f}'
+            f'  Left PWM: {wheel_speeds.linear.x:.4f}\n'
+            f'  Right PWM: {wheel_speeds.angular.z:.4f}'
         )
         
         self.wheel_speeds_pub.publish(wheel_speeds)

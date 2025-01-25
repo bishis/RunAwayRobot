@@ -31,41 +31,35 @@ class NavigationController(Node):
         self.get_logger().info('Navigation controller initialized')
 
     def cmd_vel_callback(self, msg: Twist):
-        """Convert cmd_vel to speed and turn commands"""
-        # Clamp velocities to max values
-        linear_x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
-        angular_z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
-        
-        # Convert to normalized speed and turn commands (-1 to 1)
-        speed = 0.0
-        turn = 0.0
-        
-        # Handle linear motion
-        if abs(linear_x) > self.linear_threshold:
-            speed = linear_x / self.max_linear_speed
-            
-        # Handle angular motion
-        if abs(angular_z) > self.angular_threshold:
-            turn = angular_z / self.max_angular_speed
-            
+        """Convert cmd_vel to binary servo values (-1, 0, 1)"""
         # Create wheel speeds message
         wheel_speeds = Twist()
         
-        # Convert to PWM-like values (0.05-0.10 range)
-        # For speed channel: 0.075 is neutral, 0.09 is full forward, 0.045 is full reverse
-        # For turn channel: 0.075 is neutral, 0.09 is full right, 0.045 is full left
-        wheel_speeds.linear.x = 0.075 + (speed * 0.015)  # Speed channel
-        wheel_speeds.angular.z = 0.075 + (turn * 0.015)  # Turn channel
+        # Default to neutral (0)
+        wheel_speeds.linear.x = 0.0  # Speed channel
+        wheel_speeds.angular.z = 0.0  # Turn channel
+        
+        # Handle linear motion first (forward/reverse)
+        if abs(msg.linear.x) > self.linear_threshold:
+            if msg.linear.x > 0:
+                wheel_speeds.linear.x = 1.0  # Full forward
+            else:
+                wheel_speeds.linear.x = -1.0  # Full reverse
+        
+        # Handle angular motion (turning)
+        if abs(msg.angular.z) > self.angular_threshold:
+            if msg.angular.z > 0:
+                wheel_speeds.angular.z = -1.0  # Full left turn
+            else:
+                wheel_speeds.angular.z = 1.0  # Full right turn
         
         # Debug logging
         self.get_logger().info(
             f'CMD_VEL Input:\n'
-            f'  Linear: {linear_x:6.3f} m/s, Angular: {angular_z:6.3f} rad/s\n'
-            f'Normalized Commands:\n'
-            f'  Speed: {speed:6.3f}, Turn: {turn:6.3f}\n'
-            f'PWM Output:\n'
-            f'  Speed Channel: {wheel_speeds.linear.x:.4f}\n'
-            f'  Turn Channel: {wheel_speeds.angular.z:.4f}'
+            f'  Linear: {msg.linear.x:6.3f} m/s, Angular: {msg.angular.z:6.3f} rad/s\n'
+            f'Binary Servo Output:\n'
+            f'  Speed Channel: {wheel_speeds.linear.x:4.1f} {"(FWD)" if wheel_speeds.linear.x > 0 else "(REV)" if wheel_speeds.linear.x < 0 else "(STOP)"}\n'
+            f'  Turn Channel: {wheel_speeds.angular.z:4.1f} {"(RIGHT)" if wheel_speeds.angular.z > 0 else "(LEFT)" if wheel_speeds.angular.z < 0 else "(CENTER)"}'
         )
         
         # Publish wheel speeds

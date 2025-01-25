@@ -39,19 +39,16 @@ class NavigationController(Node):
         wheel_speeds.linear.x = 0.0  # Speed channel
         wheel_speeds.angular.z = 0.0  # Turn channel
         
-        # Handle linear motion first (forward/reverse)
-        if abs(msg.linear.x) > self.linear_threshold:
-            if msg.linear.x > 0:
-                wheel_speeds.linear.x = 1.0  # Full forward
-            else:
-                wheel_speeds.linear.x = -1.0  # Full reverse
-        
-        # Handle angular motion (turning)
+        # Prioritize turning over forward motion
         if abs(msg.angular.z) > self.angular_threshold:
-            if msg.angular.z > 0:
-                wheel_speeds.angular.z = -1.0  # Full left turn
-            else:
-                wheel_speeds.angular.z = 1.0  # Full right turn
+            # Pure turning mode
+            wheel_speeds.angular.z = 1.0 if msg.angular.z < 0 else -1.0  # Right is positive
+            wheel_speeds.linear.x = 0.0  # Don't move forward while turning
+        
+        # If not turning, handle forward/reverse motion
+        elif abs(msg.linear.x) > self.linear_threshold:
+            wheel_speeds.linear.x = 1.0 if msg.linear.x > 0 else -1.0
+            wheel_speeds.angular.z = 0.0  # Ensure we're going straight
         
         # Debug logging
         self.get_logger().info(

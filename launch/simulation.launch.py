@@ -30,4 +30,12 @@ def generate_launch_description():
             name='laser_broadcaster',
             arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
         ),
+
+        # Static transform for map->odom
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='map_broadcaster',
+            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
+        ),
     ]) 

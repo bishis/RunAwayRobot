@@ -10,20 +10,7 @@ def generate_launch_description():
     
     return LaunchDescription([
         # Navigation controller
-        Node(
-            package='motor_controller',
-            executable='navigation_controller',
-            name='navigation_controller',
-            parameters=[{
-                'max_linear_speed': 0.1,
-                'max_angular_speed': 1.0,
-                'linear_threshold': 0.01,
-                'angular_threshold': 0.02,
-            }],
-            output='screen'
-        ),
-        
-        # Robot simulator instead of hardware controller
+        # Robot simulator with LIDAR
         Node(
             package='motor_controller',
             executable='robot_simulator',
@@ -32,14 +19,10 @@ def generate_launch_description():
                 'wheel_separation': 0.24,
                 'max_linear_speed': 0.1,
                 'max_angular_speed': 1.0,
+                'laser_range': 5.0,        # 5m range
+                'laser_samples': 360,      # 1-degree resolution
+                'laser_noise': 0.01,       # 1cm of noise
             }],
             output='screen'
-        ),
-
-        # Include navigation stack
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([
-                os.path.join(pkg_dir, 'launch', 'navigation.launch.py')
-            ])
         ),
     ]) 

@@ -22,9 +22,9 @@ class SimpleNavigationController(Node):
         self.declare_parameter('speed_exponent', 2.0)
         
         # PWM parameters needed for mapping speeds
-        self.declare_parameter('forward_max_duty', 0.10)
+        self.declare_parameter('forward_max_duty', 0.09)
         self.declare_parameter('forward_min_duty', 0.09)
-        self.declare_parameter('reverse_max_duty', 0.04)
+        self.declare_parameter('reverse_max_duty', 0.045)
         self.declare_parameter('reverse_min_duty', 0.045)
         self.declare_parameter('neutral_duty', 0.075)
         
@@ -132,20 +132,20 @@ class SimpleNavigationController(Node):
         )
 
     def map_speed(self, speed_percent: float) -> float:
-        """Convert speed percentage to PWM value"""
+        """Convert speed percentage to PWM value using full min-max range"""
         if abs(speed_percent) < 0.5:
             return self.get_parameter('neutral_duty').value
             
         normalized = abs(speed_percent) / 100.0
         
         if speed_percent > 0:  # Forward
-            return self.get_parameter('neutral_duty').value + \
-                   normalized * (self.get_parameter('forward_max_duty').value - 
-                               self.get_parameter('neutral_duty').value)
+            min_duty = self.get_parameter('forward_min_duty').value
+            max_duty = self.get_parameter('forward_max_duty').value
+            return min_duty + normalized * (max_duty - min_duty)
         else:  # Reverse
-            return self.get_parameter('neutral_duty').value - \
-                   normalized * (self.get_parameter('neutral_duty').value - 
-                               self.get_parameter('reverse_max_duty').value)
+            min_duty = self.get_parameter('reverse_min_duty').value
+            max_duty = self.get_parameter('reverse_max_duty').value
+            return max_duty + normalized * (min_duty - max_duty)  # Note: reverse values are smaller numbers
 
 def main(args=None):
     rclpy.init(args=args)

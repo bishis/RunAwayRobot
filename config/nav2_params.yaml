@@ -77,10 +77,10 @@ controller_server:
       max_vel_x: 0.1
       min_vel_y: 0.0
       max_vel_y: 0.0
-      max_vel_theta: 0.5
+      max_vel_theta: 1.0
       min_speed_xy: 0.0
       max_speed_xy: 0.1
-      min_speed_theta: 0.0
+      min_speed_theta: -1.0
       acc_lim_x: 0.1
       acc_lim_y: 0.0
       acc_lim_theta: 0.2
@@ -90,17 +90,17 @@ controller_server:
       vx_samples: 8
       vy_samples: 0
       vtheta_samples: 10
-      sim_time: 1.0
+      sim_time: 1.5
       path_distance_bias: 32.0
       goal_distance_bias: 20.0
-      occdist_scale: 0.02
+      occdist_scale: 0.1
       twirling_scale: 0.0
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.5
+      BaseObstacle.scale: 0.8
       PathAlign.scale: 32.0
-      GoalAlign.scale: 20.0
+      GoalAlign.scale: 24.0
       PathDist.scale: 32.0
-      GoalDist.scale: 20.0
+      GoalDist.scale: 24.0
       publish_cost_grid_pc: true
       publish_evaluation: true
       publish_global_plan: true
@@ -114,7 +114,10 @@ controller_server:
       prune_distance: 1.0
       xy_goal_tolerance: 0.25
       transform_tolerance: 0.5
-      obstacle_footprint_padding: 0.02
+      obstacle_footprint_padding: 0.05
+      use_dwa: true
+      discretize_by_time: true
+      time_granularity: 0.5
 
 planner_server:
   ros__parameters:
@@ -250,30 +253,46 @@ collision_monitor:
     base_frame_id: "base_link"
     odom_frame_id: "odom"
     observation_sources: ["scan"]
+    
+    # Polygon parameters for robot footprint
+    polygons: ["robot_footprint"]
+    robot_footprint:
+      type: "polygon"
+      points: "[[-0.13, -0.13], [-0.13, 0.13], [0.13, 0.13], [0.13, -0.13]]"  # 13cm radius square approximation
+      action_type: "stop"  # Options: "stop", "slowdown", "limit"
+      min_points: 3
+      visualize: true
+      enabled: true
 
-    # Add polygon parameters
-    polygons: ["base_footprint"] # List of polygons to monitor
+    # Scan configuration
     scan:
       type: "scan"
       topic: "/scan"
-      min_height: 0.0
-      max_height: 2.0
-      obstacle_range: 0.6
-      raytrace_range: 0.8
-      observation_persistence: 0.5
+      min_height: 0.05
+      max_height: 0.5
+      obstacle_range: 0.5      # Detect obstacles up to 0.5m
+      raytrace_range: 1.0     # Clear space up to 1m
+      observation_persistence: 0.0  # How long to keep obstacle points
       inf_is_valid: false
       marking: true
       clearing: true
       data_type: "LaserScan"
-    stop_on_collision: true
-    polygon_height: 0.5
-    base_footprint:
-      type: "polygon"
-      points: "[[-0.10, -0.10], [-0.10, 0.10], [0.10, 0.10], [0.10, -0.10]]"
-      action_type: "stop"
-      min_points: 2
-      visualize: true
-      enabled: true
-    footprint_topic: "/local_costmap/published_footprint"
+
+    # Collision checking parameters
+    stop_on_collision: true          # Stop robot when collision detected
+    scan_obstacle_range: 0.5         # Maximum range to check for obstacles
+    slowdown_radius: 0.3             # Start slowing at this distance
+    approach_velocity_scaling: 0.5    # Scale velocity when approaching obstacles
+    collision_range: 0.15            # Emergency stop distance (slightly larger than robot radius)
+    
+    # Publishing parameters
     publish_rate: 10.0
+    observation_points_per_scan: 2
+    velocity_scaling_factor: 0.8      # Global scaling of velocities
+    min_velocity_scaling: 0.3         # Minimum velocity scaling when near obstacles
+    
+    # Footprint parameters
+    footprint_topic: "/local_costmap/published_footprint"
+    base_frame_id: "base_link"
+    transform_tolerance: 0.5
 

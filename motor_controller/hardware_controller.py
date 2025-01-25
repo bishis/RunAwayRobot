@@ -57,7 +57,14 @@ class HardwareController(Node):
 
     def wheel_speeds_callback(self, msg: Twist):
         """Set motor speeds directly from wheel_speeds topic"""
-        self.motors.set_speeds(msg.linear.x, msg.angular.z)  # Using linear.x for left, angular.z for right
+        self.get_logger().info(
+            f'Received wheel speeds:\n'
+            f'  Left PWM: {msg.linear.x:.4f}\n'
+            f'  Right PWM: {msg.angular.z:.4f}'
+        )
+        
+        # Set motor speeds
+        self.motors.set_speeds(msg.linear.x, msg.angular.z)
         self.last_cmd_time = self.get_clock().now()
 
 def main(args=None):

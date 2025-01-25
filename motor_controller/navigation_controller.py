@@ -76,6 +76,13 @@ class SimpleNavigationController(Node):
 
     def cmd_vel_callback(self, msg: Twist):
         """Convert Twist commands to wheel speeds"""
+        # Log incoming command
+        self.get_logger().info(
+            f'Received cmd_vel:\n'
+            f'  Linear: {msg.linear.x:6.3f} m/s\n'
+            f'  Angular: {msg.angular.z:6.3f} rad/s'
+        )
+
         # Clamp input values
         linear_x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
         angular_z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
@@ -116,9 +123,9 @@ class SimpleNavigationController(Node):
         # Publish wheel speeds
         self.wheel_speeds_pub.publish(wheel_speeds)
         
-        # Debug logging
-        self.get_logger().debug(
-            f'Wheel Speeds:\n'
+        # Move publish logging from debug to info level
+        self.get_logger().info(
+            f'Publishing wheel speeds:\n'
             f'  Left:  {left_percent:6.1f}% PWM: {wheel_speeds.linear.x:.4f}\n'
             f'  Right: {right_percent:6.1f}% PWM: {wheel_speeds.angular.z:.4f}\n'
             f'Command: Linear: {linear_x:6.3f} m/s Angular: {angular_z:6.3f} rad/s'

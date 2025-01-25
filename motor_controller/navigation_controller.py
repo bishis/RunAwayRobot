@@ -75,65 +75,55 @@ class SimpleNavigationController(Node):
             return None
 
     def cmd_vel_callback(self, msg: Twist):
-        """Convert Twist commands to wheel speeds"""
+        """Convert Twist commands to wheel speeds using binary control"""
         # Clamp input values
         linear_x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
         angular_z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
 
         # Get PWM values
         neutral = self.get_parameter('neutral_duty').value
-        forward_min = self.get_parameter('forward_min_duty').value
-        forward_max = self.get_parameter('forward_max_duty').value
-        reverse_min = self.get_parameter('reverse_min_duty').value
-        reverse_max = self.get_parameter('reverse_max_duty').value
+        forward = self.get_parameter('forward_min_duty').value  # Use min values for consistent speed
+        reverse = self.get_parameter('reverse_min_duty').value
 
         # Create wheel speeds message
         wheel_speeds = Twist()
 
-        # Handle pure rotation
-        if abs(angular_z) > self.angular_threshold and abs(linear_x) < self.linear_threshold:
-            if angular_z > 0:  # CCW turn - left reverse, right forward
-                wheel_speeds.linear.x = reverse_max   # Left wheel reverse max (smaller value)
-                wheel_speeds.angular.z = forward_max  # Right wheel forward max
-            else:  # CW turn - left forward, right reverse
-                wheel_speeds.linear.x = forward_max   # Left wheel forward max
-                wheel_speeds.angular.z = reverse_max  # Right wheel reverse max (smaller value)
-        
-        # Handle straight motion
-        elif abs(linear_x) > self.linear_threshold and abs(angular_z) < self.angular_threshold:
-            if linear_x > 0:  # Forward
-                # Scale between min and max based on speed
-                scale = abs(linear_x) / self.max_linear_speed
-                pwm = forward_min + scale * (forward_max - forward_min)
-                wheel_speeds.linear.x = pwm   # Left wheel
-                wheel_speeds.angular.z = pwm  # Right wheel
-            else:  # Reverse - use reverse_max (smaller value) for stronger reverse
-                scale = abs(linear_x) / self.max_linear_speed
-                pwm = reverse_min + scale * (reverse_max - reverse_min)  # Note: reverse_max is smaller than reverse_min
-                wheel_speeds.linear.x = pwm   # Left wheel
-                wheel_speeds.angular.z = pwm  # Right wheel
-        
-        # Handle combined motion (turn while moving)
-        elif abs(linear_x) > self.linear_threshold and abs(angular_z) > self.angular_threshold:
-            if linear_x > 0:  # Forward + turn
-                if angular_z > 0:  # CCW turn
-                    wheel_speeds.linear.x = forward_min  # Left wheel forward min
-                    wheel_speeds.angular.z = forward_max # Right wheel forward max
-                else:  # CW turn
-                    wheel_speeds.linear.x = forward_max  # Left wheel forward max
-                    wheel_speeds.angular.z = forward_min # Right wheel forward min
-            else:  # Reverse + turn
-                if angular_z > 0:  # CCW turn
-                    wheel_speeds.linear.x = reverse_max  # Left wheel reverse max (smaller value)
-                    wheel_speeds.angular.z = reverse_min # Right wheel reverse min
-                else:  # CW turn
-                    wheel_speeds.linear.x = reverse_min  # Left wheel reverse min
-                    wheel_speeds.angular.z = reverse_max # Right wheel reverse max (smaller value)
-        
-        # Stop if no significant motion commanded
-        else:
-            wheel_speeds.linear.x = neutral
-            wheel_speeds.angular.z = neutral
+        # Binary control strategy:
+        # For turning, one wheel moves while the other stops
+        # For straight motion, both wheels move at the same speed
+        # For spot turns, wheels move in opposite directions
+
+        if abs(angular_z) > self.angular_threshold:  # Turning is priority
+            if angular_z > 0:  # CCW turn
+                if linear_x > self.linear_threshold:  # Forward + left turn
+                    wheel_speeds.linear.x = neutral    # Left wheel stop
+                    wheel_speeds.angular.z = forward   # Right wheel forward
+                elif linear_x < -self.linear_threshold:  # Reverse + left turn
+                    wheel_speeds.linear.x = reverse    # Left wheel reverse
+                    wheel_speeds.angular.z = neutral   # Right wheel stop
+                else:  # Spot turn CCW
+                    wheel_speeds.linear.x = reverse    # Left wheel reverse
+                    wheel_speeds.angular.z = forward   # Right wheel forward
+            else:  # CW turn
+                if linear_x > self.linear_threshold:  # Forward + right turn
+                    wheel_speeds.linear.x = forward    # Left wheel forward
+                    wheel_speeds.angular.z = neutral   # Right wheel stop
+                elif linear_x < -self.linear_threshold:  # Reverse + right turn
+                    wheel_speeds.linear.x = neutral    # Left wheel stop
+                    wheel_speeds.angular.z = reverse   # Right wheel reverse
+                else:  # Spot turn CW
+                    wheel_speeds.linear.x = forward    # Left wheel forward
+                    wheel_speeds.angular.z = reverse   # Right wheel reverse
+        else:  # Straight motion
+            if linear_x > self.linear_threshold:  # Forward
+                wheel_speeds.linear.x = forward    # Left wheel forward
+                wheel_speeds.angular.z = forward   # Right wheel forward
+            elif linear_x < -self.linear_threshold:  # Reverse
+                wheel_speeds.linear.x = reverse    # Left wheel reverse
+                wheel_speeds.angular.z = reverse   # Right wheel reverse
+            else:  # Stop
+                wheel_speeds.linear.x = neutral
+                wheel_speeds.angular.z = neutral
 
         # Debug logging
         self.get_logger().info(

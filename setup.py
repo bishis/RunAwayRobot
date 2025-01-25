@@ -30,6 +30,7 @@ setup(
             'navigation_controller = motor_controller.navigation_controller:main',
             'nav2_hardware_bridge = motor_controller.nav2_hardware_bridge:main',
             'exploration_controller = motor_controller.exploration_controller:main',
+            'robot_simulator = motor_controller.robot_simulator:main',
         ],
     },
 )

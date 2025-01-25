@@ -66,6 +66,9 @@
   <!-- Add these dependencies -->
   <depend>gazebo_ros</depend>
   <depend>gazebo_ros_pkgs</depend>
+  <depend>gazebo_plugins</depend>
   <depend>robot_state_publisher</depend>
+  <depend>joint_state_publisher</depend>
   <depend>xacro</depend>
+  <exec_depend>gazebo</exec_depend>
 </package> 

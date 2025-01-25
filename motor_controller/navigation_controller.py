@@ -93,11 +93,11 @@ class SimpleNavigationController(Node):
         # Handle pure rotation
         if abs(angular_z) > self.angular_threshold and abs(linear_x) < self.linear_threshold:
             if angular_z > 0:  # CCW turn - left reverse, right forward
-                wheel_speeds.linear.x = reverse_min   # Left wheel reverse min
+                wheel_speeds.linear.x = reverse_max   # Left wheel reverse max (smaller value)
                 wheel_speeds.angular.z = forward_max  # Right wheel forward max
             else:  # CW turn - left forward, right reverse
                 wheel_speeds.linear.x = forward_max   # Left wheel forward max
-                wheel_speeds.angular.z = reverse_min  # Right wheel reverse min
+                wheel_speeds.angular.z = reverse_max  # Right wheel reverse max (smaller value)
         
         # Handle straight motion
         elif abs(linear_x) > self.linear_threshold and abs(angular_z) < self.angular_threshold:
@@ -107,10 +107,9 @@ class SimpleNavigationController(Node):
                 pwm = forward_min + scale * (forward_max - forward_min)
                 wheel_speeds.linear.x = pwm   # Left wheel
                 wheel_speeds.angular.z = pwm  # Right wheel
-            else:  # Reverse
-                # Scale between min and max based on speed
+            else:  # Reverse - use reverse_max (smaller value) for stronger reverse
                 scale = abs(linear_x) / self.max_linear_speed
-                pwm = reverse_max + scale * (reverse_min - reverse_max)
+                pwm = reverse_min + scale * (reverse_max - reverse_min)  # Note: reverse_max is smaller than reverse_min
                 wheel_speeds.linear.x = pwm   # Left wheel
                 wheel_speeds.angular.z = pwm  # Right wheel
         
@@ -125,11 +124,11 @@ class SimpleNavigationController(Node):
                     wheel_speeds.angular.z = forward_min # Right wheel forward min
             else:  # Reverse + turn
                 if angular_z > 0:  # CCW turn
-                    wheel_speeds.linear.x = reverse_min  # Left wheel reverse min
-                    wheel_speeds.angular.z = reverse_max # Right wheel reverse max
-                else:  # CW turn
-                    wheel_speeds.linear.x = reverse_max  # Left wheel reverse max
+                    wheel_speeds.linear.x = reverse_max  # Left wheel reverse max (smaller value)
                     wheel_speeds.angular.z = reverse_min # Right wheel reverse min
+                else:  # CW turn
+                    wheel_speeds.linear.x = reverse_min  # Left wheel reverse min
+                    wheel_speeds.angular.z = reverse_max # Right wheel reverse max (smaller value)
         
         # Stop if no significant motion commanded
         else:

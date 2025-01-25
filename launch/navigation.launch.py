@@ -121,20 +121,12 @@ def generate_launch_description():
         package='motor_controller',
         executable='navigation_controller',
         name='navigation_controller',
-        parameters=[{
-            'wheel_separation': 0.24,
-            'max_linear_speed': 0.1,
-            'max_angular_speed': 1.0,
-            'linear_threshold': 0.05,
-            'angular_threshold': 0.1,
-            'speed_exponent': 2.0,
-            # PWM parameters
-            'forward_max_duty': 0.10,
-            'forward_min_duty': 0.09,
-            'reverse_max_duty': 0.045,
-            'reverse_min_duty': 0.05,
-            'neutral_duty': 0.075,
-        }],
+            parameters=[{
+                'max_linear_speed': 0.1,      # Max 0.1 m/s
+                'max_angular_speed': 1.0,     # Max 1.0 rad/s
+                'linear_threshold': 0.01,     # Small threshold for better response
+                'angular_threshold': 0.02,    # Small threshold for better turning
+            }],
         output='screen'
     )
 

@@ -10,21 +10,21 @@ class HardwareController(Node):
         super().__init__('hardware_controller')
         
         # Parameters
-        self.declare_parameter('left_motor_pin', 17)
-        self.declare_parameter('right_motor_pin', 18)
+        self.declare_parameter('speed_channel_pin', 12)  # Changed from left_motor_pin
+        self.declare_parameter('turn_channel_pin', 13)   # Changed from right_motor_pin
         self.declare_parameter('max_linear_speed', 0.1)  # m/s
         self.declare_parameter('max_angular_speed', 1.0)  # rad/s
         
         # Get parameters
-        left_pin = self.get_parameter('left_motor_pin').value
-        right_pin = self.get_parameter('right_motor_pin').value
+        speed_pin = self.get_parameter('speed_channel_pin').value
+        turn_pin = self.get_parameter('turn_channel_pin').value
         self.max_linear_speed = self.get_parameter('max_linear_speed').value
         self.max_angular_speed = self.get_parameter('max_angular_speed').value
         
         # Initialize motor controller with servo control
         self.motor_controller = MotorController(
-            left_pin=left_pin,
-            right_pin=right_pin,
+            speed_pin=speed_pin,
+            turn_pin=turn_pin,
             neutral=0.0  # Servo neutral position
         )
         
@@ -44,17 +44,18 @@ class HardwareController(Node):
         left_speed = (msg.linear.x - 0.075) * 40  # Convert from PWM to -1 to 1
         right_speed = (msg.angular.z - 0.075) * 40
         
-        # Set motor speeds
-        self.motor_controller.set_speeds(
-            linear=(left_speed + right_speed) / 2.0,  # Average for linear motion
-            angular=(right_speed - left_speed) / 2.0   # Difference for turning
-        )
+        # Calculate linear and angular components
+        linear = (left_speed + right_speed) / 2.0    # Average for forward/reverse
+        angular = (right_speed - left_speed) / 2.0   # Difference for turning
+        
+        # Set motor speeds using channels
+        self.motor_controller.set_speeds(linear, angular)
         
         # Debug logging
         self.get_logger().info(
             f'Motor Speeds:\n'
-            f'  Left: {left_speed:.3f}\n'
-            f'  Right: {right_speed:.3f}'
+            f'  Linear: {linear:.3f}\n'
+            f'  Angular: {angular:.3f}'
         )
 
     def destroy_node(self):

@@ -57,7 +57,7 @@ controller_server:
     heartbeat_interval: 0.1
     heartbeat_timeout: 5.0
 
-    # More stable progress checker
+    # Progress checker
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.1
@@ -70,22 +70,19 @@ controller_server:
       yaw_goal_tolerance: 0.5
       stateful: true
 
+    # DWB parameters
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
-      debug_trajectory_details: true
       
-      # Adjusted velocity limits for easier trajectory finding
+      # Velocity limits adjusted for Sabertooth channels
       min_vel_x: -0.05
       max_vel_x: 0.05
       min_vel_y: 0.0
       max_vel_y: 0.0
-      max_vel_theta: 0.8
-      min_vel_theta: -0.8
-      min_speed_xy: 0.0
-      max_speed_xy: 0.05
-      min_speed_theta: 0.0
+      max_vel_theta: 0.5
+      min_vel_theta: -0.5
       
-      # Gentler acceleration limits
+      # Acceleration limits
       acc_lim_x: 0.1
       acc_lim_y: 0.0
       acc_lim_theta: 0.3
@@ -93,28 +90,14 @@ controller_server:
       decel_lim_y: 0.0
       decel_lim_theta: -0.3
       
-      # Increased sampling for better trajectory finding
-      vx_samples: 8
-      vy_samples: 0
-      vtheta_samples: 10
-      sim_time: 1.0
-      discretize_by_time: true
-      time_granularity: 0.5
-      
-      # Adjusted weights for better path following
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.4
-      PathAlign.scale: 64.0
-      GoalAlign.scale: 32.0
-      PathDist.scale: 64.0
-      GoalDist.scale: 32.0
-      path_distance_bias: 64.0
+      # Path following parameters
+      path_distance_bias: 32.0
       goal_distance_bias: 24.0
-      occdist_scale: 0.1
+      occdist_scale: 0.02
       
-      # More lenient tolerances
-      xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 0.5
+      # More conservative tolerances
+      xy_goal_tolerance: 0.1
+      yaw_goal_tolerance: 0.1
       trans_stopped_velocity: 0.01
       theta_stopped_velocity: 0.01
       

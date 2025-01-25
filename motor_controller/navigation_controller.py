@@ -76,13 +76,6 @@ class SimpleNavigationController(Node):
 
     def cmd_vel_callback(self, msg: Twist):
         """Convert Twist commands to wheel speeds"""
-        # Log incoming command
-        self.get_logger().info(
-            f'Received cmd_vel:\n'
-            f'  Linear: {msg.linear.x:6.3f} m/s\n'
-            f'  Angular: {msg.angular.z:6.3f} rad/s'
-        )
-
         # Clamp input values
         linear_x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
         angular_z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
@@ -91,11 +84,11 @@ class SimpleNavigationController(Node):
         left_speed = linear_x - (angular_z * self.wheel_separation / 2.0)
         right_speed = linear_x + (angular_z * self.wheel_separation / 2.0)
 
-        # Convert to percentages
+        # Convert to percentages (ensure proper direction)
         left_percent = (left_speed / self.max_linear_speed) * 100.0
         right_percent = (right_speed / self.max_linear_speed) * 100.0
 
-        # Enhanced spot turn handling
+        # Enhanced spot turn handling with direction fix
         if abs(angular_z) > self.angular_threshold:
             turn_power = min(100.0, abs(angular_z) / self.max_angular_speed * 100.0)
             
@@ -106,30 +99,22 @@ class SimpleNavigationController(Node):
                 else:  # CW turn
                     left_percent = turn_power
                     right_percent = -turn_power
-            else:  # Turning while moving
-                turn_factor = turn_power / 100.0
-                if angular_z > 0:  # CCW turn
-                    left_percent *= (1.0 - turn_factor)
-                    right_percent *= (1.0 + turn_factor)
-                else:  # CW turn
-                    left_percent *= (1.0 + turn_factor)
-                    right_percent *= (1.0 - turn_factor)
 
         # Create wheel speeds message
         wheel_speeds = Twist()
         wheel_speeds.linear.x = self.map_speed(left_percent)   # Left wheel
         wheel_speeds.angular.z = self.map_speed(right_percent) # Right wheel
         
-        # Publish wheel speeds
-        self.wheel_speeds_pub.publish(wheel_speeds)
-        
-        # Move publish logging from debug to info level
+        # Debug logging
         self.get_logger().info(
-            f'Publishing wheel speeds:\n'
-            f'  Left:  {left_percent:6.1f}% PWM: {wheel_speeds.linear.x:.4f}\n'
-            f'  Right: {right_percent:6.1f}% PWM: {wheel_speeds.angular.z:.4f}\n'
-            f'Command: Linear: {linear_x:6.3f} m/s Angular: {angular_z:6.3f} rad/s'
+            f'CMD_VEL Input:\n'
+            f'  Linear: {linear_x:6.3f} m/s, Angular: {angular_z:6.3f} rad/s\n'
+            f'Wheel Speeds:\n'
+            f'  Left:  {left_percent:6.1f}% -> PWM: {wheel_speeds.linear.x:.4f}\n'
+            f'  Right: {right_percent:6.1f}% -> PWM: {wheel_speeds.angular.z:.4f}'
         )
+        
+        self.wheel_speeds_pub.publish(wheel_speeds)
 
     def map_speed(self, speed_percent: float) -> float:
         """Convert speed percentage to PWM value using full min-max range"""
@@ -137,15 +122,14 @@ class SimpleNavigationController(Node):
             return self.get_parameter('neutral_duty').value
             
         normalized = abs(speed_percent) / 100.0
+        neutral = self.get_parameter('neutral_duty').value
         
         if speed_percent > 0:  # Forward
-            min_duty = self.get_parameter('forward_min_duty').value
-            max_duty = self.get_parameter('forward_max_duty').value
-            return min_duty + normalized * (max_duty - min_duty)
+            # Forward: go from neutral to forward_max
+            return neutral + normalized * (self.get_parameter('forward_max_duty').value - neutral)
         else:  # Reverse
-            min_duty = self.get_parameter('reverse_min_duty').value
-            max_duty = self.get_parameter('reverse_max_duty').value
-            return max_duty + normalized * (min_duty - max_duty)  # Note: reverse values are smaller numbers
+            # Reverse: go from neutral to reverse_max
+            return neutral - normalized * (neutral - self.get_parameter('reverse_max_duty').value)
 
 def main(args=None):
     rclpy.init(args=args)

@@ -3,7 +3,6 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from gpiozero import Servo
-from gpiozero.pins.pigpio import PiGPIOFactory
 import time
 
 class MotorController:
@@ -14,12 +13,10 @@ class MotorController:
         self.max_pulse_width = 2.0 / 1000  # 2ms full forward/right
 
         # Use pigpio for better PWM accuracy
-        factory = PiGPIOFactory()
 
         # Initialize servo objects for the Sabertooth channels
         self.speed_channel = Servo(
             pin=speed_pin,  # Controls forward/reverse
-            pin_factory=factory,
             min_pulse_width=self.min_pulse_width,
             max_pulse_width=self.max_pulse_width,
             frame_width=20 / 1000  # Standard 20ms frame
@@ -27,7 +24,6 @@ class MotorController:
 
         self.turn_channel = Servo(
             pin=turn_pin,  # Controls left/right turning
-            pin_factory=factory,
             min_pulse_width=self.min_pulse_width,
             max_pulse_width=self.max_pulse_width,
             frame_width=20 / 1000

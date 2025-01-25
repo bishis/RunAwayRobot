@@ -7,6 +7,20 @@ def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
     
     return LaunchDescription([
+        # Navigation controller to handle cmd_vel
+        Node(
+            package='motor_controller',
+            executable='navigation_controller',
+            name='navigation_controller',
+            parameters=[{
+                'max_linear_speed': 0.1,
+                'max_angular_speed': 1.0,
+                'linear_threshold': 0.01,
+                'angular_threshold': 0.02,
+            }],
+            output='screen'
+        ),
+
         # Robot simulator with LIDAR
         Node(
             package='motor_controller',

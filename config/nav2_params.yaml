@@ -73,51 +73,47 @@ controller_server:
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: true
-      min_vel_x: -0.025
+      min_vel_x: -0.1
       max_vel_x: 0.1
       min_vel_y: 0.0
       max_vel_y: 0.0
-      max_vel_theta: 1.0
+      max_vel_theta: 0.5
       min_speed_xy: 0.0
       max_speed_xy: 0.1
       min_speed_theta: 0.0
-      acc_lim_x: 0.5
+      acc_lim_x: 0.1
       acc_lim_y: 0.0
-      acc_lim_theta: 1.0
-      decel_lim_x: -0.5
+      acc_lim_theta: 0.2
+      decel_lim_x: -0.1
       decel_lim_y: 0.0
-      decel_lim_theta: -1.0
-      vx_samples: 10
+      decel_lim_theta: -0.2
+      vx_samples: 8
       vy_samples: 0
-      vtheta_samples: 20
-      sim_time: 1.5
-      linear_granularity: 0.05
-      angular_granularity: 0.025
-      transform_tolerance: 0.2
-      xy_goal_tolerance: 0.15
-      trans_stopped_velocity: 0.025
-      short_circuit_trajectory_evaluation: true
-      stateful: true
+      vtheta_samples: 10
+      sim_time: 1.0
+      path_distance_bias: 32.0
+      goal_distance_bias: 20.0
+      occdist_scale: 0.02
+      twirling_scale: 0.0
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.02
+      BaseObstacle.scale: 0.5
       PathAlign.scale: 32.0
-      GoalAlign.scale: 24.0
+      GoalAlign.scale: 20.0
       PathDist.scale: 32.0
-      GoalDist.scale: 24.0
-      RotateToGoal.scale: 32.0
+      GoalDist.scale: 20.0
       publish_cost_grid_pc: true
       publish_evaluation: true
       publish_global_plan: true
       publish_local_plan: true
       publish_trajectories: true
       publish_transformed_plan: true
-      path_distance_bias: 32.0
-      goal_distance_bias: 20.0
-      occdist_scale: 0.02
-      twirling_scale: 0.0
+      trans_stopped_velocity: 0.05
+      theta_stopped_velocity: 0.05
       path_max_discard_length: 0.5
       prune_plan: true
       prune_distance: 1.0
+      xy_goal_tolerance: 0.25
+      transform_tolerance: 0.5
       obstacle_footprint_padding: 0.02
 
 planner_server:
@@ -176,15 +172,21 @@ local_costmap:
     global_frame: odom
     robot_base_frame: base_link
     rolling_window: true
-    width: 3
-    height: 3
+    width: 2
+    height: 2
     resolution: 0.05
-    footprint: "[[0.13, 0.13], [0.13, -0.13], [-0.13, -0.13], [-0.13, 0.13]]"
-    plugins: ["obstacle_layer", "inflation_layer"]
+    footprint: "[[-0.08, -0.08], [-0.08, 0.08], [0.08, 0.08], [0.08, -0.08]]"
+    plugins: ["voxel_layer", "inflation_layer"]
     
-    obstacle_layer:
-      plugin: "nav2_costmap_2d::ObstacleLayer"
+    voxel_layer:
+      plugin: "nav2_costmap_2d::VoxelLayer"
       enabled: true
+      publish_voxel_map: true
+      origin_z: 0.0
+      z_resolution: 0.05
+      z_voxels: 16
+      max_obstacle_height: 2.0
+      mark_threshold: 0
       observation_sources: scan
       scan:
         topic: /scan
@@ -192,16 +194,16 @@ local_costmap:
         clearing: true
         marking: true
         data_type: "LaserScan"
-        raytrace_max_range: 1.5
-        raytrace_min_range: 0.0
-        obstacle_max_range: 1.2
-        obstacle_min_range: 0.0
+        raytrace_max_range: 1.2
+        raytrace_min_range: 0.01
+        obstacle_max_range: 1.0
+        obstacle_min_range: 0.01
         inf_is_valid: false
 
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
-      cost_scaling_factor: 2.58
-      inflation_radius: 0.3
+      cost_scaling_factor: 1.5
+      inflation_radius: 0.2
 
 global_costmap:
   ros__parameters:
@@ -248,38 +250,30 @@ collision_monitor:
     base_frame_id: "base_link"
     odom_frame_id: "odom"
     observation_sources: ["scan"]
-    
-    # Increase robot footprint for safety
-    footprint: "[[0.13, 0.13], [0.13, -0.13], [-0.13, -0.13], [-0.13, 0.13]]"
-    
-    # Scan configuration for LIDAR
+
+    # Add polygon parameters
+    polygons: ["base_footprint"] # List of polygons to monitor
     scan:
       type: "scan"
       topic: "/scan"
-      min_height: 0.05
-      max_height: 0.5
-      obstacle_range: 1.0          # Maximum range to check for obstacles
-      raytrace_range: 1.5         # Range to raytrace free space
-      observation_persistence: 0.0 # How long to keep obstacle points
+      min_height: 0.0
+      max_height: 2.0
+      obstacle_range: 0.6
+      raytrace_range: 0.8
+      observation_persistence: 0.5
       inf_is_valid: false
       marking: true
       clearing: true
       data_type: "LaserScan"
-
-    # Polygon zones for collision checking
-    polygons: ["safety_zone"]      
-    safety_zone:
+    stop_on_collision: true
+    polygon_height: 0.5
+    base_footprint:
       type: "polygon"
-      points: [[-0.13, -0.13], [-0.13, 0.13], [0.13, 0.13], [0.13, -0.13]]  # 13cm radius
-      action_type: "stop"          # Stop when obstacle detected
-      min_points: 3               # Minimum points to trigger
+      points: "[[-0.10, -0.10], [-0.10, 0.10], [0.10, 0.10], [0.10, -0.10]]"
+      action_type: "stop"
+      min_points: 2
       visualize: true
       enabled: true
-
-    # Additional safety parameters
-    stop_on_collision: true       # Stop robot on collision
-    polygon_height: 0.5           # Height of collision checking
-    slowdown_radius: 0.3         # Start slowing at this distance
-    slowdown_velocity: 0.1       # Reduced velocity when obstacle detected
-    publish_rate: 10.0           # Rate to publish collision status
+    footprint_topic: "/local_costmap/published_footprint"
+    publish_rate: 10.0
 

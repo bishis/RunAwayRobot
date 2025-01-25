@@ -80,10 +80,12 @@ class SimpleNavigationController(Node):
         linear_x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
         angular_z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
 
-        # Get neutral PWM value
+        # Get PWM values
         neutral = self.get_parameter('neutral_duty').value
-        forward = self.get_parameter('forward_max_duty').value
-        reverse = self.get_parameter('reverse_max_duty').value
+        forward_min = self.get_parameter('forward_min_duty').value
+        forward_max = self.get_parameter('forward_max_duty').value
+        reverse_min = self.get_parameter('reverse_min_duty').value
+        reverse_max = self.get_parameter('reverse_max_duty').value
 
         # Create wheel speeds message
         wheel_speeds = Twist()
@@ -91,37 +93,43 @@ class SimpleNavigationController(Node):
         # Handle pure rotation
         if abs(angular_z) > self.angular_threshold and abs(linear_x) < self.linear_threshold:
             if angular_z > 0:  # CCW turn - left reverse, right forward
-                wheel_speeds.linear.x = reverse   # Left wheel reverse
-                wheel_speeds.angular.z = forward  # Right wheel forward
+                wheel_speeds.linear.x = reverse_min   # Left wheel reverse min
+                wheel_speeds.angular.z = forward_max  # Right wheel forward max
             else:  # CW turn - left forward, right reverse
-                wheel_speeds.linear.x = forward   # Left wheel forward
-                wheel_speeds.angular.z = reverse  # Right wheel reverse
+                wheel_speeds.linear.x = forward_max   # Left wheel forward max
+                wheel_speeds.angular.z = reverse_min  # Right wheel reverse min
         
         # Handle straight motion
         elif abs(linear_x) > self.linear_threshold and abs(angular_z) < self.angular_threshold:
             if linear_x > 0:  # Forward
-                wheel_speeds.linear.x = forward   # Left wheel forward
-                wheel_speeds.angular.z = forward  # Right wheel forward
+                # Scale between min and max based on speed
+                scale = abs(linear_x) / self.max_linear_speed
+                pwm = forward_min + scale * (forward_max - forward_min)
+                wheel_speeds.linear.x = pwm   # Left wheel
+                wheel_speeds.angular.z = pwm  # Right wheel
             else:  # Reverse
-                wheel_speeds.linear.x = reverse   # Left wheel reverse
-                wheel_speeds.angular.z = reverse  # Right wheel reverse
+                # Scale between min and max based on speed
+                scale = abs(linear_x) / self.max_linear_speed
+                pwm = reverse_max + scale * (reverse_min - reverse_max)
+                wheel_speeds.linear.x = pwm   # Left wheel
+                wheel_speeds.angular.z = pwm  # Right wheel
         
         # Handle combined motion (turn while moving)
         elif abs(linear_x) > self.linear_threshold and abs(angular_z) > self.angular_threshold:
             if linear_x > 0:  # Forward + turn
                 if angular_z > 0:  # CCW turn
-                    wheel_speeds.linear.x = neutral  # Left wheel stop
-                    wheel_speeds.angular.z = forward # Right wheel forward
+                    wheel_speeds.linear.x = forward_min  # Left wheel forward min
+                    wheel_speeds.angular.z = forward_max # Right wheel forward max
                 else:  # CW turn
-                    wheel_speeds.linear.x = forward  # Left wheel forward
-                    wheel_speeds.angular.z = neutral # Right wheel stop
+                    wheel_speeds.linear.x = forward_max  # Left wheel forward max
+                    wheel_speeds.angular.z = forward_min # Right wheel forward min
             else:  # Reverse + turn
                 if angular_z > 0:  # CCW turn
-                    wheel_speeds.linear.x = reverse  # Left wheel reverse
-                    wheel_speeds.angular.z = neutral # Right wheel stop
+                    wheel_speeds.linear.x = reverse_min  # Left wheel reverse min
+                    wheel_speeds.angular.z = reverse_max # Right wheel reverse max
                 else:  # CW turn
-                    wheel_speeds.linear.x = neutral  # Left wheel stop
-                    wheel_speeds.angular.z = reverse # Right wheel reverse
+                    wheel_speeds.linear.x = reverse_max  # Left wheel reverse max
+                    wheel_speeds.angular.z = reverse_min # Right wheel reverse min
         
         # Stop if no significant motion commanded
         else:

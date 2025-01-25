@@ -10,68 +10,69 @@ class HardwareController(Node):
         super().__init__('hardware_controller')
         
         # Parameters
-        self.declare_parameter('left_pin', 12)
-        self.declare_parameter('right_pin', 13)
-        self.declare_parameter('safety_timeout', 0.5)
-        
-        # PWM calibration parameters
-        self.declare_parameter('forward_min_duty', 0.09)
-        self.declare_parameter('forward_max_duty', 0.10)
-        self.declare_parameter('reverse_min_duty', 0.05)
-        self.declare_parameter('reverse_max_duty', 0.045)
-        self.declare_parameter('neutral_duty', 0.075)
+        self.declare_parameter('left_motor_pin', 17)
+        self.declare_parameter('right_motor_pin', 18)
+        self.declare_parameter('max_linear_speed', 0.1)  # m/s
+        self.declare_parameter('max_angular_speed', 1.0)  # rad/s
         
         # Get parameters
-        params = {param.name: param.value for param in self._parameters.values()}
+        left_pin = self.get_parameter('left_motor_pin').value
+        right_pin = self.get_parameter('right_motor_pin').value
+        self.max_linear_speed = self.get_parameter('max_linear_speed').value
+        self.max_angular_speed = self.get_parameter('max_angular_speed').value
         
-        # Initialize motor controller
-        self.motors = MotorController(
-            left_pin=params['left_pin'],
-            right_pin=params['right_pin'],
-            forward_min=params['forward_min_duty'],
-            forward_max=params['forward_max_duty'],
-            reverse_min=params['reverse_min_duty'],
-            reverse_max=params['reverse_max_duty'],
-            neutral=params['neutral_duty']
+        # Initialize motor controller with servo control
+        self.motor_controller = MotorController(
+            left_pin=left_pin,
+            right_pin=right_pin,
+            neutral=0.0  # Servo neutral position
         )
         
-        # Subscribe to wheel speeds
-        self.wheel_speeds_sub = self.create_subscription(
+        # Create subscription
+        self.subscription = self.create_subscription(
             Twist,
             'wheel_speeds',
             self.wheel_speeds_callback,
             10
         )
         
-        # Safety system
-        self.last_cmd_time = self.get_clock().now()
-        self.safety_timer = self.create_timer(0.1, self.safety_check)
         self.get_logger().info('Hardware controller initialized')
 
-    def safety_check(self):
-        """Emergency stop if no recent commands"""
-        if (self.get_clock().now() - self.last_cmd_time).nanoseconds > 1e9 * self.get_parameter('safety_timeout').value:
-            self.motors.set_speeds(self.get_parameter('neutral_duty').value, 
-                                 self.get_parameter('neutral_duty').value)
-            self.get_logger().warn('Safety stop activated', once=True)
-
     def wheel_speeds_callback(self, msg: Twist):
-        """Set motor speeds directly from wheel_speeds topic"""
-        self.get_logger().info(
-            f'Received wheel speeds:\n'
-            f'  Left PWM: {msg.linear.x:.4f}\n'
-            f'  Right PWM: {msg.angular.z:.4f}'
-        )
+        """Convert wheel speeds to normalized motor commands"""
+        # Convert PWM values to normalized speeds (-1 to 1)
+        left_speed = (msg.linear.x - 0.075) * 40  # Convert from PWM to -1 to 1
+        right_speed = (msg.angular.z - 0.075) * 40
         
         # Set motor speeds
-        self.motors.set_speeds(msg.linear.x, msg.angular.z)
-        self.last_cmd_time = self.get_clock().now()
+        self.motor_controller.set_speeds(
+            linear=(left_speed + right_speed) / 2.0,  # Average for linear motion
+            angular=(right_speed - left_speed) / 2.0   # Difference for turning
+        )
+        
+        # Debug logging
+        self.get_logger().info(
+            f'Motor Speeds:\n'
+            f'  Left: {left_speed:.3f}\n'
+            f'  Right: {right_speed:.3f}'
+        )
+
+    def destroy_node(self):
+        """Clean up on shutdown"""
+        if hasattr(self, 'motor_controller'):
+            del self.motor_controller
+        super().destroy_node()
 
 def main(args=None):
     rclpy.init(args=args)
     node = HardwareController()
-    rclpy.spin(node)
-    rclpy.shutdown()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

@@ -1,36 +1,67 @@
-# motor_controller.py
-from gpiozero import PWMOutputDevice
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import Twist
+from gpiozero import Servo
+from gpiozero.pins.pigpio import PiGPIOFactory
 import time
 
 class MotorController:
-    def __init__(self, left_pin, right_pin, forward_min, forward_max, 
-                 reverse_min, reverse_max, neutral):
-        # PWM parameters from ROS
-        self.forward_min = forward_min
-        self.forward_max = forward_max
-        self.reverse_min = reverse_min  # Closest to neutral
-        self.reverse_max = reverse_max  # Furthest from neutral
+    def __init__(self, left_pin, right_pin, neutral=0.0):
+        # Neutral PWM (1.5ms), forward (2.0ms), and reverse (1.0ms)
         self.neutral = neutral
-        
-        # PWM devices
-        self.left_motor = PWMOutputDevice(left_pin, frequency=50, initial_value=neutral)
-        self.right_motor = PWMOutputDevice(right_pin, frequency=50, initial_value=neutral)
-        time.sleep(0.2)  # Allow PWM initialization
+        self.min_pulse_width = 1.0 / 1000  # 1ms full reverse
+        self.max_pulse_width = 2.0 / 1000  # 2ms full forward
 
-    def set_speeds(self, left_pwm: float, right_pwm: float):
-        """Set motors with proper PWM clamping"""
-        self.left_motor.value = self._clamp_pwm(left_pwm)
-        self.right_motor.value = self._clamp_pwm(right_pwm)
+        # Use pigpio for better PWM accuracy
+        factory = PiGPIOFactory()
 
-    def _clamp_pwm(self, value: float) -> float:
-        """Ensure PWM stays within safe operational range"""
-        if value > self.neutral:
-            return min(max(value, self.forward_min), self.forward_max)
-        elif value < self.neutral:
-            return max(min(value, self.reverse_min), self.reverse_max)
-        return self.neutral
+        # Initialize servo objects for the Sabertooth motor driver
+        self.left_motor = Servo(
+            pin=left_pin,
+            pin_factory=factory,
+            min_pulse_width=self.min_pulse_width,
+            max_pulse_width=self.max_pulse_width,
+            frame_width=20 / 1000  # Standard 20ms frame
+        )
+
+        self.right_motor = Servo(
+            pin=right_pin,
+            pin_factory=factory,
+            min_pulse_width=self.min_pulse_width,
+            max_pulse_width=self.max_pulse_width,
+            frame_width=20 / 1000
+        )
+
+        # Set motors to neutral (stop) on initialization
+        self.left_motor.value = neutral
+        self.right_motor.value = neutral
+        time.sleep(0.2)
+
+    def set_speeds(self, linear: float, angular: float):
+        """
+        Update motor speeds based on linear and angular velocity commands.
+        - linear: Forward/backward speed (-1.0 to 1.0)
+        - angular: Left/right turning speed (-1.0 to 1.0)
+        """
+        # Combine linear and angular velocities for differential drive
+        left_speed = linear + angular  # Left motor forward for positive angular
+        right_speed = linear - angular  # Right motor forward for negative angular
+
+        # Clamp speeds to valid range
+        left_speed = max(min(left_speed, 1.0), -1.0)
+        right_speed = max(min(right_speed, 1.0), -1.0)
+
+        # Set motor speeds
+        self.left_motor.value = self._pwm_to_servo_value(left_speed)
+        self.right_motor.value = self._pwm_to_servo_value(right_speed)
+
+    def _pwm_to_servo_value(self, pwm: float) -> float:
+        """Convert linear PWM value (-1.0 to 1.0) to Servo value"""
+        # Neutral is 0, forward is positive, reverse is negative
+        return max(min(pwm, 1.0), -1.0)
 
     def __del__(self):
-        """Cleanup resources"""
-        self.left_motor.close()
-        self.right_motor.close()
+        """Ensure the motors are stopped on program exit"""
+        self.left_motor.detach()
+        self.right_motor.detach()

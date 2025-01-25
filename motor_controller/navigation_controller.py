@@ -31,24 +31,21 @@ class NavigationController(Node):
         self.get_logger().info('Navigation controller initialized')
 
     def cmd_vel_callback(self, msg: Twist):
-        """Convert cmd_vel to binary servo values (-1, 0, 1)"""
+        """Convert cmd_vel to servo values (-1, 0, 1) for both channels"""
         # Create wheel speeds message
         wheel_speeds = Twist()
         
-        # Default to neutral (0)
-        wheel_speeds.linear.x = 0.0  # Speed channel
-        wheel_speeds.angular.z = 0.0  # Turn channel
-        
-        # Prioritize turning over forward motion
-        if abs(msg.angular.z) > self.angular_threshold:
-            # Pure turning mode
-            wheel_speeds.angular.z = 1.0 if msg.angular.z < 0 else -1.0  # Right is positive
-            wheel_speeds.linear.x = 0.0  # Don't move forward while turning
-        
-        # If not turning, handle forward/reverse motion
-        elif abs(msg.linear.x) > self.linear_threshold:
+        # Convert linear velocity to speed channel value
+        if abs(msg.linear.x) > self.linear_threshold:
             wheel_speeds.linear.x = 1.0 if msg.linear.x > 0 else -1.0
-            wheel_speeds.angular.z = 0.0  # Ensure we're going straight
+        else:
+            wheel_speeds.linear.x = 0.0
+
+        # Convert angular velocity to turn channel value
+        if abs(msg.angular.z) > self.angular_threshold:
+            wheel_speeds.angular.z = 1.0 if msg.angular.z < 0 else -1.0  # Right is positive
+        else:
+            wheel_speeds.angular.z = 0.0
         
         # Debug logging
         self.get_logger().info(

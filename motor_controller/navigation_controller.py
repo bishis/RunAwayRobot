@@ -24,8 +24,8 @@ class SimpleNavigationController(Node):
         # PWM parameters needed for mapping speeds
         self.declare_parameter('forward_max_duty', 0.10)
         self.declare_parameter('forward_min_duty', 0.09)
-        self.declare_parameter('reverse_max_duty', 0.045)
-        self.declare_parameter('reverse_min_duty', 0.05)
+        self.declare_parameter('reverse_max_duty', 0.04)
+        self.declare_parameter('reverse_min_duty', 0.045)
         self.declare_parameter('neutral_duty', 0.075)
         
         # Get parameters

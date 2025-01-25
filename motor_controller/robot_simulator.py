@@ -53,17 +53,47 @@ class RobotSimulator(Node):
         self.current_linear = 0.0
         self.current_angular = 0.0
         
-        # Simulated environment - list of walls as line segments [(x1,y1,x2,y2), ...]
+        # Define a more complex room environment for mapping
         self.walls = [
-            # Outer boundary (5m x 5m room)
-            (-2.5, -2.5, 2.5, -2.5),  # Bottom wall
-            (2.5, -2.5, 2.5, 2.5),    # Right wall
-            (2.5, 2.5, -2.5, 2.5),    # Top wall
-            (-2.5, 2.5, -2.5, -2.5),  # Left wall
-            # Add some internal walls/obstacles
-            (-1.0, -1.0, 1.0, -1.0),  # Internal wall 1
-            (0.0, 0.0, 0.0, 1.5),     # Internal wall 2
+            # Outer boundary (10m x 8m room)
+            (-5.0, -4.0, 5.0, -4.0),  # Bottom wall
+            (5.0, -4.0, 5.0, 4.0),    # Right wall
+            (5.0, 4.0, -5.0, 4.0),    # Top wall
+            (-5.0, 4.0, -5.0, -4.0),  # Left wall
+
+            # Room 1 - Bottom Left
+            (-3.0, -4.0, -3.0, -1.0),  # Vertical wall
+            (-3.0, -1.0, -1.0, -1.0),  # Horizontal wall
+            
+            # Room 2 - Bottom Right
+            (2.0, -4.0, 2.0, -2.0),    # Vertical wall
+            (2.0, -2.0, 4.0, -2.0),    # Horizontal wall
+            
+            # Central Area
+            (-1.0, 0.0, 1.0, 0.0),     # Central divider
+            (0.0, 0.0, 0.0, 2.0),      # T-junction
+            
+            # Room 3 - Top Left
+            (-5.0, 2.0, -2.0, 2.0),    # Horizontal wall
+            (-2.0, 2.0, -2.0, 4.0),    # Vertical wall
+            
+            # Room 4 - Top Right
+            (2.0, 1.0, 2.0, 4.0),      # Vertical wall
+            (2.0, 1.0, 4.0, 1.0),      # Horizontal wall
+            
+            # Obstacles
+            (-4.0, -3.0, -3.5, -3.0),  # Small obstacle in Room 1
+            (3.0, -3.0, 3.5, -3.0),    # Small obstacle in Room 2
+            (-4.0, 3.0, -3.5, 3.0),    # Small obstacle in Room 3
+            (3.0, 2.0, 3.5, 2.0),      # Small obstacle in Room 4
+            
+            # Doorways are created by gaps in the walls
         ]
+
+        # Start position (in an open area)
+        self.x = -4.0
+        self.y = -3.0
+        self.theta = 0.0
         
         # Update timer (50Hz)
         self.create_timer(0.02, self.update_pose)

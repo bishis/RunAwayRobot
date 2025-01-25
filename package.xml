@@ -64,11 +64,8 @@
   <depend>nav2_collision_monitor</depend>
 
   <!-- Add these dependencies -->
-  <depend>gazebo_ros</depend>
-  <depend>gazebo_ros_pkgs</depend>
-  <depend>gazebo_plugins</depend>
-  <depend>robot_state_publisher</depend>
-  <depend>joint_state_publisher</depend>
-  <depend>xacro</depend>
-  <exec_depend>gazebo</exec_depend>
+  <depend>ros_gz_sim</depend>
+  <depend>ros_gz_bridge</depend>
+  <depend>ros_gz_interfaces</depend>
+  <exec_depend>gz-garden</exec_depend>
 </package> 

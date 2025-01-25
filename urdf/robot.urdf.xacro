@@ -110,24 +110,19 @@
 
   <!-- Gazebo plugins -->
   <gazebo>
-    <plugin name="differential_drive_controller" filename="libgazebo_ros_diff_drive.so">
+    <plugin filename="gz-sim-diff-drive-system"
+            name="gz::sim::systems::DiffDrive">
       <left_joint>left_wheel_joint</left_joint>
       <right_joint>right_wheel_joint</right_joint>
       <wheel_separation>0.24</wheel_separation>
-      <wheel_diameter>0.1</wheel_diameter>
-      <max_wheel_torque>20</max_wheel_torque>
-      <max_wheel_acceleration>1.0</max_wheel_acceleration>
-      <publish_odom>true</publish_odom>
-      <publish_odom_tf>true</publish_odom_tf>
-      <publish_wheel_tf>true</publish_wheel_tf>
-      <odometry_frame>odom</odometry_frame>
-      <robot_base_frame>base_link</robot_base_frame>
+      <wheel_radius>0.05</wheel_radius>
+      <odom_publish_frequency>10</odom_publish_frequency>
     </plugin>
   </gazebo>
 
   <!-- Laser plugin -->
   <gazebo reference="laser">
-    <sensor type="ray" name="rplidar">
+    <sensor type="gpu_ray" name="rplidar">
       <pose>0 0 0 0 0 0</pose>
       <visualize>true</visualize>
       <update_rate>10</update_rate>
@@ -145,18 +140,10 @@
           <max>5.0</max>
           <resolution>0.01</resolution>
         </range>
-        <noise>
-          <type>gaussian</type>
-          <mean>0.0</mean>
-          <stddev>0.01</stddev>
-        </noise>
       </ray>
-      <plugin name="gazebo_ros_head_rplidar_controller" filename="libgazebo_ros_ray_sensor.so">
-        <ros>
-          <namespace>/</namespace>
-          <remapping>~/out:=scan</remapping>
-        </ros>
-        <output_type>sensor_msgs/LaserScan</output_type>
+      <plugin filename="gz-sim-gpu-lidar-system"
+              name="gz::sim::systems::GpuLidar">
+        <topic>/lidar</topic>
         <frame_name>laser</frame_name>
       </plugin>
     </sensor>

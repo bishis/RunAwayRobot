@@ -11,9 +11,10 @@ from launch.event_handlers import OnProcessExit
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
     
-    # Launch Gazebo Garden
+    # Launch Gazebo Garden with custom world
+    world_file = os.path.join(pkg_dir, 'worlds', 'robot_room.world')
     gazebo = ExecuteProcess(
-        cmd=['gz', 'sim', '-r', '-v', '4'],
+        cmd=['gz', 'sim', '-r', world_file],
         output='screen'
     )
     

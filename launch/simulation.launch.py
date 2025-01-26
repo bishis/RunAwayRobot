@@ -61,30 +61,6 @@ def generate_launch_description():
                    {'node_names': lifecycle_nodes}]
     )
 
-    # Wall follower node
-    wall_follower = Node(
-        package='motor_controller',
-        executable='wall_follower',
-        name='wall_follower',
-        output='screen'
-    )
-
-    # Exploration controller
-    exploration_controller = Node(
-        package='motor_controller',
-        executable='exploration_controller',
-        name='exploration_controller',
-        output='screen'
-    )
-
-    # Nav2 hardware bridge
-    nav2_hardware_bridge = Node(
-        package='motor_controller',
-        executable='nav2_hardware_bridge',
-        name='nav2_hardware_bridge',
-        output='screen'
-    )
-
     # RViz
     rviz_config = os.path.join(pkg_dir, 'config', 'mapping.rviz')
     rviz = Node(
@@ -104,11 +80,6 @@ def generate_launch_description():
         slam_toolbox,
         nav2_launch,
         lifecycle_manager,
-        
-        # Custom controllers
-        wall_follower,
-        exploration_controller,
-        nav2_hardware_bridge,
         
         # Visualization
         rviz

@@ -120,7 +120,7 @@
 
   <!-- Gazebo plugins for laser -->
   <gazebo reference="laser">
-    <sensor name='gpu_lidar' type='gpu_lidar'>
+    <sensor name='lidar' type='lidar'>
       <topic>lidar</topic>
       <update_rate>10</update_rate>
       <lidar>
@@ -140,7 +140,7 @@
       </lidar>
       <visualize>true</visualize>
       <always_on>1</always_on>
-      <plugin name='gpu_lidar' filename='gz-sim-gpu-lidar-system'>
+      <plugin name='lidar' filename='gz-sim-lidar-system'>
         <gz_frame_id>laser</gz_frame_id>
         <topic>lidar</topic>
       </plugin>

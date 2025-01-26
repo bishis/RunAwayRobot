@@ -121,15 +121,15 @@
   <!-- Gazebo plugins for laser -->
   <gazebo reference="laser">
     <sensor name='lidar' type='lidar'>
-      <topic>lidar</topic>
+      <always_on>1</always_on>
       <update_rate>10</update_rate>
       <lidar>
         <scan>
           <horizontal>
             <samples>360</samples>
             <resolution>1</resolution>
-            <min_angle>0</min_angle>
-            <max_angle>6.28319</max_angle>
+            <min_angle>-3.14159</min_angle>
+            <max_angle>3.14159</max_angle>
           </horizontal>
         </scan>
         <range>
@@ -139,10 +139,11 @@
         </range>
       </lidar>
       <visualize>true</visualize>
-      <always_on>1</always_on>
       <plugin name='lidar' filename='gz-sim-lidar-system'>
         <gz_frame_id>laser</gz_frame_id>
-        <topic>lidar</topic>
+        <topicName>scan</topicName>
+        <frameName>laser</frameName>
+        <updateRate>10</updateRate>
       </plugin>
     </sensor>
   </gazebo>

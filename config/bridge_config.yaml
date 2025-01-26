@@ -5,7 +5,7 @@
   gz_type_name: "gz.msgs.Twist"
   direction: ROS_TO_GZ
 - ros_topic_name: "/scan"
-  gz_topic_name: "/world/robot_room/model/robot/sensor/lidar/scan"
+  gz_topic_name: "/scan"
   ros_type_name: "sensor_msgs/msg/LaserScan"
   gz_type_name: "gz.msgs.LaserScan"
   direction: GZ_TO_ROS

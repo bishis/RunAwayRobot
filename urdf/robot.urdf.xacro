@@ -120,10 +120,10 @@
 
   <!-- Gazebo plugins for laser -->
   <gazebo reference="laser">
-    <sensor name='lidar' type='lidar'>
+    <sensor name='lidar' type='ray'>
       <always_on>1</always_on>
       <update_rate>10</update_rate>
-      <lidar>
+      <ray>
         <scan>
           <horizontal>
             <samples>360</samples>
@@ -137,13 +137,12 @@
           <max>5.0</max>
           <resolution>0.01</resolution>
         </range>
-      </lidar>
+      </ray>
       <visualize>true</visualize>
-      <plugin name='lidar' filename='gz-sim-lidar-system'>
+      <plugin name='ray' filename='gz-sim-ray-sensor-system'>
         <gz_frame_id>laser</gz_frame_id>
-        <topicName>scan</topicName>
-        <frameName>laser</frameName>
-        <updateRate>10</updateRate>
+        <topic>/scan</topic>
+        <frame_name>laser</frame_name>
       </plugin>
     </sensor>
   </gazebo>

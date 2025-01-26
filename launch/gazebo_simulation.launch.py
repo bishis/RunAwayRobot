@@ -56,13 +56,24 @@ def generate_launch_description():
         output='screen'
     )
     
-    # Spawn Robot using gz
-    spawn_robot = ExecuteProcess(
-        cmd=['gz', 'service', '-s', '/world/robot_room/create',
-             '--reqtype', 'gz.msgs.EntityFactory',
-             '--reptype', 'gz.msgs.Boolean',
-             '--timeout', '300',
-             '--req', f'sdf_filename: "{urdf_file}", name: "robot", pose: {{position: {{x: 0, y: 0, z: 0.1}}}}'],
+    # Convert URDF to SDF
+    urdf_to_sdf = ExecuteProcess(
+        cmd=['xacro', urdf_file, '|', 'ros2', 'run', 'ros_gz_sim', 'create', '-stdin', '-name', 'robot',
+             '-x', '0', '-y', '0', '-z', '0.1'],
+        output='screen'
+    )
+
+    # Or use the ros_gz_sim spawn entity
+    spawn_robot = Node(
+        package='ros_gz_sim',
+        executable='create',
+        arguments=[
+            '-name', 'robot',
+            '-topic', 'robot_description',
+            '-x', '0',
+            '-y', '0',
+            '-z', '0.1'
+        ],
         output='screen'
     )
 

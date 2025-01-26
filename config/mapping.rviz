@@ -19,6 +19,15 @@ Visualization Manager:
       Unreliable: false
       Color Scheme: map
       Draw Behind: false
+    - Class: rviz_default_plugins/RobotModel
+      Enabled: true
+      Description Topic: /robot_description
+      Visual Enabled: true
+      Collision Enabled: false
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Topic: /waypoints
+      Namespaces: {}
   Global Options:
     Fixed Frame: map
     Frame Rate: 30 

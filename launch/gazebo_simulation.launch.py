@@ -58,11 +58,11 @@ def generate_launch_description():
     
     # Spawn Robot using gz
     spawn_robot = ExecuteProcess(
-        cmd=['gz', 'service', '-s', '/world/empty/create',
+        cmd=['gz', 'service', '-s', '/world/robot_room/create',
              '--reqtype', 'gz.msgs.EntityFactory',
              '--reptype', 'gz.msgs.Boolean',
              '--timeout', '300',
-             '--req', 'sdf_filename: "' + urdf_file + '", name: "robot"'],
+             '--req', f'sdf_filename: "{urdf_file}", name: "robot", pose: {{position: {{x: 0, y: 0, z: 0.1}}}}'],
         output='screen'
     )
 

@@ -57,35 +57,165 @@
       </link>
     </model>
 
-    <!-- Room walls -->
-    <model name="walls">
+    <!-- Outer Walls -->
+    <!-- Bottom Wall -->
+    <model name="outer_wall_bottom">
       <static>true</static>
+      <pose>0 -4.0 1.0 0 0 0</pose>
       <link name="link">
         <collision name="collision">
           <geometry>
-            <mesh>
-              <uri>model://walls/meshes/walls.dae</uri>
-              <scale>1 1 1</scale>
-            </mesh>
+            <box>
+              <size>10.0 0.1 2.0</size>
+            </box>
           </geometry>
         </collision>
         <visual name="visual">
           <geometry>
-            <mesh>
-              <uri>model://walls/meshes/walls.dae</uri>
-              <scale>1 1 1</scale>
-            </mesh>
+            <box>
+              <size>10.0 0.1 2.0</size>
+            </box>
           </geometry>
           <material>
             <ambient>0.7 0.7 0.7 1</ambient>
             <diffuse>0.7 0.7 0.7 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
           </material>
         </visual>
       </link>
     </model>
 
+    <!-- Top Wall -->
+    <model name="outer_wall_top">
+      <static>true</static>
+      <pose>0 4.0 1.0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>10.0 0.1 2.0</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>10.0 0.1 2.0</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.7 0.7 0.7 1</ambient>
+            <diffuse>0.7 0.7 0.7 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Left Wall -->
+    <model name="outer_wall_left">
+      <static>true</static>
+      <pose>-5.0 0 1.0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.1 8.0 2.0</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.1 8.0 2.0</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.7 0.7 0.7 1</ambient>
+            <diffuse>0.7 0.7 0.7 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Right Wall -->
+    <model name="outer_wall_right">
+      <static>true</static>
+      <pose>5.0 0 1.0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.1 8.0 2.0</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.1 8.0 2.0</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.7 0.7 0.7 1</ambient>
+            <diffuse>0.7 0.7 0.7 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Inner Walls -->
     <!-- Room 1 - Bottom Left -->
+    <model name="wall_room1">
+      <static>true</static>
+      <pose>-3.0 -2.5 1.0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.1 3.0 2.0</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.1 3.0 2.0</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.7 0.7 0.7 1</ambient>
+            <diffuse>0.7 0.7 0.7 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Room 2 - Bottom Right -->
+    <model name="wall_room2">
+      <static>true</static>
+      <pose>2.0 -3.0 1.0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.1 2.0 2.0</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.1 2.0 2.0</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.7 0.7 0.7 1</ambient>
+            <diffuse>0.7 0.7 0.7 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Room Obstacles -->
     <model name="room1_obstacle">
       <static>true</static>
       <pose>-3.75 -3.0 0.25 0 0 0</pose>

@@ -8,6 +8,7 @@ from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 import math
+from visualization_msgs.msg import MarkerArray
 
 class NavigationController(Node):
     def __init__(self):
@@ -59,6 +60,7 @@ class NavigationController(Node):
             self.path_callback,
             10
         )
+        self.marker_pub = self.create_publisher(MarkerArray, '/path_planner_viz', 10)
         
         # Create timer for command execution
         self.create_timer(0.1, self.execute_commands)  # 10Hz control loop
@@ -77,6 +79,14 @@ class NavigationController(Node):
         self.current_commands = self.path_planner.simplify_path(waypoints)
         self.current_command_index = 0
         self.command_start_time = None
+        
+        # Create and publish visualization markers
+        markers = self.path_planner.create_visualization_markers(
+            self.current_commands,
+            waypoints[0],
+            frame_id='map'
+        )
+        self.marker_pub.publish(markers)
         
         self.get_logger().info(f'Received new path with {len(self.current_commands)} commands')
 

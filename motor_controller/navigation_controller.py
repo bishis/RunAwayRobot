@@ -127,39 +127,50 @@ class NavigationController(Node):
             current_heading = self._get_yaw_from_quaternion(robot_pose.rotation)
             
             if cmd_type == 'rotate':
-                self.current_target_heading = current_heading + value
+                # Store absolute target heading instead of relative
+                self.current_target_heading = self._normalize_angle(current_heading + value)
                 self.current_target_position = robot_pos
+                self.get_logger().info(
+                    f'Starting rotation: current={math.degrees(current_heading):.1f}°, '
+                    f'target={math.degrees(self.current_target_heading):.1f}°'
+                )
             else:  # forward
                 self.current_target_heading = current_heading
                 self.current_target_position = robot_pos + value * np.array([
                     math.cos(current_heading),
                     math.sin(current_heading)
                 ])
-            
-            self.get_logger().info(f'Starting {cmd_type}: target={value:.2f}')
+                self.get_logger().info(f'Starting forward: distance={value:.2f}m')
         
         # Check if command is complete
         current_pos = np.array([robot_pose.translation.x, robot_pose.translation.y])
-        current_heading = self._get_yaw_from_quaternion(robot_pose.rotation)
+        current_heading = self._normalize_angle(self._get_yaw_from_quaternion(robot_pose.rotation))
         
         command_complete = False
         if cmd_type == 'rotate':
-            angle_diff = self._normalize_angle(
-                self.current_target_heading - current_heading
-            )
+            # Calculate shortest angle difference
+            angle_diff = self._normalize_angle(self.current_target_heading - current_heading)
             command_complete = abs(angle_diff) < self.angle_tolerance
+            
+            # Debug rotation progress
+            self.get_logger().debug(
+                f'Rotation progress: current={math.degrees(current_heading):.1f}°, '
+                f'target={math.degrees(self.current_target_heading):.1f}°, '
+                f'diff={math.degrees(angle_diff):.1f}°'
+            )
         else:  # forward
             pos_diff = self.current_target_position - current_pos
             distance = math.sqrt(np.sum(pos_diff * pos_diff))
             command_complete = distance < self.position_tolerance
+            
+            # Debug forward progress
+            self.get_logger().debug(f'Forward progress: distance={distance:.3f}m')
         
         # Generate velocity command
         cmd = Twist()
         if cmd_type == 'rotate':
-            angle_diff = self._normalize_angle(
-                self.current_target_heading - current_heading
-            )
-            cmd.angular.z = 1.0 if angle_diff > 0 else -1.0
+            angle_diff = self._normalize_angle(self.current_target_heading - current_heading)
+            cmd.angular.z = -1.0 if angle_diff < 0 else 1.0  # Negative = clockwise
             cmd.linear.x = 0.0
         else:  # forward
             cmd.linear.x = 1.0
@@ -170,6 +181,7 @@ class NavigationController(Node):
         
         # Move to next command if complete
         if command_complete:
+            self.get_logger().info(f'Completed {cmd_type} command')
             self.current_command_index += 1
             self.current_target_position = None
             self.current_target_heading = None
@@ -213,12 +225,13 @@ class NavigationController(Node):
         cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
         return math.atan2(siny_cosp, cosy_cosp)
 
-    def _get_yaw_from_quaternion(self, q):
-        """Extract yaw angle from quaternion"""
-        # Convert quaternion to Euler angles
-        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
-        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
-        return math.atan2(siny_cosp, cosy_cosp)
+    def _normalize_angle(self, angle):
+        """Normalize angle to [-pi, pi]"""
+        while angle > math.pi:
+            angle -= 2 * math.pi
+        while angle < -math.pi:
+            angle += 2 * math.pi
+        return angle
 
 def main(args=None):
     rclpy.init(args=args)

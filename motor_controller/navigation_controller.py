@@ -132,7 +132,8 @@ class NavigationController(Node):
                 self.current_target_position = robot_pos
                 self.get_logger().info(
                     f'Starting rotation: current={math.degrees(current_heading):.1f}°, '
-                    f'target={math.degrees(self.current_target_heading):.1f}°'
+                    f'target={math.degrees(self.current_target_heading):.1f}°, '
+                    f'diff={math.degrees(value):.1f}°'
                 )
             else:  # forward
                 self.current_target_heading = current_heading
@@ -170,8 +171,16 @@ class NavigationController(Node):
         cmd = Twist()
         if cmd_type == 'rotate':
             angle_diff = self._normalize_angle(self.current_target_heading - current_heading)
-            cmd.angular.z = -1.0 if angle_diff < 0 else 1.0  # Negative = clockwise
+            # Fix the rotation direction logic
+            # For wheel_speeds: positive = left turn, negative = right turn
+            cmd.angular.z = 1.0 if angle_diff > 0 else -1.0
             cmd.linear.x = 0.0
+            
+            # Debug the rotation command
+            self.get_logger().debug(
+                f'Rotation command: diff={math.degrees(angle_diff):.1f}°, '
+                f'direction={"LEFT" if cmd.angular.z > 0 else "RIGHT"}'
+            )
         else:  # forward
             cmd.linear.x = 1.0
             cmd.angular.z = 0.0
@@ -181,7 +190,10 @@ class NavigationController(Node):
         
         # Move to next command if complete
         if command_complete:
-            self.get_logger().info(f'Completed {cmd_type} command')
+            self.get_logger().info(
+                f'Completed {cmd_type} command: '
+                f'heading={math.degrees(current_heading):.1f}°'
+            )
             self.current_command_index += 1
             self.current_target_position = None
             self.current_target_heading = None

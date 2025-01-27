@@ -118,10 +118,6 @@ class NavigationController(Node):
         if not robot_pose:
             return
             
-        # Add a small delay between commands
-        if self.current_target_position is None:
-            self.get_clock().sleep_for(rclpy.duration.Duration(seconds=0.5))
-        
         # Get current command
         cmd_type, value = self.current_commands[self.current_command_index]
         
@@ -175,15 +171,15 @@ class NavigationController(Node):
         cmd = Twist()
         if cmd_type == 'rotate':
             angle_diff = self._normalize_angle(self.current_target_heading - current_heading)
-            # Fix the rotation direction logic
-            # For wheel_speeds: positive = left turn, negative = right turn
-            cmd.angular.z = 1.0 if angle_diff > 0 else -1.0
+            # IMPORTANT: Match hardware controller convention
+            # Hardware: positive = RIGHT turn, negative = LEFT turn
+            cmd.angular.z = -1.0 if angle_diff > 0 else 1.0  # Inverted from before
             cmd.linear.x = 0.0
             
             # Debug the rotation command
             self.get_logger().debug(
                 f'Rotation command: diff={math.degrees(angle_diff):.1f}°, '
-                f'direction={"LEFT" if cmd.angular.z > 0 else "RIGHT"}'
+                f'direction={"LEFT" if cmd.angular.z < 0 else "RIGHT"}'  # Note the inverted logic
             )
         else:  # forward
             cmd.linear.x = 1.0

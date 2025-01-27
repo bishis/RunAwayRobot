@@ -17,8 +17,8 @@ class PathPlanner:
             angle_threshold: Minimum angle change (radians) to consider a new segment
             min_segment_length: Minimum length (meters) for a path segment
         """
-        self.angle_threshold = angle_threshold
-        self.min_segment_length = min_segment_length
+        self.angle_threshold = 0.35  # About 20 degrees - ignore smaller turns
+        self.min_segment_length = min_segment_length * 1.5  # Increase minimum segment length
         
         # Colors for visualization
         self.colors = {
@@ -47,7 +47,13 @@ class PathPlanner:
         current_pos = waypoints[0]
         current_heading = 0.0  # Assume starting heading is 0 (positive x-axis)
         
-        for next_point in waypoints[1:]:
+        # Skip some waypoints to create a smoother path
+        step = 2  # Look at every nth waypoint
+        smoothed_waypoints = [waypoints[0]] + [p for i, p in enumerate(waypoints[1:]) if i % step == 0]
+        if waypoints[-1] not in smoothed_waypoints:
+            smoothed_waypoints.append(waypoints[-1])
+        
+        for next_point in smoothed_waypoints[1:]:
             # Calculate angle and distance to next point
             dx = next_point.x - current_pos.x
             dy = next_point.y - current_pos.y
@@ -61,8 +67,10 @@ class PathPlanner:
             # Calculate required rotation
             angle_diff = self._normalize_angle(target_angle - current_heading)
             
-            # Add rotation command if angle is significant
+            # Only add rotation command if the angle is significant
             if abs(angle_diff) > self.angle_threshold:
+                # Round the angle to reduce small adjustments
+                angle_diff = round(angle_diff / 0.175) * 0.175  # Round to ~10 degree increments
                 commands.append(('rotate', angle_diff))
             
             # Add forward command

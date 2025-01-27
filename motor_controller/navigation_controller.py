@@ -15,13 +15,13 @@ class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
-        # Parameters for speed conversion
-        self.declare_parameter('max_linear_speed', 0.1)  # m/s
-        self.declare_parameter('max_angular_speed', 1.0)  # rad/s
+        # Adjust parameters to be more forgiving
+        self.declare_parameter('max_linear_speed', 0.1)
+        self.declare_parameter('max_angular_speed', 1.0)
         self.declare_parameter('linear_threshold', 0.01)
         self.declare_parameter('angular_threshold', 0.02)
-        self.declare_parameter('position_tolerance', 0.05)  # meters
-        self.declare_parameter('angle_tolerance', 0.1)     # radians
+        self.declare_parameter('position_tolerance', 0.1)    # Increased from 0.05
+        self.declare_parameter('angle_tolerance', 0.175)     # Increased from 0.1 (~10 degrees)
         
         # Get parameters
         self.max_linear_speed = self.get_parameter('max_linear_speed').value
@@ -118,6 +118,10 @@ class NavigationController(Node):
         if not robot_pose:
             return
             
+        # Add a small delay between commands
+        if self.current_target_position is None:
+            self.get_clock().sleep_for(rclpy.duration.Duration(seconds=0.5))
+        
         # Get current command
         cmd_type, value = self.current_commands[self.current_command_index]
         

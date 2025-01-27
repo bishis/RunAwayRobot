@@ -112,12 +112,12 @@ class NavigationController(Node):
         """Execute current command with position feedback"""
         if not self.current_commands or self.current_command_index >= len(self.current_commands):
             return
-            
+        
         # Get current robot pose
         robot_pose = self.get_robot_pose()
         if not robot_pose:
             return
-            
+        
         # Get current command
         cmd_type, value = self.current_commands[self.current_command_index]
         
@@ -127,7 +127,6 @@ class NavigationController(Node):
             current_heading = self._get_yaw_from_quaternion(robot_pose.rotation)
             
             if cmd_type == 'rotate':
-                # Store absolute target heading instead of relative
                 self.current_target_heading = self._normalize_angle(current_heading + value)
                 self.current_target_position = robot_pos
                 self.get_logger().info(
@@ -147,43 +146,49 @@ class NavigationController(Node):
         current_pos = np.array([robot_pose.translation.x, robot_pose.translation.y])
         current_heading = self._normalize_angle(self._get_yaw_from_quaternion(robot_pose.rotation))
         
-        command_complete = False
+        # Generate velocity command
+        cmd = Twist()
+        
         if cmd_type == 'rotate':
-            # Calculate shortest angle difference
+            # Handle rotation
             angle_diff = self._normalize_angle(self.current_target_heading - current_heading)
             command_complete = abs(angle_diff) < self.angle_tolerance
             
-            # Debug rotation progress
-            self.get_logger().debug(
-                f'Rotation progress: current={math.degrees(current_heading):.1f}°, '
-                f'target={math.degrees(self.current_target_heading):.1f}°, '
-                f'diff={math.degrees(angle_diff):.1f}°'
-            )
+            if not command_complete:
+                cmd.angular.z = -1.0 if angle_diff > 0 else 1.0
+                cmd.linear.x = 0.0
+                
+                self.get_logger().debug(
+                    f'Rotation progress: diff={math.degrees(angle_diff):.1f}°, '
+                    f'direction={"LEFT" if cmd.angular.z < 0 else "RIGHT"}'
+                )
         else:  # forward
-            pos_diff = self.current_target_position - current_pos
-            distance = math.sqrt(np.sum(pos_diff * pos_diff))
+            # Calculate direction to target
+            to_target = self.current_target_position - current_pos
+            distance = math.sqrt(np.sum(to_target * to_target))
             command_complete = distance < self.position_tolerance
             
-            # Debug forward progress
-            self.get_logger().debug(f'Forward progress: distance={distance:.3f}m')
-        
-        # Generate velocity command
-        cmd = Twist()
-        if cmd_type == 'rotate':
-            angle_diff = self._normalize_angle(self.current_target_heading - current_heading)
-            # IMPORTANT: Match hardware controller convention
-            # Hardware: positive = RIGHT turn, negative = LEFT turn
-            cmd.angular.z = -1.0 if angle_diff > 0 else 1.0  # Inverted from before
-            cmd.linear.x = 0.0
-            
-            # Debug the rotation command
-            self.get_logger().debug(
-                f'Rotation command: diff={math.degrees(angle_diff):.1f}°, '
-                f'direction={"LEFT" if cmd.angular.z < 0 else "RIGHT"}'  # Note the inverted logic
-            )
-        else:  # forward
-            cmd.linear.x = 1.0
-            cmd.angular.z = 0.0
+            if not command_complete:
+                # Calculate heading error
+                target_heading = math.atan2(to_target[1], to_target[0])
+                heading_error = self._normalize_angle(target_heading - current_heading)
+                
+                # Only move forward if roughly pointing in the right direction
+                if abs(heading_error) < self.angle_tolerance:
+                    cmd.linear.x = 1.0
+                    cmd.angular.z = 0.0
+                else:
+                    # Need to correct heading first
+                    cmd.linear.x = 0.0
+                    cmd.angular.z = -1.0 if heading_error > 0 else 1.0
+                    self.get_logger().debug(
+                        f'Correcting forward heading: error={math.degrees(heading_error):.1f}°'
+                    )
+                
+                self.get_logger().debug(
+                    f'Forward progress: distance={distance:.3f}m, '
+                    f'heading_error={math.degrees(heading_error):.1f}°'
+                )
         
         # Publish command
         self.wheel_speeds_pub.publish(cmd)

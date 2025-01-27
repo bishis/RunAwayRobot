@@ -1,266 +1,155 @@
 import numpy as np
 import math
-import random
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, Twist
+from typing import List, Tuple, Optional
 
 class PathPlanner:
-    def __init__(self, safety_radius=0.2, num_samples=200, step_size=0.15):
-        self.robot_radius = 0.15
-        self.safety_margin = 0.08
-        self.safety_radius = safety_radius
-        self.num_samples = num_samples
-        self.step_size = step_size
-        self.map_data = None
-        self.map_info = None
-        self.max_angle_deviation = math.pi/3  # Maximum angle deviation from direct path
-        
-    def update_map(self, map_data, map_info):
-        """Update the map data used for planning."""
-        self.map_data = map_data
-        self.map_info = map_info
+    """Simplifies paths into straight lines and rotations for binary movement control."""
     
-    def world_to_map(self, x, y):
-        """Convert world coordinates to map coordinates."""
-        if not self.map_info:
-            return None, None
-        mx = int((x - self.map_info.origin.position.x) / self.map_info.resolution)
-        my = int((y - self.map_info.origin.position.y) / self.map_info.resolution)
-        if 0 <= mx < self.map_info.width and 0 <= my < self.map_info.height:
-            return mx, my
-        return None, None
-
-    def is_valid_point(self, x, y):
-        """Check if point is valid and free in map."""
-        mx, my = self.world_to_map(x, y)
-        if mx is None or my is None:
-            return False
-            
-        # Check area around point for obstacles
-        radius_cells = int(self.safety_radius / self.map_info.resolution)
-        for dx in range(-radius_cells, radius_cells + 1):
-            for dy in range(-radius_cells, radius_cells + 1):
-                check_x = mx + dx
-                check_y = my + dy
-                if (0 <= check_x < self.map_info.width and 
-                    0 <= check_y < self.map_info.height):
-                    if self.map_data[check_y, check_x] > 50:  # Occupied
-                        return False
-        return True
-
-    def find_path(self, current_pos, target_pos):
-        """Find best path using Monte Carlo sampling."""
-        if self.map_data is None or self.map_info is None:
-            print("No map data available for path planning")
-            return None
+    def __init__(self, angle_threshold: float = 0.2, min_segment_length: float = 0.1):
+        """
+        Initialize path planner with control parameters.
         
-        try:
-            best_path = None
-            best_score = float('-inf')
-            direct_angle = math.atan2(
-                target_pos.y - current_pos.y,
-                target_pos.x - current_pos.x
-            )
-            
-            # Generate multiple candidate paths
-            for _ in range(self.num_samples):
-                path = self._generate_candidate_path(
-                    current_pos, target_pos, direct_angle
-                )
-                if path:
-                    score = self._evaluate_path(path, target_pos)
-                    if score > best_score:
-                        best_score = score
-                        best_path = path
-            
-            if best_path is None:
-                print("Could not find valid path")
-            
-            return best_path
-            
-        except Exception as e:
-            print(f"Error in path planning: {str(e)}")
-            return None
+        Args:
+            angle_threshold: Minimum angle change (radians) to consider a new segment
+            min_segment_length: Minimum length (meters) for a path segment
+        """
+        self.angle_threshold = angle_threshold
+        self.min_segment_length = min_segment_length
 
-    def _generate_candidate_path(self, start_pos, target_pos, direct_angle):
-        """Generate a single candidate path."""
-        try:
-            path = [(start_pos.x, start_pos.y)]
-            current_x, current_y = start_pos.x, start_pos.y
-            max_steps = 20  # Prevent infinite paths
-            min_step_size = self.step_size * 0.5  # Allow smaller steps if needed
+    def simplify_path(self, waypoints: List[Point]) -> List[Tuple[str, float]]:
+        """
+        Convert a list of waypoints into a sequence of straight lines and rotations.
+        
+        Args:
+            waypoints: List of Points representing the path
             
-            for _ in range(max_steps):
-                # Calculate distance to target
-                dx = target_pos.x - current_x
-                dy = target_pos.y - current_y
-                distance = math.sqrt(dx*dx + dy*dy)
+        Returns:
+            List of (command_type, value) tuples where:
+                command_type is either 'rotate' or 'forward'
+                value is angle (radians) for rotate or distance (meters) for forward
+        """
+        if len(waypoints) < 2:
+            return []
+            
+        commands = []
+        current_pos = waypoints[0]
+        current_heading = 0.0  # Assume starting heading is 0 (positive x-axis)
+        
+        for next_point in waypoints[1:]:
+            # Calculate angle and distance to next point
+            dx = next_point.x - current_pos.x
+            dy = next_point.y - current_pos.y
+            target_angle = math.atan2(dy, dx)
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            # Skip very short segments
+            if distance < self.min_segment_length:
+                continue
                 
-                if distance < min_step_size:
-                    path.append((target_pos.x, target_pos.y))
-                    return path
-                    
-                # Use smaller steps when close to obstacles
-                current_clearance = self._calculate_clearance(current_x, current_y)
-                current_step = self.step_size * max(0.5, current_clearance)
-                
-                # Generate random angle within cone towards target
-                target_angle = math.atan2(dy, dx)
-                angle = random.uniform(
-                    target_angle - self.max_angle_deviation,
-                    target_angle + self.max_angle_deviation
-                )
-                
-                # Calculate next point
-                next_x = current_x + current_step * math.cos(angle)
-                next_y = current_y + current_step * math.sin(angle)
-                
-                # Check if point is valid
-                if self._is_path_segment_valid(current_x, current_y, next_x, next_y):
-                    path.append((next_x, next_y))
-                    current_x, current_y = next_x, next_y
-                else:
-                    return None
+            # Calculate required rotation
+            angle_diff = self._normalize_angle(target_angle - current_heading)
             
-            return None  # Path too long
+            # Add rotation command if angle is significant
+            if abs(angle_diff) > self.angle_threshold:
+                commands.append(('rotate', angle_diff))
             
-        except Exception as e:
-            print(f"Error generating path: {str(e)}")
-            return None
+            # Add forward command
+            commands.append(('forward', distance))
+            
+            # Update current position and heading
+            current_pos = next_point
+            current_heading = target_angle
+            
+        return commands
 
-    def _is_path_segment_valid(self, x1, y1, x2, y2):
-        """Check if path segment is collision-free."""
-        try:
-            # Check multiple points along the segment
-            steps = int(math.sqrt((x2-x1)**2 + (y2-y1)**2) / (self.safety_radius/2))
-            steps = max(steps, 5)  # Minimum number of checks
+    def generate_velocity_commands(self, commands: List[Tuple[str, float]]) -> List[Twist]:
+        """
+        Convert movement commands into velocity commands.
+        
+        Args:
+            commands: List of (command_type, value) tuples from simplify_path
             
-            for i in range(steps + 1):
-                t = i / steps
-                x = x1 + t*(x2-x1)
-                y = y1 + t*(y2-y1)
+        Returns:
+            List of Twist messages with binary velocity values
+        """
+        velocity_commands = []
+        
+        for cmd_type, value in commands:
+            cmd = Twist()
+            
+            if cmd_type == 'rotate':
+                # Positive angle = counter-clockwise = positive angular velocity
+                cmd.angular.z = 1.0 if value > 0 else -1.0
+                cmd.linear.x = 0.0
                 
-                if not self.is_valid_point(x, y):
-                    return False
-            
-            return True
-            
-        except Exception as e:
-            print(f"Error checking path segment: {str(e)}")
-            return False
-
-    def _evaluate_path(self, path, target_pos):
-        """Score a path based on multiple criteria."""
-        if len(path) < 2:
-            return float('-inf')
-            
-        # Path length score (shorter is better)
-        length = sum(
-            math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
-            for p1, p2 in zip(path[:-1], path[1:])
-        )
-        length_score = 1.0 / (1.0 + length)
-        
-        # Clearance score (further from obstacles is better)
-        clearance_score = sum(
-            self._calculate_clearance(x, y)
-            for x, y in path
-        ) / len(path)
-        
-        # Directness score (closer to straight line is better)
-        directness = self._calculate_directness(path, target_pos)
-        
-        # Combine scores with weights
-        return (0.4 * length_score + 
-                0.4 * clearance_score + 
-                0.2 * directness)
-
-    def _calculate_clearance(self, x, y):
-        """Calculate clearance from obstacles."""
-        mx, my = self.world_to_map(x, y)
-        if mx is None or my is None:
-            return 0.0
-            
-        min_distance = float('inf')
-        search_radius = int(self.safety_radius * 2 / self.map_info.resolution)
-        
-        for dx in range(-search_radius, search_radius + 1):
-            for dy in range(-search_radius, search_radius + 1):
-                check_x = mx + dx
-                check_y = my + dy
-                if (0 <= check_x < self.map_info.width and 
-                    0 <= check_y < self.map_info.height):
-                    if self.map_data[check_y, check_x] > 50:
-                        dist = math.sqrt(dx*dx + dy*dy) * self.map_info.resolution
-                        min_distance = min(min_distance, dist)
-        
-        return 1.0 if min_distance == float('inf') else min(1.0, min_distance / (self.safety_radius * 2))
-
-    def _calculate_directness(self, path, target_pos):
-        """Calculate how direct the path is to the target."""
-        if len(path) < 2:
-            return 0.0
-            
-        # Calculate total path length
-        path_length = sum(
-            math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
-            for p1, p2 in zip(path[:-1], path[1:])
-        )
-        
-        # Calculate direct distance
-        direct_distance = math.sqrt(
-            (target_pos.x - path[0][0])**2 + 
-            (target_pos.y - path[0][1])**2
-        )
-        
-        return direct_distance / path_length if path_length > 0 else 0.0 
-
-    def find_alternative_path(self, current_pos, target_pos):
-        """Find alternative path when obstacle detected."""
-        if self.map_data is None or self.map_info is None:
-            print("No map data available for alternative path")
-            return None
-        
-        try:
-            # First try to find a direct path with Monte Carlo
-            path = self.find_path(current_pos, target_pos)
-            if path and len(path) > 1:
-                # Return the next point in the path as our next waypoint
-                return Point(x=path[1][0], y=path[1][1], z=0.0)
-            
-            # If no path found, try finding a clear direction
-            search_radius = self.step_size * 2
-            best_point = None
-            best_score = float('-inf')
-            
-            # Sample points in a semi-circle ahead
-            for _ in range(self.num_samples // 2):
-                # Generate point in semi-circle facing target
-                base_angle = math.atan2(
-                    target_pos.y - current_pos.y,
-                    target_pos.x - current_pos.x
-                )
-                angle = base_angle + random.uniform(-math.pi/2, math.pi/2)
-                distance = random.uniform(self.step_size, search_radius)
+            elif cmd_type == 'forward':
+                # Always move forward with positive distance
+                cmd.linear.x = 1.0
+                cmd.angular.z = 0.0
                 
-                test_x = current_pos.x + distance * math.cos(angle)
-                test_y = current_pos.y + distance * math.sin(angle)
+            velocity_commands.append(cmd)
+            
+        return velocity_commands
+
+    def _normalize_angle(self, angle: float) -> float:
+        """Normalize angle to [-pi, pi]."""
+        while angle > math.pi:
+            angle -= 2 * math.pi
+        while angle < -math.pi:
+            angle += 2 * math.pi
+        return angle
+
+    def estimate_command_duration(self, command: Tuple[str, float], 
+                                linear_speed: float = 0.1, 
+                                angular_speed: float = 1.0) -> float:
+        """
+        Estimate the duration needed for a command based on speeds.
+        
+        Args:
+            command: (command_type, value) tuple
+            linear_speed: Robot's linear speed in m/s
+            angular_speed: Robot's angular speed in rad/s
+            
+        Returns:
+            Estimated duration in seconds
+        """
+        cmd_type, value = command
+        
+        if cmd_type == 'rotate':
+            return abs(value) / angular_speed
+        else:  # forward
+            return abs(value) / linear_speed
+
+    def visualize_commands(self, commands: List[Tuple[str, float]], 
+                         start_point: Point) -> List[Point]:
+        """
+        Generate visualization points for the simplified path.
+        
+        Args:
+            commands: List of movement commands
+            start_point: Starting position
+            
+        Returns:
+            List of Points representing the simplified path
+        """
+        points = [start_point]
+        current_pos = np.array([start_point.x, start_point.y])
+        current_heading = 0.0
+        
+        for cmd_type, value in commands:
+            if cmd_type == 'rotate':
+                current_heading += value
+            else:  # forward
+                # Move in current heading direction
+                current_pos += value * np.array([
+                    math.cos(current_heading),
+                    math.sin(current_heading)
+                ])
+                points.append(Point(
+                    x=float(current_pos[0]),
+                    y=float(current_pos[1]),
+                    z=0.0
+                ))
                 
-                if self.is_valid_point(test_x, test_y):
-                    # Score based on clearance and direction to target
-                    clearance = self._calculate_clearance(test_x, test_y)
-                    dx_target = target_pos.x - test_x
-                    dy_target = target_pos.y - test_y
-                    dist_to_target = math.sqrt(dx_target*dx_target + dy_target*dy_target)
-                    direction_score = 1.0 / (1.0 + dist_to_target)
-                    
-                    score = 0.6 * clearance + 0.4 * direction_score
-                    
-                    if score > best_score:
-                        best_score = score
-                        best_point = Point(x=test_x, y=test_y, z=0.0)
-            
-            return best_point
-            
-        except Exception as e:
-            print(f"Error finding alternative path: {str(e)}")
-            return None
+        return points

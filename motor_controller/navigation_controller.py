@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, PoseStamped
+from nav_msgs.msg import Path
+from .processors.path_planner import PathPlanner
+from tf2_ros import TransformException
+from tf2_ros.buffer import Buffer
+from tf2_ros.transform_listener import TransformListener
+import math
 
 class NavigationController(Node):
     def __init__(self):
@@ -12,12 +18,32 @@ class NavigationController(Node):
         self.declare_parameter('max_angular_speed', 1.0)  # rad/s
         self.declare_parameter('linear_threshold', 0.01)
         self.declare_parameter('angular_threshold', 0.02)
+        self.declare_parameter('position_tolerance', 0.1)  # meters
+        self.declare_parameter('angle_tolerance', 0.1)    # radians
         
         # Get parameters
         self.max_linear_speed = self.get_parameter('max_linear_speed').value
         self.max_angular_speed = self.get_parameter('max_angular_speed').value
         self.linear_threshold = self.get_parameter('linear_threshold').value
         self.angular_threshold = self.get_parameter('angular_threshold').value
+        self.position_tolerance = self.get_parameter('position_tolerance').value
+        self.angle_tolerance = self.get_parameter('angle_tolerance').value
+        
+        # Initialize path planner
+        self.path_planner = PathPlanner(
+            angle_threshold=self.angular_threshold,
+            min_segment_length=self.linear_threshold
+        )
+        
+        # Navigation state
+        self.current_path = None
+        self.current_commands = []
+        self.current_command_index = 0
+        self.command_start_time = None
+        
+        # Set up TF listener
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
         
         # Create publishers and subscribers
         self.wheel_speeds_pub = self.create_publisher(Twist, 'wheel_speeds', 10)
@@ -27,11 +53,91 @@ class NavigationController(Node):
             self.cmd_vel_callback,
             10
         )
+        self.path_sub = self.create_subscription(
+            Path,
+            'plan',
+            self.path_callback,
+            10
+        )
+        
+        # Create timer for command execution
+        self.create_timer(0.1, self.execute_commands)  # 10Hz control loop
         
         self.get_logger().info('Navigation controller initialized')
 
+    def path_callback(self, msg: Path):
+        """Handle new path from planner"""
+        if not msg.poses:
+            return
+            
+        # Convert path poses to points
+        waypoints = [pose.pose.position for pose in msg.poses]
+        
+        # Generate simplified commands
+        self.current_commands = self.path_planner.simplify_path(waypoints)
+        self.current_command_index = 0
+        self.command_start_time = None
+        
+        self.get_logger().info(f'Received new path with {len(self.current_commands)} commands')
+
+    def get_robot_pose(self):
+        """Get current robot pose from TF"""
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            return transform.transform
+        except TransformException as ex:
+            self.get_logger().warning(f'Could not get robot pose: {ex}')
+            return None
+
+    def execute_commands(self):
+        """Execute current command in the simplified path"""
+        if not self.current_commands or self.current_command_index >= len(self.current_commands):
+            return
+            
+        # Get current command
+        cmd_type, value = self.current_commands[self.current_command_index]
+        
+        # Initialize start time if needed
+        if self.command_start_time is None:
+            self.command_start_time = self.get_clock().now()
+            self.get_logger().info(f'Starting command: {cmd_type} {value:.2f}')
+        
+        # Check if command should be complete based on duration
+        duration = self.path_planner.estimate_command_duration(
+            (cmd_type, value),
+            self.max_linear_speed,
+            self.max_angular_speed
+        )
+        
+        elapsed = (self.get_clock().now() - self.command_start_time).nanoseconds / 1e9
+        
+        # Generate appropriate velocity command
+        cmd = Twist()
+        if cmd_type == 'rotate':
+            cmd.angular.z = 1.0 if value > 0 else -1.0
+            cmd.linear.x = 0.0
+        else:  # forward
+            cmd.linear.x = 1.0
+            cmd.angular.z = 0.0
+        
+        # Publish command
+        self.wheel_speeds_pub.publish(cmd)
+        
+        # Check if command is complete
+        if elapsed >= duration:
+            self.current_command_index += 1
+            self.command_start_time = None
+            if self.current_command_index >= len(self.current_commands):
+                self.get_logger().info('Path execution complete')
+                # Stop the robot
+                self.wheel_speeds_pub.publish(Twist())
+
     def cmd_vel_callback(self, msg: Twist):
-        """Convert cmd_vel to servo values (-1, 0, 1) for both channels"""
+        """Handle direct velocity commands (override path following)"""
         # Create wheel speeds message
         wheel_speeds = Twist()
         

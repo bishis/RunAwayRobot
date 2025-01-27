@@ -149,27 +149,31 @@ class PathPlanner:
         marker_array = MarkerArray()
         current_pos = np.array([start_point.x, start_point.y])
         current_heading = 0.0
-        marker_id = 0
         
-        # Clear existing markers
+        # Single deletion marker with ID 0
         clear_marker = Marker()
-        clear_marker.action = Marker.DELETEALL
+        clear_marker.header.frame_id = frame_id
+        clear_marker.header.stamp = rclpy.time.Time().to_msg()
         clear_marker.ns = "path_planner"
+        clear_marker.id = 0
+        clear_marker.action = Marker.DELETEALL
         marker_array.markers.append(clear_marker)
         
-        # Path line marker
+        # Path line marker - always ID 1
         path_points = [start_point]
         path_marker = Marker()
         path_marker.header.frame_id = frame_id
         path_marker.header.stamp = rclpy.time.Time().to_msg()
         path_marker.ns = "path_planner"
-        path_marker.id = marker_id
-        marker_id += 1
+        path_marker.id = 1
         path_marker.type = Marker.LINE_STRIP
         path_marker.action = Marker.ADD
-        path_marker.scale = Vector3(x=0.02, y=0.0, z=0.0)  # Line width
+        path_marker.scale = Vector3(x=0.02, y=0.0, z=0.0)
         path_marker.color = self.colors['path']
         path_marker.pose.orientation.w = 1.0
+        
+        # Start with ID 2 for other markers
+        marker_id = 2
         
         for cmd_type, value in commands:
             if cmd_type == 'rotate':

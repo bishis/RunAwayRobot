@@ -9,6 +9,7 @@ from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 import math
 from visualization_msgs.msg import MarkerArray
+import numpy as np
 
 class NavigationController(Node):
     def __init__(self):
@@ -19,8 +20,8 @@ class NavigationController(Node):
         self.declare_parameter('max_angular_speed', 1.0)  # rad/s
         self.declare_parameter('linear_threshold', 0.01)
         self.declare_parameter('angular_threshold', 0.02)
-        self.declare_parameter('position_tolerance', 0.1)  # meters
-        self.declare_parameter('angle_tolerance', 0.1)    # radians
+        self.declare_parameter('position_tolerance', 0.05)  # meters
+        self.declare_parameter('angle_tolerance', 0.1)     # radians
         
         # Get parameters
         self.max_linear_speed = self.get_parameter('max_linear_speed').value
@@ -66,6 +67,10 @@ class NavigationController(Node):
         self.create_timer(0.1, self.execute_commands)  # 10Hz control loop
         
         self.get_logger().info('Navigation controller initialized')
+        
+        # Add to state tracking
+        self.current_target_position = None
+        self.current_target_heading = None
 
     def path_callback(self, msg: Path):
         """Handle new path from planner"""
@@ -104,31 +109,57 @@ class NavigationController(Node):
             return None
 
     def execute_commands(self):
-        """Execute current command in the simplified path"""
+        """Execute current command with position feedback"""
         if not self.current_commands or self.current_command_index >= len(self.current_commands):
+            return
+            
+        # Get current robot pose
+        robot_pose = self.get_robot_pose()
+        if not robot_pose:
             return
             
         # Get current command
         cmd_type, value = self.current_commands[self.current_command_index]
         
-        # Initialize start time if needed
-        if self.command_start_time is None:
-            self.command_start_time = self.get_clock().now()
-            self.get_logger().info(f'Starting command: {cmd_type} {value:.2f}')
+        # Initialize target position/heading if needed
+        if self.current_target_position is None:
+            robot_pos = np.array([robot_pose.translation.x, robot_pose.translation.y])
+            current_heading = self._get_yaw_from_quaternion(robot_pose.rotation)
+            
+            if cmd_type == 'rotate':
+                self.current_target_heading = current_heading + value
+                self.current_target_position = robot_pos
+            else:  # forward
+                self.current_target_heading = current_heading
+                self.current_target_position = robot_pos + value * np.array([
+                    math.cos(current_heading),
+                    math.sin(current_heading)
+                ])
+            
+            self.get_logger().info(f'Starting {cmd_type}: target={value:.2f}')
         
-        # Check if command should be complete based on duration
-        duration = self.path_planner.estimate_command_duration(
-            (cmd_type, value),
-            self.max_linear_speed,
-            self.max_angular_speed
-        )
+        # Check if command is complete
+        current_pos = np.array([robot_pose.translation.x, robot_pose.translation.y])
+        current_heading = self._get_yaw_from_quaternion(robot_pose.rotation)
         
-        elapsed = (self.get_clock().now() - self.command_start_time).nanoseconds / 1e9
+        command_complete = False
+        if cmd_type == 'rotate':
+            angle_diff = self._normalize_angle(
+                self.current_target_heading - current_heading
+            )
+            command_complete = abs(angle_diff) < self.angle_tolerance
+        else:  # forward
+            pos_diff = self.current_target_position - current_pos
+            distance = math.sqrt(np.sum(pos_diff * pos_diff))
+            command_complete = distance < self.position_tolerance
         
-        # Generate appropriate velocity command
+        # Generate velocity command
         cmd = Twist()
         if cmd_type == 'rotate':
-            cmd.angular.z = 1.0 if value > 0 else -1.0
+            angle_diff = self._normalize_angle(
+                self.current_target_heading - current_heading
+            )
+            cmd.angular.z = 1.0 if angle_diff > 0 else -1.0
             cmd.linear.x = 0.0
         else:  # forward
             cmd.linear.x = 1.0
@@ -137,13 +168,13 @@ class NavigationController(Node):
         # Publish command
         self.wheel_speeds_pub.publish(cmd)
         
-        # Check if command is complete
-        if elapsed >= duration:
+        # Move to next command if complete
+        if command_complete:
             self.current_command_index += 1
-            self.command_start_time = None
+            self.current_target_position = None
+            self.current_target_heading = None
             if self.current_command_index >= len(self.current_commands):
                 self.get_logger().info('Path execution complete')
-                # Stop the robot
                 self.wheel_speeds_pub.publish(Twist())
 
     def cmd_vel_callback(self, msg: Twist):
@@ -174,6 +205,20 @@ class NavigationController(Node):
         
         # Publish wheel speeds
         self.wheel_speeds_pub.publish(wheel_speeds)
+
+    def _get_yaw_from_quaternion(self, q):
+        """Extract yaw angle from quaternion"""
+        # Convert quaternion to Euler angles
+        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny_cosp, cosy_cosp)
+
+    def _get_yaw_from_quaternion(self, q):
+        """Extract yaw angle from quaternion"""
+        # Convert quaternion to Euler angles
+        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny_cosp, cosy_cosp)
 
 def main(args=None):
     rclpy.init(args=args)

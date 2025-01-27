@@ -17,8 +17,8 @@ class PathPlanner:
             angle_threshold: Minimum angle change (radians) to consider a new segment
             min_segment_length: Minimum length (meters) for a path segment
         """
-        self.angle_threshold = 0.35  # About 20 degrees - ignore smaller turns
-        self.min_segment_length = min_segment_length * 1.5  # Increase minimum segment length
+        self.angle_threshold = 0.5  # About 30 degrees - only make significant turns
+        self.min_segment_length = 0.2  # Minimum 20cm segments
         
         # Colors for visualization
         self.colors = {
@@ -29,58 +29,96 @@ class PathPlanner:
         }
 
     def simplify_path(self, waypoints: List[Point]) -> List[Tuple[str, float]]:
-        """
-        Convert a list of waypoints into a sequence of straight lines and rotations.
-        
-        Args:
-            waypoints: List of Points representing the path
-            
-        Returns:
-            List of (command_type, value) tuples where:
-                command_type is either 'rotate' or 'forward'
-                value is angle (radians) for rotate or distance (meters) for forward
-        """
+        """New path simplification approach using Douglas-Peucker and direction-based segmentation"""
         if len(waypoints) < 2:
             return []
             
+        # First simplify the path using Douglas-Peucker algorithm
+        simplified_points = self._douglas_peucker(waypoints, epsilon=0.1)
+        
+        # Convert to major segments based on direction changes
         commands = []
-        current_pos = waypoints[0]
-        current_heading = 0.0  # Assume starting heading is 0 (positive x-axis)
+        if len(simplified_points) < 2:
+            return commands
+            
+        current_pos = simplified_points[0]
+        # Use the first segment to establish initial heading
+        dx = simplified_points[1].x - current_pos.x
+        dy = simplified_points[1].y - current_pos.y
+        current_heading = math.atan2(dy, dx)
         
-        # Skip some waypoints to create a smoother path
-        step = 2  # Look at every nth waypoint
-        smoothed_waypoints = [waypoints[0]] + [p for i, p in enumerate(waypoints[1:]) if i % step == 0]
-        if waypoints[-1] not in smoothed_waypoints:
-            smoothed_waypoints.append(waypoints[-1])
-        
-        for next_point in smoothed_waypoints[1:]:
-            # Calculate angle and distance to next point
+        for i in range(1, len(simplified_points)):
+            next_point = simplified_points[i]
+            
+            # Calculate new segment direction
             dx = next_point.x - current_pos.x
             dy = next_point.y - current_pos.y
-            target_angle = math.atan2(dy, dx)
             distance = math.sqrt(dx*dx + dy*dy)
             
             # Skip very short segments
             if distance < self.min_segment_length:
                 continue
                 
-            # Calculate required rotation
-            angle_diff = self._normalize_angle(target_angle - current_heading)
+            # Calculate new heading
+            new_heading = math.atan2(dy, dx)
+            angle_diff = self._normalize_angle(new_heading - current_heading)
             
-            # Only add rotation command if the angle is significant
+            # Only add rotation if it's significant
             if abs(angle_diff) > self.angle_threshold:
-                # Round the angle to reduce small adjustments
-                angle_diff = round(angle_diff / 0.175) * 0.175  # Round to ~10 degree increments
+                # Round angle to nearest 45 degrees (π/4)
+                angle_diff = round(angle_diff / (math.pi/4)) * (math.pi/4)
                 commands.append(('rotate', angle_diff))
+                current_heading = self._normalize_angle(current_heading + angle_diff)
             
-            # Add forward command
+            # Add forward command with actual distance
             commands.append(('forward', distance))
-            
-            # Update current position and heading
             current_pos = next_point
-            current_heading = target_angle
             
         return commands
+
+    def _douglas_peucker(self, points: List[Point], epsilon: float) -> List[Point]:
+        """Douglas-Peucker path simplification algorithm"""
+        if len(points) < 3:
+            return points
+            
+        # Find point with maximum distance
+        dmax = 0
+        index = 0
+        for i in range(1, len(points) - 1):
+            d = self._point_line_distance(points[i], points[0], points[-1])
+            if d > dmax:
+                index = i
+                dmax = d
+        
+        # If max distance is greater than epsilon, recursively simplify
+        if dmax > epsilon:
+            # Recursive call
+            rec_results1 = self._douglas_peucker(points[:index + 1], epsilon)
+            rec_results2 = self._douglas_peucker(points[index:], epsilon)
+            # Build the result list
+            return rec_results1[:-1] + rec_results2
+        else:
+            return [points[0], points[-1]]
+
+    def _point_line_distance(self, point: Point, line_start: Point, line_end: Point) -> float:
+        """Calculate perpendicular distance from point to line"""
+        if line_start.x == line_end.x and line_start.y == line_end.y:
+            return math.sqrt(
+                (point.x - line_start.x)**2 + 
+                (point.y - line_start.y)**2
+            )
+            
+        num = abs(
+            (line_end.y - line_start.y) * point.x -
+            (line_end.x - line_start.x) * point.y +
+            line_end.x * line_start.y -
+            line_end.y * line_start.x
+        )
+        den = math.sqrt(
+            (line_end.y - line_start.y)**2 +
+            (line_end.x - line_start.x)**2
+        )
+        return num/den if den != 0 else 0
 
     def generate_velocity_commands(self, commands: List[Tuple[str, float]]) -> List[Twist]:
         """

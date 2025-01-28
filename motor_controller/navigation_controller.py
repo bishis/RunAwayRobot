@@ -83,6 +83,12 @@ class NavigationController(Node):
         self.last_pause_time = None        # Track pause timing
         self.forward_correction_gain = 0.3  # Reduced correction during forward movement
         
+        # Add rotation control parameters
+        self.rotation_start_time = None
+        self.max_rotation_time = 5.0  # Maximum time to attempt a rotation (seconds)
+        self.final_turn_hysteresis = 0.6  # Larger hysteresis for final turns (~35 degrees)
+        self.initial_turn_direction = None  # Track initial turn direction
+        
         self.get_logger().info('Navigation controller initialized')
 
     def path_callback(self, msg: Path):
@@ -200,48 +206,58 @@ class NavigationController(Node):
             command_complete = abs(angle_diff) < self.angle_tolerance
             
             if not command_complete:
-                # Check if we're in a pause state
-                if self.last_pause_time is not None:
-                    elapsed = (current_time - self.last_pause_time).nanoseconds / 1e9
-                    if elapsed < self.pause_duration:
-                        # Still pausing
-                        cmd.angular.z = 0.0
-                        return
-                    self.last_pause_time = None
-                    self.consecutive_turns = 0
-
-                # Determine desired turn direction
-                desired_direction = -1.0 if angle_diff > 0 else 1.0
+                # Initialize rotation start time if needed
+                if self.rotation_start_time is None:
+                    self.rotation_start_time = current_time
+                    self.initial_turn_direction = -1.0 if angle_diff > 0 else 1.0
                 
-                # Add increased hysteresis for direction changes
-                if self.last_turn_direction is not None:
-                    if self.last_turn_direction != desired_direction:
-                        # Stronger hysteresis when changing directions
-                        hysteresis = self.turn_hysteresis * (1 + 0.3 * self.consecutive_turns)
-                        
-                        if abs(angle_diff) < hysteresis:
-                            desired_direction = self.last_turn_direction
-                        elif self.direction_change_time is not None:
-                            elapsed = (current_time - self.direction_change_time).nanoseconds / 1e9
-                            if elapsed < self.min_turn_duration:
-                                desired_direction = self.last_turn_direction
-                
-                # Update direction tracking
-                if self.last_turn_direction != desired_direction:
-                    if self.last_turn_direction is not None:
-                        self.consecutive_turns += 1
-                        if self.consecutive_turns > self.max_consecutive_turns:
-                            # Pause movement and reset
-                            self.get_logger().info('Detected oscillation, pausing to stabilize')
-                            self.last_pause_time = current_time
+                # Check for rotation timeout
+                elapsed_rotation = (current_time - self.rotation_start_time).nanoseconds / 1e9
+                if elapsed_rotation > self.max_rotation_time:
+                    self.get_logger().warning('Rotation timed out, marking as complete')
+                    command_complete = True
+                else:
+                    # Check if we're in a pause state
+                    if self.last_pause_time is not None:
+                        elapsed = (current_time - self.last_pause_time).nanoseconds / 1e9
+                        if elapsed < self.pause_duration:
                             cmd.angular.z = 0.0
                             return
+                        self.last_pause_time = None
+                        self.consecutive_turns = 0
+
+                    # Determine turn direction with stronger hysteresis for final rotations
+                    desired_direction = -1.0 if angle_diff > 0 else 1.0
                     
-                    self.last_turn_direction = desired_direction
-                    self.direction_change_time = current_time
-                
-                cmd.angular.z = desired_direction
-                cmd.linear.x = 0.0
+                    # Use initial direction if angle is within hysteresis
+                    if abs(angle_diff) < self.final_turn_hysteresis:
+                        desired_direction = self.initial_turn_direction
+                    
+                    # Update direction tracking
+                    if self.last_turn_direction != desired_direction:
+                        if self.last_turn_direction is not None:
+                            self.consecutive_turns += 1
+                            if self.consecutive_turns > self.max_consecutive_turns:
+                                self.get_logger().info('Rotation unstable, using initial direction')
+                                desired_direction = self.initial_turn_direction
+                                self.consecutive_turns = 0
+                        
+                        self.last_turn_direction = desired_direction
+                        self.direction_change_time = current_time
+                    
+                    cmd.angular.z = desired_direction
+                    cmd.linear.x = 0.0
+                    
+                    self.get_logger().debug(
+                        f'Rotation: diff={math.degrees(angle_diff):.1f}°, '
+                        f'direction={"LEFT" if cmd.angular.z < 0 else "RIGHT"}, '
+                        f'elapsed={elapsed_rotation:.1f}s'
+                    )
+            
+            if command_complete:
+                # Reset rotation control variables
+                self.rotation_start_time = None
+                self.initial_turn_direction = None
                 
         else:  # forward
             # Calculate direction to target
@@ -291,6 +307,8 @@ class NavigationController(Node):
             self.current_target_heading = None
             self.last_turn_direction = None
             self.direction_change_time = None
+            self.rotation_start_time = None
+            self.initial_turn_direction = None
             if self.current_command_index >= len(self.current_commands):
                 self.get_logger().info('Path execution complete')
                 self.wheel_speeds_pub.publish(Twist())

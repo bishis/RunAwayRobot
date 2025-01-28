@@ -28,52 +28,42 @@ class PathPlanner:
             'text': ColorRGBA(r=1.0, g=1.0, b=1.0, a=0.8)       # White for text
         }
 
-    def simplify_path(self, waypoints: List[Point]) -> List[Tuple[str, float]]:
-        """New path simplification approach using Douglas-Peucker and direction-based segmentation"""
+    def simplify_path(self, waypoints: List[Point], initial_heading: float = 0.0) -> List[Tuple[str, float]]:
+        """Create a simple path with just start and end points"""
         if len(waypoints) < 2:
             return []
-            
-        # First simplify the path using Douglas-Peucker algorithm
-        simplified_points = self._douglas_peucker(waypoints, epsilon=0.1)
+
+        # Just use start and end points
+        start = waypoints[0]
+        end = waypoints[-1]
+
+        # Calculate direct path
+        dx = end.x - start.x
+        dy = end.y - start.y
         
-        # Convert to major segments based on direction changes
+        # Calculate angle to target
+        target_angle = math.atan2(dy, dx)
+        
+        # Calculate distance
+        distance = math.sqrt(dx*dx + dy*dy)
+        
+        # Create simple two-command path:
+        # 1. Turn to face target
+        # 2. Move straight to target
         commands = []
-        if len(simplified_points) < 2:
-            return commands
-            
-        current_pos = simplified_points[0]
-        # Use the first segment to establish initial heading
-        dx = simplified_points[1].x - current_pos.x
-        dy = simplified_points[1].y - current_pos.y
-        current_heading = math.atan2(dy, dx)
         
-        for i in range(1, len(simplified_points)):
-            next_point = simplified_points[i]
-            
-            # Calculate new segment direction
-            dx = next_point.x - current_pos.x
-            dy = next_point.y - current_pos.y
-            distance = math.sqrt(dx*dx + dy*dy)
-            
-            # Skip very short segments
-            if distance < self.min_segment_length:
-                continue
-                
-            # Calculate new heading
-            new_heading = math.atan2(dy, dx)
-            angle_diff = self._normalize_angle(new_heading - current_heading)
-            
-            # Only add rotation if it's significant
-            if abs(angle_diff) > self.angle_threshold:
-                # Round angle to nearest 45 degrees (π/4)
-                angle_diff = round(angle_diff / (math.pi/4)) * (math.pi/4)
-                commands.append(('rotate', angle_diff))
-                current_heading = self._normalize_angle(current_heading + angle_diff)
-            
-            # Add forward command with actual distance
+        # First command: rotate to face target
+        # Use the provided initial heading instead of assuming 0
+        angle = self._normalize_angle(target_angle - initial_heading)
+        if abs(angle) > self.angle_threshold:
+            # Round angle to nearest 45 degrees
+            angle = round(angle / (math.pi/4)) * (math.pi/4)
+            commands.append(('rotate', angle))
+        
+        # Second command: move forward
+        if distance > self.min_segment_length:
             commands.append(('forward', distance))
-            current_pos = next_point
-            
+        
         return commands
 
     def _douglas_peucker(self, points: List[Point], epsilon: float) -> List[Point]:

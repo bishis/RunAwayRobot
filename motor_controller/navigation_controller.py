@@ -77,11 +77,22 @@ class NavigationController(Node):
         if not msg.poses:
             return
             
+        # Get current robot pose
+        robot_pose = self.get_robot_pose()
+        if not robot_pose:
+            return
+        
+        # Get current heading
+        current_heading = self._get_yaw_from_quaternion(robot_pose.rotation)
+        
         # Convert path poses to points
         waypoints = [pose.pose.position for pose in msg.poses]
         
-        # Generate simplified commands
-        self.current_commands = self.path_planner.simplify_path(waypoints)
+        # Generate simplified commands with current heading
+        self.current_commands = self.path_planner.simplify_path(
+            waypoints, 
+            initial_heading=current_heading
+        )
         self.current_command_index = 0
         self.command_start_time = None
         
@@ -93,7 +104,10 @@ class NavigationController(Node):
         )
         self.marker_pub.publish(markers)
         
-        self.get_logger().info(f'Received new path with {len(self.current_commands)} commands')
+        self.get_logger().info(
+            f'Received new path with {len(self.current_commands)} commands. '
+            f'Current heading: {math.degrees(current_heading):.1f}°'
+        )
 
     def get_robot_pose(self):
         """Get current robot pose from TF"""

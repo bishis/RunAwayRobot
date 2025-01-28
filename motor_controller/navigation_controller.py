@@ -15,7 +15,7 @@ class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
-        # Adjust parameters for smoother movement
+        # Declare parameters
         self.declare_parameter('max_linear_speed', 0.1)
         self.declare_parameter('max_angular_speed', 1.0)
         self.declare_parameter('linear_threshold', 0.01)
@@ -36,12 +36,6 @@ class NavigationController(Node):
             angle_threshold=self.angular_threshold,
             min_segment_length=self.linear_threshold
         )
-        
-        # Navigation state
-        self.current_path = None
-        self.current_commands = []
-        self.current_command_index = 0
-        self.command_start_time = None
         
         # Set up TF listener
         self.tf_buffer = Buffer()
@@ -66,13 +60,18 @@ class NavigationController(Node):
         # Create timer for command execution
         self.create_timer(0.1, self.execute_commands)  # 10Hz control loop
         
-        self.get_logger().info('Navigation controller initialized')
-        
-        # Add to state tracking
+        # Initialize all state variables
+        self.current_path = None
+        self.current_commands = []
+        self.current_command_index = 0
         self.current_target_position = None
         self.current_target_heading = None
-
-        # Add parameters for smoother control
+        
+        # Path update tracking
+        self.path_update_pending = False
+        self.latest_path = None
+        
+        # Movement control parameters
         self.last_turn_direction = None
         self.direction_change_time = None
         self.min_turn_duration = 1.0       # Increased to 1 second minimum turn time
@@ -80,6 +79,8 @@ class NavigationController(Node):
         self.consecutive_turns = 0         # Count consecutive direction changes
         self.max_consecutive_turns = 3     # Maximum allowed consecutive turns
         self.last_command_time = None      # Track command timing
+        
+        self.get_logger().info('Navigation controller initialized')
 
     def path_callback(self, msg: Path):
         """Handle new path from planner"""

@@ -125,7 +125,7 @@ class NavigationController(Node):
 
     def execute_commands(self):
         """Execute current command with position feedback"""
-        # Check if we need to update to a new path
+        # Check for path updates
         if self.path_update_pending and self.latest_path:
             # Convert path poses to points
             waypoints = [pose.pose.position for pose in self.latest_path.poses]
@@ -173,19 +173,16 @@ class NavigationController(Node):
         # Get current command
         cmd_type, value = self.current_commands[self.current_command_index]
         
-        # Initialize target position/heading if needed
+        # Initialize target if needed
         if self.current_target_position is None:
             robot_pos = np.array([robot_pose.translation.x, robot_pose.translation.y])
             current_heading = self._get_yaw_from_quaternion(robot_pose.rotation)
-            self.last_turn_direction = None  # Reset turn direction
-            self.direction_change_time = None
             
             if cmd_type == 'rotate':
                 self.current_target_heading = self._normalize_angle(current_heading + value)
                 self.current_target_position = robot_pos
                 self.get_logger().info(
-                    f'Starting rotation: current={math.degrees(current_heading):.1f}°, '
-                    f'target={math.degrees(self.current_target_heading):.1f}°'
+                    f'Starting rotation to {math.degrees(self.current_target_heading):.1f}°'
                 )
             else:  # forward
                 self.current_target_heading = current_heading
@@ -193,111 +190,59 @@ class NavigationController(Node):
                     math.cos(current_heading),
                     math.sin(current_heading)
                 ])
-                self.get_logger().info(f'Starting forward: distance={value:.2f}m')
+                self.get_logger().info(f'Starting forward movement of {value:.2f}m')
         
-        # Generate velocity command
-        cmd = Twist()
+        # Get current pose data
+        current_pos = np.array([robot_pose.translation.x, robot_pose.translation.y])
         current_heading = self._normalize_angle(self._get_yaw_from_quaternion(robot_pose.rotation))
-        current_time = self.get_clock().now()
-
+        
+        # Generate command based on current state
+        cmd = Twist()
+        
         if cmd_type == 'rotate':
-            # Handle rotation with improved smoothing
+            # Simple rotation control
             angle_diff = self._normalize_angle(self.current_target_heading - current_heading)
             command_complete = abs(angle_diff) < self.angle_tolerance
             
             if not command_complete:
-                # Initialize rotation start time if needed
-                if self.rotation_start_time is None:
-                    self.rotation_start_time = current_time
-                    self.initial_turn_direction = -1.0 if angle_diff > 0 else 1.0
+                # Just keep turning in the needed direction
+                cmd.angular.z = -1.0 if angle_diff > 0 else 1.0
+                cmd.linear.x = 0.0
                 
-                # Check for rotation timeout
-                elapsed_rotation = (current_time - self.rotation_start_time).nanoseconds / 1e9
-                if elapsed_rotation > self.max_rotation_time:
-                    self.get_logger().warning('Rotation timed out, marking as complete')
-                    command_complete = True
-                else:
-                    # Check if we're in a pause state
-                    if self.last_pause_time is not None:
-                        elapsed = (current_time - self.last_pause_time).nanoseconds / 1e9
-                        if elapsed < self.pause_duration:
-                            cmd.angular.z = 0.0
-                            return
-                        self.last_pause_time = None
-                        self.consecutive_turns = 0
-
-                    # Determine turn direction with stronger hysteresis for final rotations
-                    desired_direction = -1.0 if angle_diff > 0 else 1.0
-                    
-                    # Use initial direction if angle is within hysteresis
-                    if abs(angle_diff) < self.final_turn_hysteresis:
-                        desired_direction = self.initial_turn_direction
-                    
-                    # Update direction tracking
-                    if self.last_turn_direction != desired_direction:
-                        if self.last_turn_direction is not None:
-                            self.consecutive_turns += 1
-                            if self.consecutive_turns > self.max_consecutive_turns:
-                                self.get_logger().info('Rotation unstable, using initial direction')
-                                desired_direction = self.initial_turn_direction
-                                self.consecutive_turns = 0
-                        
-                        self.last_turn_direction = desired_direction
-                        self.direction_change_time = current_time
-                    
-                    cmd.angular.z = desired_direction
-                    cmd.linear.x = 0.0
-                    
-                    self.get_logger().debug(
-                        f'Rotation: diff={math.degrees(angle_diff):.1f}°, '
-                        f'direction={"LEFT" if cmd.angular.z < 0 else "RIGHT"}, '
-                        f'elapsed={elapsed_rotation:.1f}s'
-                    )
-            
-            if command_complete:
-                # Reset rotation control variables
-                self.rotation_start_time = None
-                self.initial_turn_direction = None
-                
+                self.get_logger().debug(
+                    f'Rotating: current={math.degrees(current_heading):.1f}°, '
+                    f'target={math.degrees(self.current_target_heading):.1f}°, '
+                    f'diff={math.degrees(angle_diff):.1f}°'
+                )
         else:  # forward
-            # Calculate direction to target
-            to_target = self.current_target_position - np.array([robot_pose.translation.x, robot_pose.translation.y])
+            # Calculate distance and heading to target
+            to_target = self.current_target_position - current_pos
             distance = math.sqrt(np.sum(to_target * to_target))
+            target_heading = math.atan2(to_target[1], to_target[0])
+            heading_error = self._normalize_angle(target_heading - current_heading)
+            
             command_complete = distance < self.position_tolerance
             
             if not command_complete:
-                # Calculate heading error
-                target_heading = math.atan2(to_target[1], to_target[0])
-                heading_error = self._normalize_angle(target_heading - current_heading)
+                # Always move forward
+                cmd.linear.x = 1.0
                 
-                # More forgiving forward movement with smoother corrections
-                if abs(heading_error) < self.angle_tolerance * 2.0:  # Double tolerance for forward
-                    cmd.linear.x = 1.0
-                    # Proportional heading correction
-                    if abs(heading_error) > self.angle_tolerance * 0.25:  # Start correction earlier
-                        correction = self.forward_correction_gain * heading_error / self.angle_tolerance
-                        cmd.angular.z = max(-0.5, min(0.5, -correction))  # Limit correction
-                    else:
-                        cmd.angular.z = 0.0
+                # Apply course correction if needed
+                if abs(heading_error) > self.angle_tolerance:
+                    cmd.angular.z = -0.5 if heading_error > 0 else 0.5  # Gentle correction
                 else:
-                    # Need to stop and correct heading
-                    cmd.linear.x = 0.0
-                    cmd.angular.z = -1.0 if heading_error > 0 else 1.0
-                    self.get_logger().debug(f'Stopping to correct large heading error: {math.degrees(heading_error):.1f}°')
-
-        # Enforce minimum command duration and smooth transitions
-        if self.last_command_time is not None:
-            elapsed = (current_time - self.last_command_time).nanoseconds / 1e9
-            if elapsed < 0.2:  # Increased minimum duration between changes
-                return
-        self.last_command_time = current_time
-
+                    cmd.angular.z = 0.0
+                
+                self.get_logger().debug(
+                    f'Moving: distance={distance:.3f}m, '
+                    f'heading_error={math.degrees(heading_error):.1f}°'
+                )
+        
         # Publish command
         self.wheel_speeds_pub.publish(cmd)
         
-        # Reset consecutive turns counter when command completes
+        # Check for command completion
         if command_complete:
-            self.consecutive_turns = 0
             self.get_logger().info(
                 f'Completed {cmd_type} command: '
                 f'heading={math.degrees(current_heading):.1f}°'
@@ -305,10 +250,7 @@ class NavigationController(Node):
             self.current_command_index += 1
             self.current_target_position = None
             self.current_target_heading = None
-            self.last_turn_direction = None
-            self.direction_change_time = None
-            self.rotation_start_time = None
-            self.initial_turn_direction = None
+            
             if self.current_command_index >= len(self.current_commands):
                 self.get_logger().info('Path execution complete')
                 self.wheel_speeds_pub.publish(Twist())

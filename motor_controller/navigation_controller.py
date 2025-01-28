@@ -72,6 +72,16 @@ class NavigationController(Node):
         self.current_target_position = None
         self.current_target_heading = None
 
+        # Add parameters for turn control
+        self.last_turn_direction = None  # Keep track of last turn direction
+        self.direction_change_time = None  # Time when we last changed direction
+        self.min_turn_duration = 0.5  # Minimum time to maintain turn direction (seconds)
+        self.turn_hysteresis = 0.2  # Extra angle to turn before switching directions (radians)
+
+        # Add flag to track if we're receiving updated paths
+        self.path_update_pending = False
+        self.latest_path = None
+
     def path_callback(self, msg: Path):
         """Handle new path from planner"""
         if not msg.poses:
@@ -85,29 +95,11 @@ class NavigationController(Node):
         # Get current heading
         current_heading = self._get_yaw_from_quaternion(robot_pose.rotation)
         
-        # Convert path poses to points
-        waypoints = [pose.pose.position for pose in msg.poses]
+        # Store the new path and mark for update
+        self.latest_path = msg
+        self.path_update_pending = True
         
-        # Generate simplified commands with current heading
-        self.current_commands = self.path_planner.simplify_path(
-            waypoints, 
-            initial_heading=current_heading
-        )
-        self.current_command_index = 0
-        self.command_start_time = None
-        
-        # Create and publish visualization markers
-        markers = self.path_planner.create_visualization_markers(
-            self.current_commands,
-            waypoints[0],
-            frame_id='map'
-        )
-        self.marker_pub.publish(markers)
-        
-        self.get_logger().info(
-            f'Received new path with {len(self.current_commands)} commands. '
-            f'Current heading: {math.degrees(current_heading):.1f}°'
-        )
+        self.get_logger().info('Received new path - will update current plan')
 
     def get_robot_pose(self):
         """Get current robot pose from TF"""
@@ -124,6 +116,43 @@ class NavigationController(Node):
 
     def execute_commands(self):
         """Execute current command with position feedback"""
+        # Check if we need to update to a new path
+        if self.path_update_pending and self.latest_path:
+            # Convert path poses to points
+            waypoints = [pose.pose.position for pose in self.latest_path.poses]
+            
+            # Get current robot pose for new plan
+            robot_pose = self.get_robot_pose()
+            if robot_pose:
+                current_heading = self._get_yaw_from_quaternion(robot_pose.rotation)
+                
+                # Generate new commands from current position
+                self.current_commands = self.path_planner.simplify_path(
+                    waypoints, 
+                    initial_heading=current_heading
+                )
+                self.current_command_index = 0
+                self.current_target_position = None
+                self.current_target_heading = None
+                self.last_turn_direction = None
+                self.direction_change_time = None
+                
+                # Create and publish visualization markers
+                markers = self.path_planner.create_visualization_markers(
+                    self.current_commands,
+                    waypoints[0],
+                    frame_id='map'
+                )
+                self.marker_pub.publish(markers)
+                
+                self.get_logger().info(
+                    f'Updated to new path with {len(self.current_commands)} commands. '
+                    f'Current heading: {math.degrees(current_heading):.1f}°'
+                )
+            
+            self.path_update_pending = False
+            self.latest_path = None
+
         if not self.current_commands or self.current_command_index >= len(self.current_commands):
             return
         
@@ -139,14 +168,15 @@ class NavigationController(Node):
         if self.current_target_position is None:
             robot_pos = np.array([robot_pose.translation.x, robot_pose.translation.y])
             current_heading = self._get_yaw_from_quaternion(robot_pose.rotation)
+            self.last_turn_direction = None  # Reset turn direction
+            self.direction_change_time = None
             
             if cmd_type == 'rotate':
                 self.current_target_heading = self._normalize_angle(current_heading + value)
                 self.current_target_position = robot_pos
                 self.get_logger().info(
                     f'Starting rotation: current={math.degrees(current_heading):.1f}°, '
-                    f'target={math.degrees(self.current_target_heading):.1f}°, '
-                    f'diff={math.degrees(value):.1f}°'
+                    f'target={math.degrees(self.current_target_heading):.1f}°'
                 )
             else:  # forward
                 self.current_target_heading = current_heading
@@ -156,20 +186,42 @@ class NavigationController(Node):
                 ])
                 self.get_logger().info(f'Starting forward: distance={value:.2f}m')
         
-        # Check if command is complete
-        current_pos = np.array([robot_pose.translation.x, robot_pose.translation.y])
-        current_heading = self._normalize_angle(self._get_yaw_from_quaternion(robot_pose.rotation))
-        
         # Generate velocity command
         cmd = Twist()
+        current_heading = self._normalize_angle(self._get_yaw_from_quaternion(robot_pose.rotation))
         
         if cmd_type == 'rotate':
-            # Handle rotation
+            # Handle rotation with hysteresis
             angle_diff = self._normalize_angle(self.current_target_heading - current_heading)
             command_complete = abs(angle_diff) < self.angle_tolerance
             
             if not command_complete:
-                cmd.angular.z = -1.0 if angle_diff > 0 else 1.0
+                # Determine desired turn direction
+                desired_direction = -1.0 if angle_diff > 0 else 1.0
+                
+                # Check if we should change direction
+                current_time = self.get_clock().now()
+                can_change_direction = True
+                
+                if self.last_turn_direction is not None:
+                    if self.last_turn_direction != desired_direction:
+                        # Add hysteresis - require larger angle to switch directions
+                        if abs(angle_diff) < self.turn_hysteresis:
+                            desired_direction = self.last_turn_direction
+                        elif self.direction_change_time is not None:
+                            # Check if minimum turn duration has elapsed
+                            elapsed = (current_time - self.direction_change_time).nanoseconds / 1e9
+                            if elapsed < self.min_turn_duration:
+                                desired_direction = self.last_turn_direction
+                                can_change_direction = False
+                
+                # Update direction if changed
+                if self.last_turn_direction != desired_direction and can_change_direction:
+                    self.last_turn_direction = desired_direction
+                    self.direction_change_time = current_time
+                    self.get_logger().debug('Changed turn direction')
+                
+                cmd.angular.z = desired_direction
                 cmd.linear.x = 0.0
                 
                 self.get_logger().debug(
@@ -178,7 +230,7 @@ class NavigationController(Node):
                 )
         else:  # forward
             # Calculate direction to target
-            to_target = self.current_target_position - current_pos
+            to_target = self.current_target_position - np.array([robot_pose.translation.x, robot_pose.translation.y])
             distance = math.sqrt(np.sum(to_target * to_target))
             command_complete = distance < self.position_tolerance
             
@@ -216,6 +268,8 @@ class NavigationController(Node):
             self.current_command_index += 1
             self.current_target_position = None
             self.current_target_heading = None
+            self.last_turn_direction = None
+            self.direction_change_time = None
             if self.current_command_index >= len(self.current_commands):
                 self.get_logger().info('Path execution complete')
                 self.wheel_speeds_pub.publish(Twist())

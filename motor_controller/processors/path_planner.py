@@ -47,13 +47,23 @@ class PathPlanner:
         # Calculate distance
         distance = math.sqrt(dx*dx + dy*dy)
         
-        # Create simple two-command path:
-        # 1. Turn to face target
-        # 2. Move straight to target
+        # Safety check - limit maximum segment length
+        MAX_SEGMENT_LENGTH = 1.0  # meters
+        if distance > MAX_SEGMENT_LENGTH:
+            # Scale down to maximum length
+            scale = MAX_SEGMENT_LENGTH / distance
+            dx *= scale
+            dy *= scale
+            distance = MAX_SEGMENT_LENGTH
+            
+            # Update end point
+            end.x = start.x + dx
+            end.y = start.y + dy
+        
+        # Create commands
         commands = []
         
         # First command: rotate to face target
-        # Use the provided initial heading instead of assuming 0
         angle = self._normalize_angle(target_angle - initial_heading)
         if abs(angle) > self.angle_threshold:
             # Round angle to nearest 45 degrees

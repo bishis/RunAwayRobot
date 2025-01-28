@@ -9,16 +9,18 @@ import rclpy
 class PathPlanner:
     """Simplifies paths into straight lines and rotations for binary movement control."""
     
-    def __init__(self, angle_threshold: float = 0.2, min_segment_length: float = 0.1):
+    def __init__(self, angle_threshold: float = 0.2, min_segment_length: float = 0.1, node=None):
         """
         Initialize path planner with control parameters.
         
         Args:
             angle_threshold: Minimum angle change (radians) to consider a new segment
             min_segment_length: Minimum length (meters) for a path segment
+            node: ROS node for logging (optional)
         """
         self.angle_threshold = 0.5  # About 30 degrees - only make significant turns
         self.min_segment_length = 0.2  # Minimum 20cm segments
+        self.node = node  # Store node reference for logging
         
         # Colors for visualization
         self.colors = {
@@ -75,11 +77,12 @@ class PathPlanner:
             # Update current position
             current_pos = next_pos
         
-        # Log the simplified path
-        self.get_logger().info(
-            f'Simplified path into {len(commands)} commands: ' +
-            ', '.join([f"({cmd}, {val:.2f})" for cmd, val in commands])
-        )
+        # Log the simplified path if we have a node
+        if self.node:
+            self.node.get_logger().info(
+                f'Simplified path into {len(commands)} commands: ' +
+                ', '.join([f"({cmd}, {val:.2f})" for cmd, val in commands])
+            )
         
         return commands
 

@@ -31,10 +31,11 @@ class NavigationController(Node):
         self.position_tolerance = self.get_parameter('position_tolerance').value
         self.angle_tolerance = self.get_parameter('angle_tolerance').value
         
-        # Initialize path planner
+        # Initialize path planner with node reference
         self.path_planner = PathPlanner(
             angle_threshold=self.angular_threshold,
-            min_segment_length=self.linear_threshold
+            min_segment_length=self.linear_threshold,
+            node=self  # Pass self as the node for logging
         )
         
         # Set up TF listener

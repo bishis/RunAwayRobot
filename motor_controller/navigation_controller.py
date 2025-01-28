@@ -74,11 +74,14 @@ class NavigationController(Node):
         # Movement control parameters
         self.last_turn_direction = None
         self.direction_change_time = None
-        self.min_turn_duration = 1.0       # Increased to 1 second minimum turn time
-        self.turn_hysteresis = 0.35        # Increased to ~20 degrees
+        self.min_turn_duration = 1.5        # Longer minimum turn time
+        self.turn_hysteresis = 0.45        # ~25 degrees hysteresis
         self.consecutive_turns = 0         # Count consecutive direction changes
-        self.max_consecutive_turns = 3     # Maximum allowed consecutive turns
+        self.max_consecutive_turns = 2      # Reduced max turns before pause
         self.last_command_time = None      # Track command timing
+        self.pause_duration = 1.0          # Pause duration after max turns
+        self.last_pause_time = None        # Track pause timing
+        self.forward_correction_gain = 0.3  # Reduced correction during forward movement
         
         self.get_logger().info('Navigation controller initialized')
 
@@ -197,16 +200,24 @@ class NavigationController(Node):
             command_complete = abs(angle_diff) < self.angle_tolerance
             
             if not command_complete:
+                # Check if we're in a pause state
+                if self.last_pause_time is not None:
+                    elapsed = (current_time - self.last_pause_time).nanoseconds / 1e9
+                    if elapsed < self.pause_duration:
+                        # Still pausing
+                        cmd.angular.z = 0.0
+                        return
+                    self.last_pause_time = None
+                    self.consecutive_turns = 0
+
                 # Determine desired turn direction
                 desired_direction = -1.0 if angle_diff > 0 else 1.0
                 
-                # Check if we should change direction
-                can_change_direction = True
-                
+                # Add increased hysteresis for direction changes
                 if self.last_turn_direction is not None:
                     if self.last_turn_direction != desired_direction:
-                        # Add stronger hysteresis when changing directions frequently
-                        hysteresis = self.turn_hysteresis * (1 + 0.2 * self.consecutive_turns)
+                        # Stronger hysteresis when changing directions
+                        hysteresis = self.turn_hysteresis * (1 + 0.3 * self.consecutive_turns)
                         
                         if abs(angle_diff) < hysteresis:
                             desired_direction = self.last_turn_direction
@@ -214,21 +225,20 @@ class NavigationController(Node):
                             elapsed = (current_time - self.direction_change_time).nanoseconds / 1e9
                             if elapsed < self.min_turn_duration:
                                 desired_direction = self.last_turn_direction
-                                can_change_direction = False
                 
-                # Update direction if changed
-                if self.last_turn_direction != desired_direction and can_change_direction:
+                # Update direction tracking
+                if self.last_turn_direction != desired_direction:
                     if self.last_turn_direction is not None:
                         self.consecutive_turns += 1
+                        if self.consecutive_turns > self.max_consecutive_turns:
+                            # Pause movement and reset
+                            self.get_logger().info('Detected oscillation, pausing to stabilize')
+                            self.last_pause_time = current_time
+                            cmd.angular.z = 0.0
+                            return
+                    
                     self.last_turn_direction = desired_direction
                     self.direction_change_time = current_time
-                    
-                    # If too many consecutive turns, pause briefly
-                    if self.consecutive_turns > self.max_consecutive_turns:
-                        self.get_logger().info('Too many direction changes, pausing briefly')
-                        cmd.angular.z = 0.0
-                        self.consecutive_turns = 0
-                        return
                 
                 cmd.angular.z = desired_direction
                 cmd.linear.x = 0.0
@@ -244,27 +254,27 @@ class NavigationController(Node):
                 target_heading = math.atan2(to_target[1], to_target[0])
                 heading_error = self._normalize_angle(target_heading - current_heading)
                 
-                # More forgiving forward movement
-                if abs(heading_error) < self.angle_tolerance * 1.5:  # 50% more forgiving when moving
+                # More forgiving forward movement with smoother corrections
+                if abs(heading_error) < self.angle_tolerance * 2.0:  # Double tolerance for forward
                     cmd.linear.x = 1.0
-                    # Small course corrections while moving
-                    if abs(heading_error) > self.angle_tolerance * 0.5:
-                        cmd.angular.z = -0.5 if heading_error > 0 else 0.5  # Gentler turns
+                    # Proportional heading correction
+                    if abs(heading_error) > self.angle_tolerance * 0.25:  # Start correction earlier
+                        correction = self.forward_correction_gain * heading_error / self.angle_tolerance
+                        cmd.angular.z = max(-0.5, min(0.5, -correction))  # Limit correction
                     else:
                         cmd.angular.z = 0.0
                 else:
-                    # Need to correct heading first
+                    # Need to stop and correct heading
                     cmd.linear.x = 0.0
                     cmd.angular.z = -1.0 if heading_error > 0 else 1.0
-                    
-        # Enforce minimum command duration
-        if self.last_command_time is None:
-            self.last_command_time = current_time
-        else:
+                    self.get_logger().debug(f'Stopping to correct large heading error: {math.degrees(heading_error):.1f}°')
+
+        # Enforce minimum command duration and smooth transitions
+        if self.last_command_time is not None:
             elapsed = (current_time - self.last_command_time).nanoseconds / 1e9
-            if elapsed < 0.1:  # Minimum 100ms between command changes
+            if elapsed < 0.2:  # Increased minimum duration between changes
                 return
-            self.last_command_time = current_time
+        self.last_command_time = current_time
 
         # Publish command
         self.wheel_speeds_pub.publish(cmd)

@@ -29,50 +29,57 @@ class PathPlanner:
         }
 
     def simplify_path(self, waypoints: List[Point], initial_heading: float = 0.0) -> List[Tuple[str, float]]:
-        """Create a simple path with just start and end points"""
+        """Break down path into straight lines and turns"""
         if len(waypoints) < 2:
             return []
 
-        # Just use start and end points
-        start = waypoints[0]
-        end = waypoints[-1]
-
-        # Calculate direct path
-        dx = end.x - start.x
-        dy = end.y - start.y
-        
-        # Calculate angle to target
-        target_angle = math.atan2(dy, dx)
-        
-        # Calculate distance
-        distance = math.sqrt(dx*dx + dy*dy)
-        
-        # Safety check - limit maximum segment length
-        MAX_SEGMENT_LENGTH = 1.0  # meters
-        if distance > MAX_SEGMENT_LENGTH:
-            # Scale down to maximum length
-            scale = MAX_SEGMENT_LENGTH / distance
-            dx *= scale
-            dy *= scale
-            distance = MAX_SEGMENT_LENGTH
-            
-            # Update end point
-            end.x = start.x + dx
-            end.y = start.y + dy
-        
-        # Create commands
         commands = []
+        current_pos = np.array([waypoints[0].x, waypoints[0].y])
+        current_heading = initial_heading
         
-        # First command: rotate to face target
-        angle = self._normalize_angle(target_angle - initial_heading)
-        if abs(angle) > self.angle_threshold:
-            # Round angle to nearest 45 degrees
-            angle = round(angle / (math.pi/4)) * (math.pi/4)
-            commands.append(('rotate', angle))
+        # Process waypoints in pairs to create straight-line segments
+        for i in range(1, len(waypoints)):
+            next_pos = np.array([waypoints[i].x, waypoints[i].y])
+            
+            # Calculate direction to next waypoint
+            dx = next_pos[0] - current_pos[0]
+            dy = next_pos[1] - current_pos[1]
+            target_heading = math.atan2(dy, dx)
+            
+            # Calculate turn needed
+            turn_angle = self._normalize_angle(target_heading - current_heading)
+            
+            # Add rotation command if significant turn needed
+            if abs(turn_angle) > self.angle_threshold:
+                # Round angle to nearest 45 degrees for more decisive turns
+                turn_angle = round(turn_angle / (math.pi/4)) * (math.pi/4)
+                commands.append(('rotate', turn_angle))
+                current_heading = self._normalize_angle(current_heading + turn_angle)
+            
+            # Calculate forward distance
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            # Break long movements into shorter segments
+            MAX_SEGMENT = 0.5  # Maximum 50cm segments
+            if distance > MAX_SEGMENT:
+                num_segments = math.ceil(distance / MAX_SEGMENT)
+                segment_distance = distance / num_segments
+                
+                for _ in range(num_segments):
+                    commands.append(('forward', segment_distance))
+            else:
+                # Add forward command if distance is significant
+                if distance > self.min_segment_length:
+                    commands.append(('forward', distance))
+            
+            # Update current position
+            current_pos = next_pos
         
-        # Second command: move forward
-        if distance > self.min_segment_length:
-            commands.append(('forward', distance))
+        # Log the simplified path
+        self.get_logger().info(
+            f'Simplified path into {len(commands)} commands: ' +
+            ', '.join([f"({cmd}, {val:.2f})" for cmd, val in commands])
+        )
         
         return commands
 
@@ -150,7 +157,7 @@ class PathPlanner:
         return velocity_commands
 
     def _normalize_angle(self, angle: float) -> float:
-        """Normalize angle to [-pi, pi]."""
+        """Normalize angle to [-pi, pi]"""
         while angle > math.pi:
             angle -= 2 * math.pi
         while angle < -math.pi:

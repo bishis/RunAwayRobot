@@ -49,10 +49,11 @@ class MotorController:
         linear: Forward/backward speed (-1.0 to 1.0)
         angular: Left/right turning speed (-1.0 to 1.0)
         
-        Note: Due to opposite wheel mounting:
-        - For forward: Left wheel forward, Right wheel forward
-        - For turning right: Left wheel forward, Right wheel backward
-        - For turning left: Left wheel backward, Right wheel forward
+        For 4-wheeled differential drive:
+        - Forward: Both sides forward
+        - Turn right: Left side forward, Right side backward
+        - Turn left: Left side backward, Right side forward
+        - Spin in place: Opposite directions at equal speed
         """
         # Clamp values to valid range
         linear = max(min(linear, 1.0), -1.0)
@@ -62,17 +63,20 @@ class MotorController:
         TURN_BOOST = 1.5  # Amplify turning effect
         angular *= TURN_BOOST
         
-        # Calculate left and right motor speeds with enhanced turning
-        # Invert the angular component for one wheel due to opposite mounting
+        # Calculate left and right motor speeds
         if abs(angular) > 0.1:  # If turning
-            # Prioritize turning by reducing forward speed
-            linear *= 0.5  # Reduce forward speed during turns
-            left_speed = linear + angular  # Changed from - to +
-            right_speed = linear + angular
+            if abs(linear) < 0.1:  # Spin in place if not moving forward/backward
+                # Pure rotation - opposite directions at equal speeds
+                left_speed = angular
+                right_speed = -angular
+            else:
+                # Turn while moving - one side faster than the other
+                left_speed = linear + angular
+                right_speed = linear - angular
         else:
-            # Normal straight movement
-            left_speed = linear + angular  # Changed from - to +
-            right_speed = linear + angular
+            # Straight movement
+            left_speed = linear
+            right_speed = linear
         
         # Normalize speeds if they exceed [-1, 1]
         max_speed = max(abs(left_speed), abs(right_speed))
@@ -97,7 +101,7 @@ class MotorController:
             if self.logger:
                 self.logger.info(f'Right speed boosted to minimum: {right_speed:.2f}')
         
-        # Set left motors (reversed mounting)
+        # Set motor directions and speeds
         if left_speed >= 0:
             self.left_dir.off()  # Forward
             self.left_pwm.value = abs(left_speed)
@@ -105,7 +109,6 @@ class MotorController:
             self.left_dir.on()   # Backward
             self.left_pwm.value = abs(left_speed)
             
-        # Set right motors (reversed mounting)
         if right_speed >= 0:
             self.right_dir.on()  # Forward
             self.right_pwm.value = abs(right_speed)
@@ -116,7 +119,8 @@ class MotorController:
         # Log actual speeds being applied
         if self.logger:
             self.logger.info(
-                f'Motor speeds - Left: {left_speed:6.3f}, Right: {right_speed:6.3f} (Turn boost: {abs(angular) > 0.1})'
+                f'Motor speeds - Left: {left_speed:6.3f}, Right: {right_speed:6.3f} ' +
+                f'(Turn: {abs(angular) > 0.1}, Spin: {abs(angular) > 0.1 and abs(linear) < 0.1})'
             )
 
     def stop_motors(self):

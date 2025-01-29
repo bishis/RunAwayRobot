@@ -195,8 +195,8 @@ class ExplorationController(Node):
         if not self.current_map:
             return None
         
-        # Get current robot pose
         try:
+            # Get current robot pose
             transform = self.tf_buffer.lookup_transform(
                 'map',
                 'base_link',
@@ -218,6 +218,8 @@ class ExplorationController(Node):
         resolution = self.current_map.info.resolution
         origin_x = self.current_map.info.origin.position.x
         origin_y = self.current_map.info.origin.position.y
+        map_width = self.current_map.info.width
+        map_height = self.current_map.info.height
         
         robot_grid_x = int((robot_x - origin_x) / resolution)
         robot_grid_y = int((robot_y - origin_y) / resolution)
@@ -229,6 +231,11 @@ class ExplorationController(Node):
         for cluster in frontier_clusters:
             # Calculate cluster center
             center = np.mean(cluster, axis=0)
+            
+            # Skip clusters outside map bounds
+            if (center[0] < 0 or center[0] >= map_width or 
+                center[1] < 0 or center[1] >= map_height):
+                continue
             
             # Calculate distance to cluster
             dist = np.sqrt((center[0] - robot_grid_x)**2 + (center[1] - robot_grid_y)**2)
@@ -247,6 +254,10 @@ class ExplorationController(Node):
         # Create goal at cluster center
         center = np.mean(best_cluster, axis=0)
         
+        # Ensure goal is within map bounds
+        center[0] = np.clip(center[0], 0, map_width - 1)
+        center[1] = np.clip(center[1], 0, map_height - 1)
+        
         goal = PoseStamped()
         goal.header.frame_id = 'map'
         goal.header.stamp = self.get_clock().now().to_msg()
@@ -263,6 +274,12 @@ class ExplorationController(Node):
         )
         goal.pose.orientation.w = math.cos(angle / 2)
         goal.pose.orientation.z = math.sin(angle / 2)
+        
+        # Log goal position for debugging
+        self.get_logger().info(
+            f'Selected goal: grid=({center[0]:.1f}, {center[1]:.1f}), '
+            f'world=({goal.pose.position.x:.2f}, {goal.pose.position.y:.2f})'
+        )
         
         # Publish visualization
         self.publish_visualization_markers(frontier_clusters, goal)

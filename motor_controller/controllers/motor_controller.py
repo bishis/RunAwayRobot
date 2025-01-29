@@ -49,15 +49,17 @@ class MotorController:
         linear: Forward/backward speed (-1.0 to 1.0)
         angular: Left/right turning speed (-1.0 to 1.0)
         
-        For 4-wheeled differential drive:
-        - Forward: Both sides forward
-        - Turn right: Left side forward, Right side backward
-        - Turn left: Left side backward, Right side forward
-        - Spin in place: Opposite directions at equal speed
+        For 4-wheeled differential drive (robot on opposite side):
+        - Robot Forward = Motors Backward
+        - Robot Right = Robot's Left side forward, Right side backward
+        - Robot Left = Robot's Left side backward, Right side forward
         """
         # Clamp values to valid range
         linear = max(min(linear, 1.0), -1.0)
         angular = max(min(angular, 1.0), -1.0)
+        
+        # Invert linear speed because robot is on opposite side of motors
+        linear = -linear
         
         # Increase turning sensitivity
         TURN_BOOST = 1.5  # Amplify turning effect
@@ -103,23 +105,23 @@ class MotorController:
         
         # Set motor directions and speeds
         if left_speed >= 0:
-            self.left_dir.off()  # Forward
+            self.left_dir.off()  # Forward for motor = Backward for robot
             self.left_pwm.value = abs(left_speed)
         else:
-            self.left_dir.on()   # Backward
+            self.left_dir.on()   # Backward for motor = Forward for robot
             self.left_pwm.value = abs(left_speed)
             
         if right_speed >= 0:
-            self.right_dir.on()  # Forward
+            self.right_dir.on()  # Forward for motor = Backward for robot
             self.right_pwm.value = abs(right_speed)
         else:
-            self.right_dir.off() # Backward
+            self.right_dir.off() # Backward for motor = Forward for robot
             self.right_pwm.value = abs(right_speed)
         
-        # Log actual speeds being applied
+        # Log actual speeds being applied (show robot's perspective)
         if self.logger:
             self.logger.info(
-                f'Motor speeds - Left: {left_speed:6.3f}, Right: {right_speed:6.3f} ' +
+                f'Robot speeds - Left: {-left_speed:6.3f}, Right: {-right_speed:6.3f} ' +
                 f'(Turn: {abs(angular) > 0.1}, Spin: {abs(angular) > 0.1 and abs(linear) < 0.1})'
             )
 

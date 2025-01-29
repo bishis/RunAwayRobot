@@ -67,7 +67,7 @@ class HardwareController(Node):
             self.actual_speeds_pub.publish(actual)
             
             # Debug logging
-            self.get_logger().debug(
+            self.get_logger().info(
                 f'Motor commands:\n'
                 f'  Linear: {linear_x:6.3f} m/s\n'
                 f'  Angular: {angular_z:6.3f} rad/s'

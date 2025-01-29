@@ -20,6 +20,7 @@ class ExplorationController(Node):
         self.declare_parameter('exploration_radius', 1.0) # How far to move for each goal
         self.declare_parameter('wall_threshold', 80)      # Value to consider as wall (0-100)
         self.declare_parameter('unknown_threshold', -1)   # Value for unknown cells
+        self.declare_parameter('replan_distance', 0.5)  # Distance to trigger replanning
         
         # Get parameters
         self.min_frontier_size = self.get_parameter('min_frontier_size').value
@@ -46,11 +47,19 @@ class ExplorationController(Node):
         self.is_navigating = False
         self.current_goal = None
         self.marker_id = 0
+        self.last_map = None
         
         self.get_logger().info('Exploration controller initialized')
 
     def map_callback(self, msg: OccupancyGrid):
-        """Process incoming map data"""
+        """Process incoming map data and check if we need to replan"""
+        if self.is_navigating and self.current_goal:
+            # Check if path to current goal is blocked
+            if self.is_path_blocked(msg):
+                self.get_logger().info('Path to goal blocked, replanning...')
+                self.cancel_current_goal()
+                self.current_goal = None
+        
         self.current_map = msg
 
     def find_frontiers(self):
@@ -299,6 +308,94 @@ class ExplorationController(Node):
         feedback = feedback_msg.feedback
         # Can add feedback processing here if needed
 
+    def is_path_blocked(self, new_map):
+        """Check if the path to current goal is blocked by new obstacles"""
+        if not self.last_map or not self.current_goal:
+            self.last_map = new_map
+            return False
+        
+        try:
+            # Get current robot pose
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            robot_x = transform.transform.translation.x
+            robot_y = transform.transform.translation.y
+            
+            # Convert positions to grid coordinates
+            resolution = new_map.info.resolution
+            origin_x = new_map.info.origin.position.x
+            origin_y = new_map.info.origin.position.y
+            
+            robot_grid_x = int((robot_x - origin_x) / resolution)
+            robot_grid_y = int((robot_y - origin_y) / resolution)
+            
+            goal_grid_x = int((self.current_goal.pose.position.x - origin_x) / resolution)
+            goal_grid_y = int((self.current_goal.pose.position.y - origin_y) / resolution)
+            
+            # Check for new obstacles along rough path to goal
+            # Using Bresenham's line algorithm to check cells between robot and goal
+            cells = self.get_line_cells(robot_grid_x, robot_grid_y, goal_grid_x, goal_grid_y)
+            
+            new_map_data = np.array(new_map.data).reshape(new_map.info.height, new_map.info.width)
+            old_map_data = np.array(self.last_map.data).reshape(self.last_map.info.height, self.last_map.info.width)
+            
+            for x, y in cells:
+                if (0 <= x < new_map.info.width and 0 <= y < new_map.info.height):
+                    # Check if cell changed from unknown/free to occupied
+                    if (old_map_data[y, x] <= self.wall_threshold and 
+                        new_map_data[y, x] > self.wall_threshold):
+                        self.get_logger().info(f'New obstacle detected at ({x}, {y})')
+                        return True
+            
+            self.last_map = new_map
+            return False
+        
+        except Exception as e:
+            self.get_logger().warning(f'Error checking path: {e}')
+            return False
+
+    def get_line_cells(self, x0, y0, x1, y1):
+        """Get cells along a line using Bresenham's algorithm"""
+        cells = []
+        dx = abs(x1 - x0)
+        dy = abs(y1 - y0)
+        x, y = x0, y0
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        
+        if dx > dy:
+            err = dx / 2.0
+            while x != x1:
+                cells.append((x, y))
+                err -= dy
+                if err < 0:
+                    y += sy
+                    err += dx
+                x += sx
+        else:
+            err = dy / 2.0
+            while y != y1:
+                cells.append((x, y))
+                err -= dx
+                if err < 0:
+                    x += sx
+                    err += dy
+                y += sy
+            
+        cells.append((x, y))
+        return cells
+
+    def cancel_current_goal(self):
+        """Cancel the current navigation goal"""
+        if self.current_goal and self.is_navigating:
+            # Cancel the goal
+            self.nav_client.cancel_goal_async()
+            self.is_navigating = False
+            self.get_logger().info('Cancelled current navigation goal')
+
     def exploration_loop(self):
         """Main exploration control loop"""
         if self.is_navigating:
@@ -307,6 +404,7 @@ class ExplorationController(Node):
         # Find and send new exploration goal
         goal_pose = self.find_exploration_goal()
         if goal_pose:
+            self.current_goal = goal_pose
             self.send_goal(goal_pose)
         else:
             self.get_logger().warn('No valid exploration goal found')

@@ -9,6 +9,7 @@ from visualization_msgs.msg import MarkerArray, Marker
 import numpy as np
 import math
 from tf2_ros import Buffer, TransformListener
+from sklearn.cluster import DBSCAN
 
 class ExplorationController(Node):
     def __init__(self):
@@ -53,7 +54,7 @@ class ExplorationController(Node):
         self.current_map = msg
 
     def find_frontiers(self):
-        """Find frontier regions (unexplored areas next to known areas)"""
+        """Find and cluster frontier regions"""
         if not self.current_map:
             return []
 
@@ -82,33 +83,33 @@ class ExplorationController(Node):
                 if np.any(window * kernel):
                     frontiers.append((x, y))
         
-        # Group nearby frontier cells
-        grouped_frontiers = []
-        visited = set()
+        # Cluster frontiers using DBSCAN
+        if not frontiers:
+            return []
         
-        for x, y in frontiers:
-            if (x, y) in visited:
+        # Convert to numpy array for clustering
+        frontier_points = np.array(frontiers)
+        
+        # Use DBSCAN to cluster points
+        clustering = DBSCAN(
+            eps=5,           # Maximum distance between points in same cluster
+            min_samples=3    # Minimum points to form a cluster
+        ).fit(frontier_points)
+        
+        # Group points by cluster
+        clusters = {}
+        for i, label in enumerate(clustering.labels_):
+            if label == -1:  # Noise points
                 continue
-                
-            # Flood fill to find connected frontier cells
-            group = []
-            queue = [(x, y)]
-            while queue:
-                cx, cy = queue.pop(0)
-                if (cx, cy) in visited:
-                    continue
-                    
-                visited.add((cx, cy))
-                group.append((cx, cy))
-                
-                # Check neighbors
-                for dx, dy in [(0,1), (1,0), (0,-1), (-1,0)]:
-                    nx, ny = cx + dx, cy + dy
-                    if (nx, ny) in frontiers and (nx, ny) not in visited:
-                        queue.append((nx, ny))
-            
-            if len(group) >= self.min_frontier_size:
-                grouped_frontiers.append(group)
+            if label not in clusters:
+                clusters[label] = []
+            clusters[label].append(frontier_points[i])
+        
+        # Convert clusters to list of point groups
+        grouped_frontiers = [np.array(points) for points in clusters.values()]
+        
+        # Filter small clusters
+        grouped_frontiers = [f for f in grouped_frontiers if len(f) >= self.min_frontier_size]
         
         return grouped_frontiers
 
@@ -181,10 +182,10 @@ class ExplorationController(Node):
         self.marker_pub.publish(marker_array)
 
     def find_exploration_goal(self):
-        """Find the next exploration goal based on frontiers"""
+        """Find the next exploration goal based on clustered frontiers"""
         if not self.current_map:
             return None
-            
+        
         # Get current robot pose
         try:
             transform = self.tf_buffer.lookup_transform(
@@ -199,9 +200,9 @@ class ExplorationController(Node):
             self.get_logger().warning(f'Could not get robot pose: {e}')
             return None
         
-        # Find frontiers
-        frontiers = self.find_frontiers()
-        if not frontiers:
+        # Find clustered frontiers
+        frontier_clusters = self.find_frontiers()
+        if not frontier_clusters:
             return None
         
         # Convert robot position to grid coordinates
@@ -212,46 +213,50 @@ class ExplorationController(Node):
         robot_grid_x = int((robot_x - origin_x) / resolution)
         robot_grid_y = int((robot_y - origin_y) / resolution)
         
-        # Find closest frontier
-        closest_frontier = None
-        min_distance = float('inf')
+        # Find best cluster based on size and distance
+        best_cluster = None
+        best_score = float('-inf')
         
-        for frontier in frontiers:
-            # Use center of frontier
-            center_x = sum(x for x, _ in frontier) / len(frontier)
-            center_y = sum(y for _, y in frontier) / len(frontier)
+        for cluster in frontier_clusters:
+            # Calculate cluster center
+            center = np.mean(cluster, axis=0)
             
-            dist = math.sqrt((center_x - robot_grid_x)**2 + (center_y - robot_grid_y)**2)
-            if dist < min_distance:
-                min_distance = dist
-                closest_frontier = frontier
+            # Calculate distance to cluster
+            dist = np.sqrt((center[0] - robot_grid_x)**2 + (center[1] - robot_grid_y)**2)
+            
+            # Score based on size and distance (prefer larger clusters that aren't too far)
+            cluster_size = len(cluster)
+            score = cluster_size / (dist + 1)  # Add 1 to avoid division by zero
+            
+            if score > best_score:
+                best_score = score
+                best_cluster = cluster
         
-        if not closest_frontier:
+        if best_cluster is None:
             return None
         
-        # Create goal at frontier center
-        center_x = sum(x for x, _ in closest_frontier) / len(closest_frontier)
-        center_y = sum(y for _, y in closest_frontier) / len(closest_frontier)
+        # Create goal at cluster center
+        center = np.mean(best_cluster, axis=0)
         
         goal = PoseStamped()
         goal.header.frame_id = 'map'
         goal.header.stamp = self.get_clock().now().to_msg()
         
         # Convert back to world coordinates
-        goal.pose.position.x = origin_x + center_x * resolution
-        goal.pose.position.y = origin_y + center_y * resolution
+        goal.pose.position.x = origin_x + center[0] * resolution
+        goal.pose.position.y = origin_y + center[1] * resolution
         goal.pose.position.z = 0.0
         
-        # Set orientation towards frontier
+        # Set orientation towards cluster center
         angle = math.atan2(
-            center_y - robot_grid_y,
-            center_x - robot_grid_x
+            center[1] - robot_grid_y,
+            center[0] - robot_grid_x
         )
         goal.pose.orientation.w = math.cos(angle / 2)
         goal.pose.orientation.z = math.sin(angle / 2)
         
         # Publish visualization
-        self.publish_visualization_markers(frontiers, goal)
+        self.publish_visualization_markers(frontier_clusters, goal)
         
         return goal
 

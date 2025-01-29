@@ -10,8 +10,6 @@ import numpy as np
 import math
 from tf2_ros import Buffer, TransformListener
 from sklearn.cluster import DBSCAN
-from sensor_msgs.msg import LaserScan
-from ..processors.path_planner import PathPlanner
 
 class ExplorationController(Node):
     def __init__(self):
@@ -38,11 +36,7 @@ class ExplorationController(Node):
         
         # Publishers and subscribers
         self.map_sub = self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
-        self.scan_sub = self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         self.marker_pub = self.create_publisher(MarkerArray, 'exploration_markers', 10)
-        
-        # Initialize path planner
-        self.path_planner = PathPlanner(node=self)
         
         # Create timer for exploration control
         self.create_timer(1.0, self.exploration_loop)
@@ -58,10 +52,6 @@ class ExplorationController(Node):
     def map_callback(self, msg: OccupancyGrid):
         """Process incoming map data"""
         self.current_map = msg
-
-    def scan_callback(self, msg: LaserScan):
-        """Update path planner with latest scan data"""
-        self.path_planner.update_scan(msg)
 
     def find_frontiers(self):
         """Find and cluster frontier regions"""
@@ -210,10 +200,18 @@ class ExplorationController(Node):
             self.get_logger().warning(f'Could not get robot pose: {e}')
             return None
         
-        # Find frontier clusters
+        # Find clustered frontiers
         frontier_clusters = self.find_frontiers()
         if not frontier_clusters:
             return None
+        
+        # Convert robot position to grid coordinates
+        resolution = self.current_map.info.resolution
+        origin_x = self.current_map.info.origin.position.x
+        origin_y = self.current_map.info.origin.position.y
+        
+        robot_grid_x = int((robot_x - origin_x) / resolution)
+        robot_grid_y = int((robot_y - origin_y) / resolution)
         
         # Find best cluster based on size and distance
         best_cluster = None
@@ -223,16 +221,12 @@ class ExplorationController(Node):
             # Calculate cluster center
             center = np.mean(cluster, axis=0)
             
-            # Check if path to cluster center is safe
-            if not self.path_planner.is_point_safe(center):
-                continue
-            
             # Calculate distance to cluster
-            dist = np.sqrt((center[0] - robot_x)**2 + (center[1] - robot_y)**2)
+            dist = np.sqrt((center[0] - robot_grid_x)**2 + (center[1] - robot_grid_y)**2)
             
-            # Score based on size and distance
+            # Score based on size and distance (prefer larger clusters that aren't too far)
             cluster_size = len(cluster)
-            score = cluster_size / (dist + 1)
+            score = cluster_size / (dist + 1)  # Add 1 to avoid division by zero
             
             if score > best_score:
                 best_score = score
@@ -244,33 +238,25 @@ class ExplorationController(Node):
         # Create goal at cluster center
         center = np.mean(best_cluster, axis=0)
         
-        # Find safe goal position
-        safe_goal = self.path_planner.find_safe_goal(
-            robot_pos,
-            np.array([center[0], center[1]])
-        )
-        
         goal = PoseStamped()
         goal.header.frame_id = 'map'
         goal.header.stamp = self.get_clock().now().to_msg()
         
-        # Set safe goal position
-        goal.pose.position.x = safe_goal[0]
-        goal.pose.position.y = safe_goal[1]
+        # Convert back to world coordinates
+        goal.pose.position.x = origin_x + center[0] * resolution
+        goal.pose.position.y = origin_y + center[1] * resolution
         goal.pose.position.z = 0.0
         
-        # Set orientation towards goal
+        # Set orientation towards cluster center
         angle = math.atan2(
-            safe_goal[1] - robot_y,
-            safe_goal[0] - robot_x
+            center[1] - robot_grid_y,
+            center[0] - robot_grid_x
         )
         goal.pose.orientation.w = math.cos(angle / 2)
         goal.pose.orientation.z = math.sin(angle / 2)
         
-        # Visualize path planning
-        path = self.path_planner.plan_path(robot_pos, safe_goal)
-        markers = self.path_planner.get_visualization_markers(path, 'map')
-        self.marker_pub.publish(markers)
+        # Publish visualization
+        self.publish_visualization_markers(frontier_clusters, goal)
         
         return goal
 

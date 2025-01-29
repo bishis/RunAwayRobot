@@ -1,215 +1,34 @@
-#!/usr/bin/env python3
 import numpy as np
 import math
 from geometry_msgs.msg import Point, Twist, Vector3
 from visualization_msgs.msg import MarkerArray, Marker
 from std_msgs.msg import ColorRGBA
 from typing import List, Tuple, Optional
-from sensor_msgs.msg import LaserScan
 import rclpy
 
 class PathPlanner:
     """Simplifies paths into straight lines and rotations for binary movement control."""
     
-    def __init__(self, node=None):
+    def __init__(self, angle_threshold: float = 0.2, min_segment_length: float = 0.1, node=None):
         """
         Initialize path planner with control parameters.
         
         Args:
+            angle_threshold: Minimum angle change (radians) to consider a new segment
+            min_segment_length: Minimum length (meters) for a path segment
             node: ROS node for logging (optional)
         """
+        self.angle_threshold = 0.5  # About 30 degrees - only make significant turns
+        self.min_segment_length = 0.2  # Minimum 20cm segments
         self.node = node  # Store node reference for logging
-        
-        # Robot parameters
-        self.robot_width = 0.32  # meters
-        self.robot_length = 0.32  # meters
-        self.safety_margin = 0.15  # Additional safety distance around robot
-        
-        # Obstacle avoidance parameters
-        self.min_obstacle_dist = (max(self.robot_width, self.robot_length) / 2) + self.safety_margin
-        self.scan_data = None
         
         # Colors for visualization
         self.colors = {
             'path': ColorRGBA(r=0.0, g=1.0, b=0.0, a=0.8),      # Green for path
             'rotation': ColorRGBA(r=1.0, g=0.0, b=1.0, a=0.8),  # Magenta for rotations
             'forward': ColorRGBA(r=0.0, g=0.0, b=1.0, a=0.8),   # Blue for forward movements
-            'text': ColorRGBA(r=1.0, g=1.0, b=1.0, a=0.8),      # White for text
-            'obstacle': ColorRGBA(r=1.0, g=0.0, b=0.0, a=0.5)   # Red for obstacles
+            'text': ColorRGBA(r=1.0, g=1.0, b=1.0, a=0.8)       # White for text
         }
-
-    def update_scan(self, scan_msg: LaserScan):
-        """Update stored laser scan data"""
-        self.scan_data = scan_msg
-
-    def check_path_clear(self, start: np.ndarray, end: np.ndarray) -> bool:
-        """
-        Check if path between two points is clear of obstacles
-        
-        Args:
-            start: Start point [x, y]
-            end: End point [x, y]
-        Returns:
-            bool: True if path is clear
-        """
-        if not self.scan_data:
-            return True  # No scan data available, assume clear
-            
-        # Get path vector and length
-        path_vector = end - start
-        path_length = np.linalg.norm(path_vector)
-        if path_length < 0.001:
-            return True  # Points are essentially the same
-            
-        # Unit vector along path
-        path_direction = path_vector / path_length
-        
-        # Check points along path
-        check_points = np.linspace(0, path_length, num=int(path_length / 0.05))  # Check every 5cm
-        
-        for dist in check_points:
-            point = start + dist * path_direction
-            if not self.is_point_safe(point):
-                if self.node:
-                    self.node.get_logger().warn(f'Obstacle detected at point {point}')
-                return False
-                
-        return True
-
-    def is_point_safe(self, point: np.ndarray) -> bool:
-        """
-        Check if a point is safe (no obstacles within robot footprint)
-        
-        Args:
-            point: Point to check [x, y]
-        Returns:
-            bool: True if point is safe
-        """
-        if not self.scan_data:
-            return True
-            
-        # Convert scan to cartesian coordinates
-        angles = np.arange(
-            self.scan_data.angle_min,
-            self.scan_data.angle_max + self.scan_data.angle_increment,
-            self.scan_data.angle_increment
-        )
-        
-        # Clean up scan data
-        ranges = np.array(self.scan_data.ranges)
-        ranges[np.isnan(ranges)] = self.scan_data.range_max
-        ranges[ranges < self.scan_data.range_min] = self.scan_data.range_max
-        ranges[ranges > self.scan_data.range_max] = self.scan_data.range_max
-        
-        # Convert to cartesian coordinates
-        x = ranges * np.cos(angles)
-        y = ranges * np.sin(angles)
-        obstacles = np.vstack((x, y)).T
-        
-        # Check if any obstacles are within robot footprint plus safety margin
-        for obstacle in obstacles:
-            dist = np.linalg.norm(obstacle - point)
-            if dist < self.min_obstacle_dist:
-                return False
-                
-        return True
-
-    def find_safe_goal(self, current_pos: np.ndarray, goal_pos: np.ndarray) -> np.ndarray:
-        """
-        Find a safe goal point, moving back from obstacle if needed
-        
-        Args:
-            current_pos: Current position [x, y]
-            goal_pos: Desired goal position [x, y]
-        Returns:
-            np.ndarray: Safe goal position
-        """
-        direction = goal_pos - current_pos
-        distance = np.linalg.norm(direction)
-        if distance < 0.001:
-            return goal_pos
-            
-        unit_direction = direction / distance
-        
-        # Try different distances back from obstacle
-        test_distances = np.arange(0, distance, 0.1)[::-1]  # Start from goal and move back
-        
-        for dist in test_distances:
-            test_point = current_pos + unit_direction * dist
-            if self.is_point_safe(test_point):
-                return test_point
-                
-        return current_pos  # If no safe point found, stay at current position
-
-    def plan_path(self, current_pos: np.ndarray, goal_pos: np.ndarray) -> List[np.ndarray]:
-        """
-        Plan a safe path to goal, avoiding obstacles
-        
-        Args:
-            current_pos: Current position [x, y]
-            goal_pos: Goal position [x, y]
-        Returns:
-            List[np.ndarray]: List of waypoints forming safe path
-        """
-        if not self.is_point_safe(goal_pos):
-            goal_pos = self.find_safe_goal(current_pos, goal_pos)
-            if self.node:
-                self.node.get_logger().info('Adjusted goal position to avoid obstacles')
-        
-        # For now, implement simple direct path with safety checks
-        if self.check_path_clear(current_pos, goal_pos):
-            return [current_pos, goal_pos]
-        else:
-            # If path not clear, don't move
-            if self.node:
-                self.node.get_logger().warn('No clear path to goal')
-            return [current_pos]
-
-    def get_visualization_markers(self, path: List[np.ndarray], frame_id: str) -> MarkerArray:
-        """Create visualization markers for the path and obstacles"""
-        marker_array = MarkerArray()
-        marker_id = 0
-        
-        # Show robot footprint
-        footprint_marker = Marker()
-        footprint_marker.header.frame_id = frame_id
-        footprint_marker.header.stamp = rclpy.time.Time().to_msg()
-        footprint_marker.ns = "path_planner"
-        footprint_marker.id = marker_id
-        marker_id += 1
-        footprint_marker.type = Marker.CUBE
-        footprint_marker.action = Marker.ADD
-        footprint_marker.scale.x = self.robot_length
-        footprint_marker.scale.y = self.robot_width
-        footprint_marker.scale.z = 0.1
-        footprint_marker.color = self.colors['obstacle']
-        footprint_marker.pose.position.x = path[0][0]
-        footprint_marker.pose.position.y = path[0][1]
-        footprint_marker.pose.position.z = 0.05
-        marker_array.markers.append(footprint_marker)
-        
-        # Add path visualization
-        path_marker = Marker()
-        path_marker.header.frame_id = frame_id
-        path_marker.header.stamp = rclpy.time.Time().to_msg()
-        path_marker.ns = "path_planner"
-        path_marker.id = marker_id
-        marker_id += 1
-        path_marker.type = Marker.LINE_STRIP
-        path_marker.action = Marker.ADD
-        path_marker.scale.x = 0.05
-        path_marker.color = self.colors['path']
-        
-        for point in path:
-            p = Point()
-            p.x = point[0]
-            p.y = point[1]
-            p.z = 0.05
-            path_marker.points.append(p)
-            
-        marker_array.markers.append(path_marker)
-        
-        return marker_array
 
     def simplify_path(self, waypoints: List[Point], initial_heading: float = 0.0) -> List[Tuple[str, float]]:
         """Break down path into straight lines and turns"""
@@ -233,7 +52,7 @@ class PathPlanner:
             turn_angle = self._normalize_angle(target_heading - current_heading)
             
             # Add rotation command if significant turn needed
-            if abs(turn_angle) > 0.5:  # About 30 degrees - only make significant turns
+            if abs(turn_angle) > self.angle_threshold:
                 # Round angle to nearest 45 degrees for more decisive turns
                 turn_angle = round(turn_angle / (math.pi/4)) * (math.pi/4)
                 commands.append(('rotate', turn_angle))
@@ -252,7 +71,7 @@ class PathPlanner:
                     commands.append(('forward', segment_distance))
             else:
                 # Add forward command if distance is significant
-                if distance > 0.2:  # Minimum 20cm segments
+                if distance > self.min_segment_length:
                     commands.append(('forward', distance))
             
             # Update current position

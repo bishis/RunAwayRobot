@@ -50,11 +50,14 @@ class NavigationController(Node):
         # Replace inf/nan with max range
         ranges[~np.isfinite(ranges)] = self.latest_scan.range_max
         
+        # Calculate number of points in scan
+        num_points = len(ranges)
+        
         # Get angles for each scan point
-        angles = np.arange(
+        angles = np.linspace(
             self.latest_scan.angle_min,
-            self.latest_scan.angle_max + self.latest_scan.angle_increment,
-            self.latest_scan.angle_increment
+            self.latest_scan.angle_max,
+            num_points
         )
         
         # Check front area when moving forward
@@ -87,7 +90,7 @@ class NavigationController(Node):
                 side_distances = ranges[right_mask]
             
             # If side obstacle is too close, reduce turning speed
-            if np.any(side_distances < self.min_distance):
+            if len(side_distances) > 0 and np.any(side_distances < self.min_distance):
                 min_side_dist = np.min(side_distances)
                 self.get_logger().warn(
                     f'Side obstacle detected at {min_side_dist:.2f}m, reducing turn speed'

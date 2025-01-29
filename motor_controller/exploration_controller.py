@@ -58,7 +58,7 @@ class ExplorationController(Node):
             if self.is_path_blocked(msg):
                 self.get_logger().info('Path to goal blocked, replanning...')
                 self.cancel_current_goal()
-                self.current_goal = None
+                self.find_new_goal()
         
         self.current_map = msg
 
@@ -491,6 +491,65 @@ class ExplorationController(Node):
             self.nav_client.cancel_goal_async()
             self.is_navigating = False
             self.get_logger().info('Cancelled current navigation goal')
+
+    def find_new_goal(self):
+        """Find a new goal when current path is blocked"""
+        # Get current robot pose
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            robot_pos = np.array([
+                transform.transform.translation.x,
+                transform.transform.translation.y
+            ])
+            
+            # Find frontiers excluding the blocked area
+            frontiers = self.find_frontiers()
+            if not frontiers:
+                return
+            
+            # Score frontiers based on distance and accessibility
+            best_frontier = None
+            best_score = float('-inf')
+            
+            for frontier in frontiers:
+                center = np.mean(frontier, axis=0)
+                
+                # Skip if too close to current blocked path
+                if self.is_near_blocked_path(center):
+                    continue
+                
+                # Score based on distance and size
+                dist = np.linalg.norm(center - robot_pos)
+                size = len(frontier)
+                score = size / (dist + 1)
+                
+                if score > best_score:
+                    best_score = score
+                    best_frontier = frontier
+            
+            if best_frontier is not None:
+                goal = self.create_goal_from_frontier(best_frontier)
+                self.current_goal = goal
+                self.send_goal(goal)
+                
+        except Exception as e:
+            self.get_logger().error(f'Error finding new goal: {e}')
+
+    def is_near_blocked_path(self, point, threshold=1.0):
+        """Check if point is near the previously blocked path"""
+        if not hasattr(self, 'blocked_areas'):
+            self.blocked_areas = []
+            return False
+        
+        for blocked_point in self.blocked_areas:
+            dist = np.linalg.norm(point - blocked_point)
+            if dist < threshold:
+                return True
+        return False
 
     def exploration_loop(self):
         """Main exploration control loop"""

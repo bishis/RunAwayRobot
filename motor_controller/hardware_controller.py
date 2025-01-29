@@ -6,57 +6,83 @@ from geometry_msgs.msg import Twist
 from .controllers.motor_controller import MotorController
 
 class HardwareController(Node):
+    """Controls robot hardware using binary speed values"""
+    
     def __init__(self):
         super().__init__('hardware_controller')
         
-        # Parameters
-        self.declare_parameter('speed_channel_pin', 12)
-        self.declare_parameter('turn_channel_pin', 13)
-        self.declare_parameter('max_linear_speed', 0.1)  # m/s
-        self.declare_parameter('max_angular_speed', 1.0)  # rad/s
+        # Declare parameters
+        self.declare_parameter('left_dir_pin', 27)
+        self.declare_parameter('left_pwm_pin', 18)
+        self.declare_parameter('right_dir_pin', 17)
+        self.declare_parameter('right_pwm_pin', 4)
+        self.declare_parameter('pwm_frequency', 1000)
         
         # Get parameters
-        speed_pin = self.get_parameter('speed_channel_pin').value
-        turn_pin = self.get_parameter('turn_channel_pin').value
+        left_dir_pin = self.get_parameter('left_dir_pin').value
+        left_pwm_pin = self.get_parameter('left_pwm_pin').value
+        right_dir_pin = self.get_parameter('right_dir_pin').value
+        right_pwm_pin = self.get_parameter('right_pwm_pin').value
+        pwm_frequency = self.get_parameter('pwm_frequency').value
         
-        # Initialize motor controller with servo control
+        # Create motor controller with parameters
         self.motor_controller = MotorController(
-            speed_pin=speed_pin,
-            turn_pin=turn_pin,
-            neutral=0.0  # Servo neutral position
+            left_dir_pin=left_dir_pin,
+            left_pwm_pin=left_pwm_pin,
+            right_dir_pin=right_dir_pin,
+            right_pwm_pin=right_pwm_pin,
+            pwm_frequency=pwm_frequency
         )
         
-        # Create subscription
-        self.subscription = self.create_subscription(
+        # Create subscriber for wheel speeds
+        self.wheel_speeds_sub = self.create_subscription(
             Twist,
             'wheel_speeds',
             self.wheel_speeds_callback,
             10
         )
         
+        # Create publisher for actual speeds (for debugging)
+        self.actual_speeds_pub = self.create_publisher(
+            Twist,
+            'actual_speeds',
+            10
+        )
+        
         self.get_logger().info('Hardware controller initialized')
 
     def wheel_speeds_callback(self, msg: Twist):
-        """Pass servo values directly to motor controller"""
-        # Values should already be in -1 to 1 range from navigation controller
-        linear = msg.linear.x   # -1 to 1 for reverse/forward
-        angular = msg.angular.z  # -1 to 1 for left/right
-        
-        # Set motor speeds using channels
-        self.motor_controller.set_speeds(linear, angular)
-        
-        # Debug logging
-        self.get_logger().info(
-            f'Motor Speeds:\n'
-            f'  Speed: {linear:4.1f} {"(FWD)" if linear > 0 else "(REV)" if linear < 0 else "(STOP)"}\n'
-            f'  Turn: {angular:4.1f} {"(RIGHT)" if angular > 0 else "(LEFT)" if angular < 0 else "(CENTER)"}'
-        )
+        try:
+            # Get commanded speeds
+            linear_x = msg.linear.x
+            angular_z = msg.angular.z
+            
+            # Send commands to motor controller
+            self.motor_controller.set_speeds(linear_x, angular_z)
+            
+            # Publish actual speeds for debugging
+            actual = Twist()
+            actual.linear.x = linear_x
+            actual.angular.z = angular_z
+            self.actual_speeds_pub.publish(actual)
+            
+            # Debug logging
+            self.get_logger().debug(
+                f'Motor commands:\n'
+                f'  Linear: {linear_x:6.3f} m/s\n'
+                f'  Angular: {angular_z:6.3f} rad/s'
+            )
+            
+        except Exception as e:
+            self.get_logger().error(f'Error in wheel speeds callback: {str(e)}')
+            # Try to stop motors on error
+            self.motor_controller.stop_motors()
 
-    def destroy_node(self):
-        """Clean up on shutdown"""
+    def __del__(self):
+        """Cleanup when node is destroyed"""
         if hasattr(self, 'motor_controller'):
-            del self.motor_controller
-        super().destroy_node()
+            self.motor_controller.stop_motors()
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -66,6 +92,9 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        # Ensure motors are stopped
+        if hasattr(node, 'motor_controller'):
+            node.motor_controller.stop_motors()
         node.destroy_node()
         rclpy.shutdown()
 

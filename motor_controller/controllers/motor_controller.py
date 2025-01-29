@@ -2,53 +2,182 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
-from gpiozero import Servo
+from gpiozero import OutputDevice, PWMOutputDevice
 import time
+import signal
+import sys
 
 class MotorController:
-    def __init__(self, speed_pin, turn_pin, neutral=0.0):
-        # Neutral PWM (1.5ms), forward (2.0ms), and reverse (1.0ms)
-        self.neutral = neutral
-        self.min_pulse_width = 1.0 / 1000  # 1ms full reverse/left
-        self.max_pulse_width = 2.0 / 1000  # 2ms full forward/right
-
-        # Use pigpio for better PWM accuracy
-
-        # Initialize servo objects for the Sabertooth channels
-        self.speed_channel = Servo(
-            pin=speed_pin,  # Controls forward/reverse
-            min_pulse_width=self.min_pulse_width,
-            max_pulse_width=self.max_pulse_width,
-            frame_width=20 / 1000  # Standard 20ms frame
-        )
-
-        self.turn_channel = Servo(
-            pin=turn_pin,  # Controls left/right turning
-            min_pulse_width=self.min_pulse_width,
-            max_pulse_width=self.max_pulse_width,
-            frame_width=20 / 1000
-        )
-
-        # Set channels to neutral (stop) on initialization
-        self.speed_channel.value = neutral
-        self.turn_channel.value = neutral
-        time.sleep(0.2)
+    def __init__(self, 
+                 left_dir_pin: int = 27,
+                 left_pwm_pin: int = 18,
+                 right_dir_pin: int = 17,
+                 right_pwm_pin: int = 4,
+                 pwm_frequency: int = 1000):
+        """
+        Initialize motor controller with configurable pins.
+        
+        Args:
+            left_dir_pin: GPIO pin for left motors direction
+            left_pwm_pin: GPIO pin for left motors PWM
+            right_dir_pin: GPIO pin for right motors direction
+            right_pwm_pin: GPIO pin for right motors PWM
+            pwm_frequency: PWM frequency in Hz
+        """
+        # Left side motors
+        self.left_dir = OutputDevice(left_dir_pin)
+        self.left_pwm = PWMOutputDevice(left_pwm_pin, frequency=pwm_frequency)
+        
+        # Right side motors
+        self.right_dir = OutputDevice(right_dir_pin)
+        self.right_pwm = PWMOutputDevice(right_pwm_pin, frequency=pwm_frequency)
+        
+        # Initialize motors to stopped state
+        self.stop_motors()
+        
+        # Register cleanup handler
+        signal.signal(signal.SIGINT, self.cleanup)
 
     def set_speeds(self, linear: float, angular: float):
         """
         Update motor speeds based on linear and angular velocity commands.
-        - linear: Forward/backward speed (-1.0 to 1.0)
-        - angular: Left/right turning speed (-1.0 to 1.0)
+        linear: Forward/backward speed (-1.0 to 1.0)
+        angular: Left/right turning speed (-1.0 to 1.0)
         """
         # Clamp values to valid range
         linear = max(min(linear, 1.0), -1.0)
         angular = max(min(angular, 1.0), -1.0)
+        
+        # Calculate left and right motor speeds
+        left_speed = linear - angular
+        right_speed = linear + angular
+        
+        # Normalize speeds if they exceed [-1, 1]
+        max_speed = max(abs(left_speed), abs(right_speed))
+        if max_speed > 1.0:
+            left_speed /= max_speed
+            right_speed /= max_speed
+        
+        # Apply minimum threshold - if speed is non-zero but below threshold, set to threshold
+        MIN_SPEED = 0.5  # Minimum 50% power
+        
+        if abs(left_speed) > 0 and abs(left_speed) < MIN_SPEED:
+            left_speed = MIN_SPEED if left_speed > 0 else -MIN_SPEED
+        
+        if abs(right_speed) > 0 and abs(right_speed) < MIN_SPEED:
+            right_speed = MIN_SPEED if right_speed > 0 else -MIN_SPEED
+        
+        # Set left motors (reversed mounting)
+        if left_speed >= 0:
+            self.left_dir.off()  # Forward (reversed due to mounting)
+            self.left_pwm.value = abs(left_speed)
+        else:
+            self.left_dir.on()   # Backward (reversed due to mounting)
+            self.left_pwm.value = abs(left_speed)
+            
+        # Set right motors (reversed mounting)
+        if right_speed >= 0:
+            self.right_dir.on()  # Forward (reversed due to mounting)
+            self.right_pwm.value = abs(right_speed)
+        else:
+            self.right_dir.off() # Backward (reversed due to mounting)
+            self.right_pwm.value = abs(right_speed)
 
-        # Set channel values directly
-        self.speed_channel.value = linear   # Forward/backward
-        self.turn_channel.value = angular   # Left/right
+    def stop_motors(self):
+        """Stop all motors"""
+        self.left_pwm.value = 0
+        self.right_pwm.value = 0
+
+    def cleanup(self, signal, frame):
+        """Cleanup function to stop motors on shutdown"""
+        self.stop_motors()
+        # Allow time for motors to stop
+        time.sleep(0.1)
+        sys.exit(0)
 
     def __del__(self):
-        """Ensure the motors are stopped on program exit"""
-        self.speed_channel.detach()
-        self.turn_channel.detach()
+        """Ensure motors are stopped when object is destroyed"""
+        self.stop_motors()
+
+
+class MotorControlNode(Node):
+    def __init__(self):
+        super().__init__('motor_control')
+        
+        # Declare parameters
+        self.declare_parameter('left_dir_pin', 27)
+        self.declare_parameter('left_pwm_pin', 18)
+        self.declare_parameter('right_dir_pin', 17)
+        self.declare_parameter('right_pwm_pin', 4)
+        self.declare_parameter('pwm_frequency', 1000)
+        
+        # Get parameters
+        left_dir_pin = self.get_parameter('left_dir_pin').value
+        left_pwm_pin = self.get_parameter('left_pwm_pin').value
+        right_dir_pin = self.get_parameter('right_dir_pin').value
+        right_pwm_pin = self.get_parameter('right_pwm_pin').value
+        pwm_frequency = self.get_parameter('pwm_frequency').value
+        
+        # Create motor controller with parameters
+        self.motor_controller = MotorController(
+            left_dir_pin=left_dir_pin,
+            left_pwm_pin=left_pwm_pin,
+            right_dir_pin=right_dir_pin,
+            right_pwm_pin=right_pwm_pin,
+            pwm_frequency=pwm_frequency
+        )
+        
+        # Create subscriber for wheel speeds
+        self.subscription = self.create_subscription(
+            Twist,
+            'wheel_speeds',
+            self.wheel_speeds_callback,
+            10
+        )
+        
+        self.get_logger().info(
+            f'Motor controller initialized with pins:\n'
+            f'  Left:  DIR={left_dir_pin}, PWM={left_pwm_pin}\n'
+            f'  Right: DIR={right_dir_pin}, PWM={right_pwm_pin}\n'
+            f'  PWM Frequency: {pwm_frequency}Hz'
+        )
+
+    def wheel_speeds_callback(self, msg: Twist):
+        """Handle incoming wheel speed commands"""
+        try:
+            # Convert Twist message to motor commands
+            linear = msg.linear.x   # Forward/backward
+            angular = msg.angular.z  # Left/right turning
+            
+            # Update motor speeds
+            self.motor_controller.set_speeds(linear, angular)
+            
+            # Debug logging
+            self.get_logger().debug(
+                f'Motors: linear={linear:.2f}, angular={angular:.2f}'
+            )
+            
+        except Exception as e:
+            self.get_logger().error(f'Error controlling motors: {str(e)}')
+            # Try to stop motors on error
+            self.motor_controller.stop_motors()
+
+    def __del__(self):
+        """Cleanup when node is destroyed"""
+        if hasattr(self, 'motor_controller'):
+            self.motor_controller.stop_motors()
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = MotorControlNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()

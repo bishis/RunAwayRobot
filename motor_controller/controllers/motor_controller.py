@@ -58,9 +58,6 @@ class MotorController:
         linear = max(min(linear, 1.0), -1.0)
         angular = max(min(angular, 1.0), -1.0)
         
-        # Invert linear speed because robot is on opposite side of motors
-        linear = -linear
-        
         # Increase turning sensitivity
         TURN_BOOST = 1.5  # Amplify turning effect
         angular *= TURN_BOOST

@@ -70,13 +70,23 @@ class NavigationController(Node):
             if np.any(front_distances < self.min_distance):
                 min_front_dist = np.min(front_distances)
                 self.get_logger().warn(
-                    f'Obstacle detected at {min_front_dist:.2f}m, stopping forward motion'
+                    f'Front obstacle detected at {min_front_dist:.2f}m, stopping forward motion'
                 )
                 desired_linear = 0.0
-                
-                # If very close, back up slightly
-                if min_front_dist < self.robot_radius:
-                    desired_linear = -0.1
+        
+        # Check rear area when moving backward
+        elif desired_linear < 0:
+            # Look at points behind robot (150° to 210°)
+            rear_mask = np.abs(np.abs(angles) - np.pi) < np.pi/6  # 30 degrees around 180°
+            rear_distances = ranges[rear_mask]
+            
+            # If any point is too close, stop backward motion
+            if np.any(rear_distances < self.min_distance):
+                min_rear_dist = np.min(rear_distances)
+                self.get_logger().warn(
+                    f'Rear obstacle detected at {min_rear_dist:.2f}m, stopping backward motion'
+                )
+                desired_linear = 0.0
         
         # Check sides when turning
         if abs(desired_angular) > 0:
@@ -98,6 +108,11 @@ class NavigationController(Node):
                 # Scale turn speed based on distance
                 scale = min_side_dist / self.min_distance
                 desired_angular *= max(0.2, scale)  # Minimum 20% of original turn speed
+        
+        # Log obstacle detection status
+        self.get_logger().debug(
+            f'Obstacle check - Linear: {desired_linear:.2f}, Angular: {desired_angular:.2f}'
+        )
         
         return desired_linear, desired_angular
 

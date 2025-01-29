@@ -59,13 +59,15 @@ class MotorController:
             right_speed /= max_speed
         
         # Apply minimum threshold - if speed is non-zero but below threshold, set to threshold
-        MIN_SPEED = 0.5  # Minimum 50% power
+        MIN_SPEED = 0.7  # Increased from 0.5 to 0.7 (70% power minimum)
         
         if abs(left_speed) > 0 and abs(left_speed) < MIN_SPEED:
             left_speed = MIN_SPEED if left_speed > 0 else -MIN_SPEED
+            self.get_logger().info(f'Left speed boosted to minimum: {left_speed:.2f}')
         
         if abs(right_speed) > 0 and abs(right_speed) < MIN_SPEED:
             right_speed = MIN_SPEED if right_speed > 0 else -MIN_SPEED
+            self.get_logger().info(f'Right speed boosted to minimum: {right_speed:.2f}')
         
         # Set left motors (reversed mounting)
         if left_speed >= 0:
@@ -82,6 +84,11 @@ class MotorController:
         else:
             self.right_dir.off() # Backward (reversed due to mounting)
             self.right_pwm.value = abs(right_speed)
+        
+        # Log actual speeds being applied
+        self.get_logger().info(
+            f'Motor speeds - Left: {left_speed:6.3f}, Right: {right_speed:6.3f}'
+        )
 
     def stop_motors(self):
         """Stop all motors"""

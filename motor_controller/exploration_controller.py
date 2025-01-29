@@ -68,23 +68,38 @@ class ExplorationController(Node):
         free[unknown] = False
         
         # Find frontiers (free cells next to unknown cells)
-        kernel = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
         frontiers = []
+        min_gap_size = 3  # Minimum width of gap to consider
         
-        # Iterate through free cells
+        # Look for larger gaps
         for y in range(1, height-1):
             for x in range(1, width-1):
                 if not free[y, x]:
                     continue
-                    
-                # Check if cell is next to unknown area
-                window = unknown[y-1:y+2, x-1:x+2]
-                if np.any(window * kernel):
+                
+                # Check for a significant gap of unknown space
+                # Look ahead in both x and y directions
+                unknown_count_x = 0
+                unknown_count_y = 0
+                
+                # Check X direction
+                for dx in range(min_gap_size):
+                    if x + dx < width and unknown[y, x + dx]:
+                        unknown_count_x += 1
+                        
+                # Check Y direction
+                for dy in range(min_gap_size):
+                    if y + dy < height and unknown[y + dy, x]:
+                        unknown_count_y += 1
+                
+                # If we found a significant gap in either direction
+                if unknown_count_x >= min_gap_size or unknown_count_y >= min_gap_size:
                     frontiers.append((x, y))
         
-        # Group nearby frontier cells
+        # Group nearby frontier cells with larger minimum distance
         grouped_frontiers = []
         visited = set()
+        min_group_separation = 10  # Minimum cells between frontier groups
         
         for x, y in frontiers:
             if (x, y) in visited:
@@ -101,14 +116,31 @@ class ExplorationController(Node):
                 visited.add((cx, cy))
                 group.append((cx, cy))
                 
-                # Check neighbors
-                for dx, dy in [(0,1), (1,0), (0,-1), (-1,0)]:
-                    nx, ny = cx + dx, cy + dy
-                    if (nx, ny) in frontiers and (nx, ny) not in visited:
-                        queue.append((nx, ny))
+                # Check neighbors with larger radius
+                for dx in range(-2, 3):
+                    for dy in range(-2, 3):
+                        nx, ny = cx + dx, cy + dy
+                        if (nx, ny) in frontiers and (nx, ny) not in visited:
+                            queue.append((nx, ny))
             
-            if len(group) >= self.min_frontier_size:
-                grouped_frontiers.append(group)
+            # Only keep larger groups
+            if len(group) >= self.min_frontier_size * 2:  # Increased size requirement
+                # Calculate center of mass
+                center_x = sum(x for x, _ in group) / len(group)
+                center_y = sum(y for _, y in group) / len(group)
+                
+                # Check if this group is far enough from existing groups
+                is_separate = True
+                for other_group in grouped_frontiers:
+                    other_center_x = sum(x for x, _ in other_group) / len(other_group)
+                    other_center_y = sum(y for _, y in other_group) / len(other_group)
+                    dist = math.sqrt((center_x - other_center_x)**2 + (center_y - other_center_y)**2)
+                    if dist < min_group_separation:
+                        is_separate = False
+                        break
+                
+                if is_separate:
+                    grouped_frontiers.append(group)
         
         return grouped_frontiers
 

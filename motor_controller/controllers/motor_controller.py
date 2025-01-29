@@ -53,9 +53,20 @@ class MotorController:
         linear = max(min(linear, 1.0), -1.0)
         angular = max(min(angular, 1.0), -1.0)
         
-        # Calculate left and right motor speeds
-        left_speed = linear - angular
-        right_speed = linear + angular
+        # Increase turning sensitivity
+        TURN_BOOST = 1.5  # Amplify turning effect
+        angular *= TURN_BOOST
+        
+        # Calculate left and right motor speeds with enhanced turning
+        if abs(angular) > 0.1:  # If turning
+            # Prioritize turning by reducing forward speed
+            linear *= 0.5  # Reduce forward speed during turns
+            left_speed = linear - angular
+            right_speed = linear + angular
+        else:
+            # Normal straight movement
+            left_speed = linear - angular
+            right_speed = linear + angular
         
         # Normalize speeds if they exceed [-1, 1]
         max_speed = max(abs(left_speed), abs(right_speed))
@@ -64,15 +75,19 @@ class MotorController:
             right_speed /= max_speed
         
         # Apply minimum threshold - if speed is non-zero but below threshold, set to threshold
-        MIN_SPEED = 0.7  # Increased from 0.5 to 0.7 (70% power minimum)
+        MIN_SPEED = 0.7  # 70% power minimum
+        TURN_MIN_SPEED = 0.8  # Higher minimum speed for turning
         
-        if abs(left_speed) > 0 and abs(left_speed) < MIN_SPEED:
-            left_speed = MIN_SPEED if left_speed > 0 else -MIN_SPEED
+        # Use higher minimum speed when turning
+        current_min_speed = TURN_MIN_SPEED if abs(angular) > 0.1 else MIN_SPEED
+        
+        if abs(left_speed) > 0 and abs(left_speed) < current_min_speed:
+            left_speed = current_min_speed if left_speed > 0 else -current_min_speed
             if self.logger:
                 self.logger.info(f'Left speed boosted to minimum: {left_speed:.2f}')
         
-        if abs(right_speed) > 0 and abs(right_speed) < MIN_SPEED:
-            right_speed = MIN_SPEED if right_speed > 0 else -MIN_SPEED
+        if abs(right_speed) > 0 and abs(right_speed) < current_min_speed:
+            right_speed = current_min_speed if right_speed > 0 else -current_min_speed
             if self.logger:
                 self.logger.info(f'Right speed boosted to minimum: {right_speed:.2f}')
         
@@ -95,7 +110,7 @@ class MotorController:
         # Log actual speeds being applied
         if self.logger:
             self.logger.info(
-                f'Motor speeds - Left: {left_speed:6.3f}, Right: {right_speed:6.3f}'
+                f'Motor speeds - Left: {left_speed:6.3f}, Right: {right_speed:6.3f} (Turn boost: {abs(angular) > 0.1})'
             )
 
     def stop_motors(self):

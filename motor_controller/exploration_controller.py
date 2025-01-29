@@ -11,6 +11,7 @@ import math
 from tf2_ros import Buffer, TransformListener
 from sklearn.cluster import DBSCAN
 from sensor_msgs.msg import LaserScan
+from ..processors.path_planner import PathPlanner
 
 class ExplorationController(Node):
     def __init__(self):

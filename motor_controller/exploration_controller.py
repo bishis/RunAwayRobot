@@ -3,7 +3,6 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from geometry_msgs.msg import PoseStamped, Point
-from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid
 from nav2_msgs.action import NavigateToPose
 from visualization_msgs.msg import MarkerArray, Marker
@@ -16,14 +15,16 @@ class ExplorationController(Node):
         super().__init__('exploration_controller')
         
         # Parameters
-        self.declare_parameter('min_scan_distance', 0.3)  # Minimum distance to obstacle (meters)
-        self.declare_parameter('max_scan_distance', 2.0)  # Maximum distance to consider for exploration
-        self.declare_parameter('exploration_radius', 1.0)  # How far to move for each exploration goal
+        self.declare_parameter('min_frontier_size', 5)    # Minimum cells for a valid frontier
+        self.declare_parameter('exploration_radius', 1.0) # How far to move for each goal
+        self.declare_parameter('wall_threshold', 80)      # Value to consider as wall (0-100)
+        self.declare_parameter('unknown_threshold', -1)   # Value for unknown cells
         
         # Get parameters
-        self.min_distance = self.get_parameter('min_scan_distance').value
-        self.max_distance = self.get_parameter('max_scan_distance').value
+        self.min_frontier_size = self.get_parameter('min_frontier_size').value
         self.exploration_radius = self.get_parameter('exploration_radius').value
+        self.wall_threshold = self.get_parameter('wall_threshold').value
+        self.unknown_threshold = self.get_parameter('unknown_threshold').value
         
         # Set up Nav2 action client
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -33,15 +34,13 @@ class ExplorationController(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         
         # Publishers and subscribers
-        self.scan_sub = self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         self.map_sub = self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
         self.marker_pub = self.create_publisher(MarkerArray, 'exploration_markers', 10)
         
         # Create timer for exploration control
-        self.create_timer(1.0, self.exploration_loop)  # 1Hz control loop
+        self.create_timer(1.0, self.exploration_loop)
         
         # Exploration state
-        self.current_scan = None
         self.current_map = None
         self.is_navigating = False
         self.current_goal = None
@@ -49,15 +48,71 @@ class ExplorationController(Node):
         
         self.get_logger().info('Exploration controller initialized')
 
-    def scan_callback(self, msg: LaserScan):
-        """Process incoming laser scan data"""
-        self.current_scan = msg
-
     def map_callback(self, msg: OccupancyGrid):
         """Process incoming map data"""
         self.current_map = msg
 
-    def publish_visualization_markers(self, robot_pos, open_regions, selected_goal):
+    def find_frontiers(self):
+        """Find frontier regions (unexplored areas next to known areas)"""
+        if not self.current_map:
+            return []
+
+        # Convert map to numpy array
+        width = self.current_map.info.width
+        height = self.current_map.info.height
+        map_data = np.array(self.current_map.data).reshape(height, width)
+        
+        # Create binary maps
+        unknown = map_data == self.unknown_threshold
+        free = map_data < self.wall_threshold
+        free[unknown] = False
+        
+        # Find frontiers (free cells next to unknown cells)
+        kernel = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
+        frontiers = []
+        
+        # Iterate through free cells
+        for y in range(1, height-1):
+            for x in range(1, width-1):
+                if not free[y, x]:
+                    continue
+                    
+                # Check if cell is next to unknown area
+                window = unknown[y-1:y+2, x-1:x+2]
+                if np.any(window * kernel):
+                    frontiers.append((x, y))
+        
+        # Group nearby frontier cells
+        grouped_frontiers = []
+        visited = set()
+        
+        for x, y in frontiers:
+            if (x, y) in visited:
+                continue
+                
+            # Flood fill to find connected frontier cells
+            group = []
+            queue = [(x, y)]
+            while queue:
+                cx, cy = queue.pop(0)
+                if (cx, cy) in visited:
+                    continue
+                    
+                visited.add((cx, cy))
+                group.append((cx, cy))
+                
+                # Check neighbors
+                for dx, dy in [(0,1), (1,0), (0,-1), (-1,0)]:
+                    nx, ny = cx + dx, cy + dy
+                    if (nx, ny) in frontiers and (nx, ny) not in visited:
+                        queue.append((nx, ny))
+            
+            if len(group) >= self.min_frontier_size:
+                grouped_frontiers.append(group)
+        
+        return grouped_frontiers
+
+    def publish_visualization_markers(self, frontiers, selected_goal=None):
         """Publish visualization markers for debugging"""
         marker_array = MarkerArray()
         
@@ -70,37 +125,36 @@ class ExplorationController(Node):
         clear_marker.action = Marker.DELETEALL
         marker_array.markers.append(clear_marker)
         
-        # Show open regions as line strips
-        if open_regions:
-            for start_idx, end_idx in open_regions:
-                region_marker = Marker()
-                region_marker.header.frame_id = 'map'
-                region_marker.header.stamp = self.get_clock().now().to_msg()
-                region_marker.ns = 'exploration'
-                region_marker.id = self.marker_id
-                self.marker_id += 1
-                region_marker.type = Marker.LINE_STRIP
-                region_marker.action = Marker.ADD
-                region_marker.scale.x = 0.05  # Line width
-                region_marker.color.r = 0.0
-                region_marker.color.g = 1.0
-                region_marker.color.b = 0.0
-                region_marker.color.a = 0.5
-                
-                # Add points for the arc
-                angles = np.linspace(
-                    self.current_scan.angle_min + start_idx * self.current_scan.angle_increment,
-                    self.current_scan.angle_min + end_idx * self.current_scan.angle_increment,
-                    20
-                )
-                for angle in angles:
-                    point = Point()
-                    point.x = robot_pos[0] + self.max_distance * math.cos(angle)
-                    point.y = robot_pos[1] + self.max_distance * math.sin(angle)
-                    point.z = 0.1
-                    region_marker.points.append(point)
-                
-                marker_array.markers.append(region_marker)
+        # Show frontiers
+        for frontier in frontiers:
+            frontier_marker = Marker()
+            frontier_marker.header.frame_id = 'map'
+            frontier_marker.header.stamp = self.get_clock().now().to_msg()
+            frontier_marker.ns = 'exploration'
+            frontier_marker.id = self.marker_id
+            self.marker_id += 1
+            frontier_marker.type = Marker.POINTS
+            frontier_marker.action = Marker.ADD
+            frontier_marker.scale.x = 0.05
+            frontier_marker.scale.y = 0.05
+            frontier_marker.color.r = 0.0
+            frontier_marker.color.g = 1.0
+            frontier_marker.color.b = 0.0
+            frontier_marker.color.a = 1.0
+            
+            # Convert grid cells to world coordinates
+            resolution = self.current_map.info.resolution
+            origin_x = self.current_map.info.origin.position.x
+            origin_y = self.current_map.info.origin.position.y
+            
+            for x, y in frontier:
+                point = Point()
+                point.x = origin_x + x * resolution
+                point.y = origin_y + y * resolution
+                point.z = 0.1
+                frontier_marker.points.append(point)
+            
+            marker_array.markers.append(frontier_marker)
         
         # Show selected goal
         if selected_goal:
@@ -112,9 +166,9 @@ class ExplorationController(Node):
             self.marker_id += 1
             goal_marker.type = Marker.ARROW
             goal_marker.action = Marker.ADD
-            goal_marker.scale.x = 0.3  # Arrow length
-            goal_marker.scale.y = 0.1  # Arrow width
-            goal_marker.scale.z = 0.1  # Arrow height
+            goal_marker.scale.x = 0.3
+            goal_marker.scale.y = 0.1
+            goal_marker.scale.z = 0.1
             goal_marker.color.r = 1.0
             goal_marker.color.g = 0.0
             goal_marker.color.b = 0.0
@@ -127,8 +181,8 @@ class ExplorationController(Node):
         self.marker_pub.publish(marker_array)
 
     def find_exploration_goal(self):
-        """Find the next exploration goal based on laser scan"""
-        if not self.current_scan:
+        """Find the next exploration goal based on frontiers"""
+        if not self.current_map:
             return None
             
         # Get current robot pose
@@ -144,64 +198,60 @@ class ExplorationController(Node):
         except Exception as e:
             self.get_logger().warning(f'Could not get robot pose: {e}')
             return None
-            
-        # Find open direction from laser scan
-        ranges = np.array(self.current_scan.ranges)
-        angles = np.arange(
-            self.current_scan.angle_min,
-            self.current_scan.angle_max + self.current_scan.angle_increment,
-            self.current_scan.angle_increment
-        )
         
-        # Clean up invalid readings
-        ranges[np.isnan(ranges)] = 0
-        ranges[ranges < self.current_scan.range_min] = 0
-        ranges[ranges > self.current_scan.range_max] = self.current_scan.range_max
-        
-        # Find regions that are open
-        valid_regions = (ranges > self.min_distance) & (ranges < self.max_distance)
-        
-        if not np.any(valid_regions):
+        # Find frontiers
+        frontiers = self.find_frontiers()
+        if not frontiers:
             return None
-            
-        # Find the largest open region
-        regions = []
-        start_idx = None
         
-        for i in range(len(valid_regions)):
-            if valid_regions[i] and start_idx is None:
-                start_idx = i
-            elif not valid_regions[i] and start_idx is not None:
-                regions.append((start_idx, i))
-                start_idx = None
-                
-        if start_idx is not None:
-            regions.append((start_idx, len(valid_regions)))
+        # Convert robot position to grid coordinates
+        resolution = self.current_map.info.resolution
+        origin_x = self.current_map.info.origin.position.x
+        origin_y = self.current_map.info.origin.position.y
+        
+        robot_grid_x = int((robot_x - origin_x) / resolution)
+        robot_grid_y = int((robot_y - origin_y) / resolution)
+        
+        # Find closest frontier
+        closest_frontier = None
+        min_distance = float('inf')
+        
+        for frontier in frontiers:
+            # Use center of frontier
+            center_x = sum(x for x, _ in frontier) / len(frontier)
+            center_y = sum(y for _, y in frontier) / len(frontier)
             
-        if not regions:
+            dist = math.sqrt((center_x - robot_grid_x)**2 + (center_y - robot_grid_y)**2)
+            if dist < min_distance:
+                min_distance = dist
+                closest_frontier = frontier
+        
+        if not closest_frontier:
             return None
-            
-        # Select the widest region
-        widest_region = max(regions, key=lambda r: r[1] - r[0])
-        center_idx = (widest_region[0] + widest_region[1]) // 2
-        best_angle = angles[center_idx]
         
-        # Create goal pose in map frame
+        # Create goal at frontier center
+        center_x = sum(x for x, _ in closest_frontier) / len(closest_frontier)
+        center_y = sum(y for _, y in closest_frontier) / len(closest_frontier)
+        
         goal = PoseStamped()
         goal.header.frame_id = 'map'
         goal.header.stamp = self.get_clock().now().to_msg()
         
-        # Set goal position in open direction
-        goal.pose.position.x = robot_x + self.exploration_radius * math.cos(best_angle)
-        goal.pose.position.y = robot_y + self.exploration_radius * math.sin(best_angle)
+        # Convert back to world coordinates
+        goal.pose.position.x = origin_x + center_x * resolution
+        goal.pose.position.y = origin_y + center_y * resolution
         goal.pose.position.z = 0.0
         
-        # Set goal orientation (facing the direction of travel)
-        goal.pose.orientation.w = math.cos(best_angle / 2)
-        goal.pose.orientation.z = math.sin(best_angle / 2)
+        # Set orientation towards frontier
+        angle = math.atan2(
+            center_y - robot_grid_y,
+            center_x - robot_grid_x
+        )
+        goal.pose.orientation.w = math.cos(angle / 2)
+        goal.pose.orientation.z = math.sin(angle / 2)
         
         # Publish visualization
-        self.publish_visualization_markers(robot_pos, regions, goal)
+        self.publish_visualization_markers(frontiers, goal)
         
         return goal
 

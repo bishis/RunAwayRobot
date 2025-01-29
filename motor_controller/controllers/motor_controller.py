@@ -48,6 +48,11 @@ class MotorController:
         Update motor speeds based on linear and angular velocity commands.
         linear: Forward/backward speed (-1.0 to 1.0)
         angular: Left/right turning speed (-1.0 to 1.0)
+        
+        Note: Due to opposite wheel mounting:
+        - For forward: Left wheel forward, Right wheel forward
+        - For turning right: Left wheel forward, Right wheel backward
+        - For turning left: Left wheel backward, Right wheel forward
         """
         # Clamp values to valid range
         linear = max(min(linear, 1.0), -1.0)
@@ -58,14 +63,15 @@ class MotorController:
         angular *= TURN_BOOST
         
         # Calculate left and right motor speeds with enhanced turning
+        # Invert the angular component for one wheel due to opposite mounting
         if abs(angular) > 0.1:  # If turning
             # Prioritize turning by reducing forward speed
             linear *= 0.5  # Reduce forward speed during turns
-            left_speed = linear - angular
+            left_speed = linear + angular  # Changed from - to +
             right_speed = linear + angular
         else:
             # Normal straight movement
-            left_speed = linear - angular
+            left_speed = linear + angular  # Changed from - to +
             right_speed = linear + angular
         
         # Normalize speeds if they exceed [-1, 1]
@@ -93,18 +99,18 @@ class MotorController:
         
         # Set left motors (reversed mounting)
         if left_speed >= 0:
-            self.left_dir.off()  # Forward (reversed due to mounting)
+            self.left_dir.off()  # Forward
             self.left_pwm.value = abs(left_speed)
         else:
-            self.left_dir.on()   # Backward (reversed due to mounting)
+            self.left_dir.on()   # Backward
             self.left_pwm.value = abs(left_speed)
             
         # Set right motors (reversed mounting)
         if right_speed >= 0:
-            self.right_dir.on()  # Forward (reversed due to mounting)
+            self.right_dir.on()  # Forward
             self.right_pwm.value = abs(right_speed)
         else:
-            self.right_dir.off() # Backward (reversed due to mounting)
+            self.right_dir.off() # Backward
             self.right_pwm.value = abs(right_speed)
         
         # Log actual speeds being applied

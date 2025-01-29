@@ -224,7 +224,10 @@ class ExplorationController(Node):
         robot_grid_x = int((robot_x - origin_x) / resolution)
         robot_grid_y = int((robot_y - origin_y) / resolution)
         
-        # Find best cluster based on size and distance
+        # Get map data as numpy array
+        map_data = np.array(self.current_map.data).reshape(map_height, map_width)
+        
+        # Find best cluster based on size, distance, and accessibility
         best_cluster = None
         best_score = float('-inf')
         
@@ -233,30 +236,45 @@ class ExplorationController(Node):
             center = np.mean(cluster, axis=0)
             
             # Skip clusters outside map bounds
-            if (center[0] < 0 or center[0] >= map_width or 
-                center[1] < 0 or center[1] >= map_height):
+            if (center[0] < 2 or center[0] >= map_width - 2 or 
+                center[1] < 2 or center[1] >= map_height - 2):
+                continue
+            
+            # Check if area around cluster center is accessible
+            center_x = int(center[0])
+            center_y = int(center[1])
+            area = map_data[center_y-2:center_y+3, center_x-2:center_x+3]
+            if np.any(area > self.wall_threshold):  # Skip if there are walls nearby
                 continue
             
             # Calculate distance to cluster
             dist = np.sqrt((center[0] - robot_grid_x)**2 + (center[1] - robot_grid_y)**2)
             
-            # Score based on size and distance (prefer larger clusters that aren't too far)
+            # Skip if too close (might be unreachable due to local obstacles)
+            if dist < 5:  # Skip points less than 5 cells away
+                continue
+            
+            # Score based on size and distance (prefer larger clusters at moderate distances)
             cluster_size = len(cluster)
-            score = cluster_size / (dist + 1)  # Add 1 to avoid division by zero
+            # Gaussian-like distance weighting - prefer points not too close and not too far
+            distance_score = np.exp(-((dist - 20) ** 2) / (2 * 15 ** 2))
+            score = cluster_size * distance_score
             
             if score > best_score:
                 best_score = score
                 best_cluster = cluster
         
         if best_cluster is None:
-            return None
+            # If no good clusters found, try to recover by moving to a more open area
+            self.get_logger().warn('No valid frontiers found, looking for recovery point')
+            return self.find_recovery_goal()
         
         # Create goal at cluster center
         center = np.mean(best_cluster, axis=0)
         
-        # Ensure goal is within map bounds
-        center[0] = np.clip(center[0], 0, map_width - 1)
-        center[1] = np.clip(center[1], 0, map_height - 1)
+        # Ensure goal is within map bounds and in free space
+        center[0] = np.clip(center[0], 2, map_width - 3)
+        center[1] = np.clip(center[1], 2, map_height - 3)
         
         goal = PoseStamped()
         goal.header.frame_id = 'map'
@@ -267,7 +285,7 @@ class ExplorationController(Node):
         goal.pose.position.y = origin_y + center[1] * resolution
         goal.pose.position.z = 0.0
         
-        # Set orientation towards cluster center
+        # Set orientation towards center of frontier
         angle = math.atan2(
             center[1] - robot_grid_y,
             center[0] - robot_grid_x
@@ -275,16 +293,77 @@ class ExplorationController(Node):
         goal.pose.orientation.w = math.cos(angle / 2)
         goal.pose.orientation.z = math.sin(angle / 2)
         
-        # Log goal position for debugging
         self.get_logger().info(
             f'Selected goal: grid=({center[0]:.1f}, {center[1]:.1f}), '
             f'world=({goal.pose.position.x:.2f}, {goal.pose.position.y:.2f})'
         )
         
-        # Publish visualization
-        self.publish_visualization_markers(frontier_clusters, goal)
-        
         return goal
+
+    def find_recovery_goal(self):
+        """Find a recovery goal in an open area when stuck"""
+        if not self.current_map:
+            return None
+        
+        try:
+            # Get current robot pose
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            robot_x = transform.transform.translation.x
+            robot_y = transform.transform.translation.y
+        except Exception as e:
+            return None
+        
+        # Convert to grid coordinates
+        resolution = self.current_map.info.resolution
+        origin_x = self.current_map.info.origin.position.x
+        origin_y = self.current_map.info.origin.position.y
+        
+        robot_grid_x = int((robot_x - origin_x) / resolution)
+        robot_grid_y = int((robot_y - origin_y) / resolution)
+        
+        # Get map data
+        map_data = np.array(self.current_map.data).reshape(
+            self.current_map.info.height,
+            self.current_map.info.width
+        )
+        
+        # Look for open areas in increasing radius
+        for radius in range(5, 20, 2):
+            y, x = np.ogrid[-radius:radius+1, -radius:radius+1]
+            mask = x**2 + y**2 <= radius**2
+            
+            for angle in np.linspace(0, 2*np.pi, 16):
+                test_x = robot_grid_x + int(radius * np.cos(angle))
+                test_y = robot_grid_y + int(radius * np.sin(angle))
+                
+                # Check if point is within map bounds
+                if (test_x < 2 or test_x >= self.current_map.info.width - 2 or
+                    test_y < 2 or test_y >= self.current_map.info.height - 2):
+                    continue
+                
+                # Check if area is clear
+                area = map_data[test_y-2:test_y+3, test_x-2:test_x+3]
+                if np.all(area < self.wall_threshold):
+                    # Create recovery goal
+                    goal = PoseStamped()
+                    goal.header.frame_id = 'map'
+                    goal.header.stamp = self.get_clock().now().to_msg()
+                    goal.pose.position.x = origin_x + test_x * resolution
+                    goal.pose.position.y = origin_y + test_y * resolution
+                    goal.pose.position.z = 0.0
+                    
+                    # Orient towards open space
+                    goal.pose.orientation.w = math.cos(angle / 2)
+                    goal.pose.orientation.z = math.sin(angle / 2)
+                    
+                    self.get_logger().info('Found recovery goal in open space')
+                    return goal
+        
+        return None
 
     def send_goal(self, goal_pose):
         """Send navigation goal to Nav2"""

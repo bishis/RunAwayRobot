@@ -149,16 +149,23 @@ class PersonDetector(Node):
                             
                             # Create marker for visualization
                             marker = Marker()
-                            marker.header = msg.header
+                            marker.header.frame_id = "camera_link"
+                            marker.header.stamp = self.get_clock().now().to_msg()
                             marker.ns = "persons"
                             marker.id = len(markers.markers)
                             marker.type = Marker.CUBE
                             marker.action = Marker.ADD
                             
                             # Set marker position (in camera frame)
-                            marker.pose.position.x = 0
-                            marker.pose.position.y = 0
-                            marker.pose.position.z = 0
+                            marker.pose.position.x = 0.0
+                            marker.pose.position.y = 0.0
+                            marker.pose.position.z = 0.0
+                            
+                            # Set marker orientation (quaternion)
+                            marker.pose.orientation.x = 0.0
+                            marker.pose.orientation.y = 0.0
+                            marker.pose.orientation.z = 0.0
+                            marker.pose.orientation.w = 1.0
                             
                             # Set marker size
                             marker.scale.x = 0.5

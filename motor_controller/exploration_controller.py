@@ -21,12 +21,16 @@ class ExplorationController(Node):
         self.declare_parameter('wall_threshold', 80)      # Value to consider as wall (0-100)
         self.declare_parameter('unknown_threshold', -1)   # Value for unknown cells
         self.declare_parameter('replan_distance', 0.5)  # Distance to trigger replanning
+        self.declare_parameter('coverage_threshold', 0.85)  # When room is considered "mapped enough"
+        self.declare_parameter('grid_size', 0.5)  # Size of grid cells for coverage pattern
         
         # Get parameters
         self.min_frontier_size = self.get_parameter('min_frontier_size').value
         self.exploration_radius = self.get_parameter('exploration_radius').value
         self.wall_threshold = self.get_parameter('wall_threshold').value
         self.unknown_threshold = self.get_parameter('unknown_threshold').value
+        self.coverage_threshold = self.get_parameter('coverage_threshold').value
+        self.grid_size = self.get_parameter('grid_size').value
         
         # Set up Nav2 action client
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -48,6 +52,7 @@ class ExplorationController(Node):
         self.current_goal = None
         self.marker_id = 0
         self.last_map = None
+        self.exploration_state = 'EXPLORING'  # States: 'EXPLORING', 'COVERAGE'
         
         self.get_logger().info('Exploration controller initialized')
 
@@ -413,18 +418,125 @@ class ExplorationController(Node):
             self.is_navigating = False
             self.get_logger().info('Cancelled current navigation goal')
 
+    def check_room_coverage(self):
+        """Check if enough of the room has been mapped"""
+        if not self.current_map:
+            return False
+        
+        # Get map data
+        map_data = np.array(self.current_map.data).reshape(
+            self.current_map.info.height,
+            self.current_map.info.width
+        )
+        
+        # Count known cells (not unknown (-1))
+        total_cells = len(map_data.flatten())
+        known_cells = np.sum(map_data != -1)
+        
+        coverage = known_cells / total_cells
+        
+        if coverage >= self.coverage_threshold:
+            self.get_logger().info(f'Room coverage at {coverage:.2%}, switching to coverage pattern')
+            return True
+        return False
+
+    def generate_coverage_pattern(self):
+        """Generate a grid pattern to cover the mapped area"""
+        if not self.current_map:
+            return None
+        
+        try:
+            # Get current robot pose
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            robot_x = transform.transform.translation.x
+            robot_y = transform.transform.translation.y
+            
+            # Get map data and info
+            map_data = np.array(self.current_map.data).reshape(
+                self.current_map.info.height,
+                self.current_map.info.width
+            )
+            resolution = self.current_map.info.resolution
+            origin_x = self.current_map.info.origin.position.x
+            origin_y = self.current_map.info.origin.position.y
+            
+            # Find boundaries of known space
+            known_y, known_x = np.where(map_data != -1)
+            if len(known_x) == 0 or len(known_y) == 0:
+                return None
+            
+            min_x = origin_x + min(known_x) * resolution
+            max_x = origin_x + max(known_x) * resolution
+            min_y = origin_y + min(known_y) * resolution
+            max_y = origin_y + max(known_y) * resolution
+            
+            # Generate grid points
+            x_points = np.arange(min_x, max_x, self.grid_size)
+            y_points = np.arange(min_y, max_y, self.grid_size)
+            
+            # Create snake pattern
+            goals = []
+            for i, y in enumerate(y_points):
+                row_x = x_points if i % 2 == 0 else x_points[::-1]
+                for x in row_x:
+                    # Convert to grid coordinates
+                    grid_x = int((x - origin_x) / resolution)
+                    grid_y = int((y - origin_y) / resolution)
+                    
+                    # Check if point is in free space
+                    if (0 <= grid_x < self.current_map.info.width and 
+                        0 <= grid_y < self.current_map.info.height and
+                        map_data[grid_y, grid_x] == 0):  # Free space
+                        
+                        goal = PoseStamped()
+                        goal.header.frame_id = 'map'
+                        goal.header.stamp = self.get_clock().now().to_msg()
+                        goal.pose.position.x = x
+                        goal.pose.position.y = y
+                        goal.pose.position.z = 0.0
+                        goal.pose.orientation.w = 1.0
+                        goals.append(goal)
+            
+            return goals
+            
+        except Exception as e:
+            self.get_logger().error(f'Error generating coverage pattern: {e}')
+            return None
+
     def exploration_loop(self):
         """Main exploration control loop"""
         if self.is_navigating:
             return
+        
+        # Check if we should switch to coverage pattern
+        if self.exploration_state == 'EXPLORING' and self.check_room_coverage():
+            self.exploration_state = 'COVERAGE'
+            self.coverage_goals = self.generate_coverage_pattern()
+            self.current_coverage_goal = 0
             
-        # Find and send new exploration goal
-        goal_pose = self.find_exploration_goal()
-        if goal_pose:
-            self.current_goal = goal_pose
-            self.send_goal(goal_pose)
-        else:
-            self.get_logger().warn('No valid exploration goal found')
+        # Handle different states
+        if self.exploration_state == 'EXPLORING':
+            # Normal frontier exploration
+            goal_pose = self.find_exploration_goal()
+            if goal_pose:
+                self.current_goal = goal_pose
+                self.send_goal(goal_pose)
+            else:
+                self.get_logger().warn('No valid exploration goal found')
+            
+        elif self.exploration_state == 'COVERAGE':
+            # Follow coverage pattern
+            if self.coverage_goals and self.current_coverage_goal < len(self.coverage_goals):
+                goal = self.coverage_goals[self.current_coverage_goal]
+                self.current_goal = goal
+                self.send_goal(goal)
+                self.current_coverage_goal += 1
+            else:
+                self.get_logger().info('Coverage pattern completed')
 
 def main(args=None):
     rclpy.init(args=args)

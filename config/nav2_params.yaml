@@ -66,8 +66,8 @@ controller_server:
     # Much looser goal tolerances
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.35
-      yaw_goal_tolerance: 0.75
+      xy_goal_tolerance: 0.2
+      yaw_goal_tolerance: 0.25
       stateful: true
 
     FollowPath:
@@ -79,7 +79,7 @@ controller_server:
       max_vel_theta: 0.5
       max_speed_xy: 0.2
       
-      # Much gentler acceleration limits
+      # Gentler acceleration limits
       acc_lim_x: 0.5
       acc_lim_theta: 0.8
       decel_lim_x: -0.5
@@ -128,7 +128,7 @@ controller_server:
       
       # Simplified obstacle handling
       max_obstacle_dist: 0.5
-      min_obstacle_dist: 0.15
+      min_obstacle_dist: 0.25
       
       # Additional parameters
       prune_plan: true
@@ -149,11 +149,12 @@ planner_server:
       plugin: "nav2_navfn_planner::NavfnPlanner"
       tolerance: 1.0
       use_astar: true
-      allow_unknown: true
+      allow_unknown: false
       visualize_potential: true
+      lethal_cost: 253
       neutral_cost: 50
       scale: 3
-      cost_factor: 0.5
+      cost_factor: 3.0
       publish_potential: true
       use_quadratic: true
       orientation_mode: 0
@@ -199,7 +200,8 @@ local_costmap:
     width: 3
     height: 3
     resolution: 0.05
-    footprint: "[[-0.08, -0.08], [-0.08, 0.08], [0.08, 0.08], [0.08, -0.08]]"
+    footprint: "[[-0.17, -0.15], [-0.17, 0.15], [0.17, 0.15], [0.17, -0.15]]"  # Rectangle 34cm x 30cm
+    footprint_padding: 0.05  # Add 5cm safety padding
     plugins: ["voxel_layer", "inflation_layer"]
     
     voxel_layer:
@@ -226,8 +228,25 @@ local_costmap:
 
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
-      cost_scaling_factor: 2.5
-      inflation_radius: 0.2
+      inflation_radius: 0.4
+      cost_scaling_factor: 5.0
+      inflate_unknown: false
+      inflate_around_unknown: true
+
+    obstacle_layer:
+      plugin: "nav2_costmap_2d::ObstacleLayer"
+      enabled: true
+      observation_sources: scan
+      scan:
+        topic: /scan
+        max_obstacle_height: 2.0
+        clearing: true
+        marking: true
+        data_type: "LaserScan"
+        raytrace_max_range: 3.0
+        raytrace_min_range: 0.0
+        obstacle_max_range: 2.5
+        obstacle_min_range: 0.0
 
 global_costmap:
   ros__parameters:
@@ -236,7 +255,8 @@ global_costmap:
     publish_frequency: 2.0
     global_frame: map
     robot_base_frame: base_link
-    footprint: "[[-0.08, -0.08], [-0.08, 0.08], [0.08, 0.08], [0.08, -0.08]]"
+    footprint:" [[-0.17, -0.15], [-0.17, 0.15], [0.17, 0.15], [0.17, -0.15]] " # Same footprint
+    footprint_padding: 0.05
     resolution: 0.05
     track_unknown_space: true
     plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -265,8 +285,8 @@ global_costmap:
 
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
-      cost_scaling_factor: 2.0
-      inflation_radius: 0.3
+      inflation_radius: 0.4
+      cost_scaling_factor: 5.0
 
 collision_monitor:
   ros__parameters:

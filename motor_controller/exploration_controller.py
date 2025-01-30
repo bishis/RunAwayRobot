@@ -298,7 +298,7 @@ class ExplorationController(Node):
             return None
 
     def is_valid_goal(self, goal_pose):
-        """Check if goal position is valid with corridor-specific checks"""
+        """Check if goal position is valid with stricter wall checking"""
         if not self.current_map:
             return False
         
@@ -317,11 +317,8 @@ class ExplorationController(Node):
                 self.current_map.info.width
             )
             
-            # Check immediate surroundings with smaller radius for corridors
-            safety_radius = 2  # Reduced from 4 to handle narrow corridors
-            min_free_cells = 3  # Need at least 3 free cells in corridor
-            free_cells = 0
-            
+            # Check larger area around goal for walls
+            safety_radius = int(0.4 / resolution)  # 40cm safety radius
             for dy in range(-safety_radius, safety_radius + 1):
                 for dx in range(-safety_radius, safety_radius + 1):
                     check_x = grid_x + dx
@@ -329,24 +326,10 @@ class ExplorationController(Node):
                     if (0 <= check_x < self.current_map.info.width and 
                         0 <= check_y < self.current_map.info.height):
                         cell_value = map_data[check_y, check_x]
-                        # Consider only directly adjacent cells for wall checking
-                        if abs(dx) <= 1 and abs(dy) <= 1:
-                            if cell_value > 50:  # Wall
-                                self.get_logger().warn(f'Goal too close to wall at ({dx}, {dy})')
-                                return False
-                        # Count free cells
-                        if cell_value < 50 and cell_value != -1:  # Free and known space
-                            free_cells += 1
-            
-            if free_cells < min_free_cells:
-                self.get_logger().warn('Not enough free space around goal')
-                return False
-            
-            # Check if goal has previously failed
-            goal_key = (grid_x, grid_y)
-            if goal_key in self.failed_goals:
-                self.get_logger().warn('Goal previously failed')
-                return False
+                        # More conservative wall checking
+                        if cell_value > 40:  # Lower threshold to be more cautious
+                            self.get_logger().warn(f'Goal too close to wall at ({dx}, {dy})')
+                            return False
             
             return True
         

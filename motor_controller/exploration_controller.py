@@ -77,7 +77,7 @@ class ExplorationController(Node):
         self.current_map = msg
 
     def find_frontiers(self):
-        """Find and cluster frontier regions"""
+        """Find and cluster frontier regions with more lenient criteria"""
         if not self.current_map:
             return []
 
@@ -92,7 +92,7 @@ class ExplorationController(Node):
         free[unknown] = False
         
         # Find frontiers (free cells next to unknown cells)
-        kernel = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
+        kernel = np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])  # 8-connected
         frontiers = []
         
         # Iterate through free cells
@@ -106,33 +106,35 @@ class ExplorationController(Node):
                 if np.any(window * kernel):
                     frontiers.append((x, y))
         
-        # Cluster frontiers using DBSCAN
+        # Cluster frontiers using DBSCAN with more lenient parameters
         if not frontiers:
             return []
         
         # Convert to numpy array for clustering
         frontier_points = np.array(frontiers)
         
-        # Use DBSCAN to cluster points
+        # Use DBSCAN with more lenient parameters
         clustering = DBSCAN(
-            eps=5,           # Maximum distance between points in same cluster
-            min_samples=3    # Minimum points to form a cluster
+            eps=8,           # Increased from 5 - larger clusters
+            min_samples=2    # Decreased from 3 - smaller groups acceptable
         ).fit(frontier_points)
         
         # Group points by cluster
         clusters = {}
         for i, label in enumerate(clustering.labels_):
-            if label == -1:  # Noise points
-                continue
-            if label not in clusters:
-                clusters[label] = []
-            clusters[label].append(frontier_points[i])
+            if label == -1:  # Include noise points as single-point clusters
+                clusters[len(clusters)] = [frontier_points[i]]
+            else:
+                if label not in clusters:
+                    clusters[label] = []
+                clusters[label].append(frontier_points[i])
         
         # Convert clusters to list of point groups
         grouped_frontiers = [np.array(points) for points in clusters.values()]
         
-        # Filter small clusters
-        grouped_frontiers = [f for f in grouped_frontiers if len(f) >= self.min_frontier_size]
+        # Filter small clusters with lower threshold
+        min_frontier_size = max(2, self.min_frontier_size // 2)  # More lenient size requirement
+        grouped_frontiers = [f for f in grouped_frontiers if len(f) >= min_frontier_size]
         
         return grouped_frontiers
 
@@ -301,7 +303,7 @@ class ExplorationController(Node):
         return goal
 
     def is_valid_goal(self, goal_pose):
-        """Check if goal position is valid"""
+        """Check if goal position is valid with more lenient criteria"""
         if not self.current_map:
             return False
         
@@ -314,30 +316,41 @@ class ExplorationController(Node):
             grid_x = int((goal_pose.pose.position.x - origin_x) / resolution)
             grid_y = int((goal_pose.pose.position.y - origin_y) / resolution)
             
-            # Check if within map bounds
-            if (grid_x < 0 or grid_x >= self.current_map.info.width or
-                grid_y < 0 or grid_y >= self.current_map.info.height):
-                self.get_logger().warn('Goal outside map bounds')
+            # Check if within map bounds with some margin
+            margin = 2  # cells
+            if (grid_x < margin or grid_x >= self.current_map.info.width - margin or
+                grid_y < margin or grid_y >= self.current_map.info.height - margin):
+                self.get_logger().warn('Goal too close to map bounds')
                 return False
             
-            # Check if in free space
+            # Get map data
             map_data = np.array(self.current_map.data).reshape(
                 self.current_map.info.height,
                 self.current_map.info.width
             )
             
-            # Check surrounding cells too
-            radius = 2  # Check 2 cells around goal
+            # Check immediate surroundings with smaller radius
+            radius = 1  # Reduced from 2
+            free_space_threshold = 0.5  # At least 50% of cells should be free
+            total_cells = 0
+            free_cells = 0
+            
             for dy in range(-radius, radius + 1):
                 for dx in range(-radius, radius + 1):
                     check_x = grid_x + dx
                     check_y = grid_y + dy
                     if (0 <= check_x < self.current_map.info.width and
                         0 <= check_y < self.current_map.info.height):
+                        total_cells += 1
                         cell_value = map_data[check_y, check_x]
-                        if cell_value > self.wall_threshold or cell_value == -1:
-                            self.get_logger().warn('Goal too close to obstacle or unknown area')
-                            return False
+                        # Consider unknown space (-1) as potentially valid
+                        if cell_value != 100 and cell_value != self.wall_threshold:  # Not an obstacle
+                            free_cells += 1
+            
+            # Check if enough free space around goal
+            if free_cells / total_cells < free_space_threshold:
+                self.get_logger().warn('Not enough free space around goal')
+                return False
             
             # Check if goal has previously failed
             goal_key = (grid_x, grid_y)

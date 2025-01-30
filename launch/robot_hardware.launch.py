@@ -41,5 +41,42 @@ def generate_launch_description():
             executable='static_transform_publisher',
             name='base_link_to_laser',
             arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
+        ),
+
+        # Add Camera Node
+        Node(
+            package='v4l2_camera',  # Standard ROS2 USB camera driver
+            executable='v4l2_camera_node',
+            name='camera',
+            parameters=[{
+                'video_device': '/dev/video0',
+                'image_size': [640, 480],
+                'pixel_format': 'YUYV',
+                'frame_rate': 30.0,
+                'camera_frame_id': 'camera_link'
+            }],
+            remappings=[
+                ('image_raw', '/camera/image_raw'),
+            ]
+        ),
+
+        # Add camera transform
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='camera_link_broadcaster',
+            arguments=['0', '0', '0.1', '0', '0', '0', 'base_link', 'camera_link']
+        ),
+
+        # Add image compression node
+        Node(
+            package='image_transport',
+            executable='republish',
+            name='image_compress',
+            arguments=['raw', 'compressed'],
+            remappings=[
+                ('in', '/camera/image_raw'),
+                ('out/compressed', '/camera/image_raw/compressed'),
+            ]
         )
     ])

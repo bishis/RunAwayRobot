@@ -209,6 +209,9 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /local_plan
       Value: true
+    - Class: rviz_default_plugins/Image
+      Name: Camera
+      Topic: /camera/image_raw
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48

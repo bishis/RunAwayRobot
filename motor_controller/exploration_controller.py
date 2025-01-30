@@ -207,7 +207,7 @@ class ExplorationController(Node):
         self.marker_pub.publish(marker_array)
 
     def find_exploration_goal(self):
-        """Find the next exploration goal based on clustered frontiers"""
+        """Find the next exploration goal with better selection criteria"""
         if not self.current_map:
             return None
         
@@ -220,87 +220,91 @@ class ExplorationController(Node):
             )
             robot_x = transform.transform.translation.x
             robot_y = transform.transform.translation.y
-            robot_pos = np.array([robot_x, robot_y])
+            
+            frontier_clusters = self.find_frontiers()
+            if not frontier_clusters:
+                return None
+            
+            # Score frontiers based on distance and accessibility
+            best_score = float('-inf')
+            best_cluster = None
+            
+            for cluster in frontier_clusters:
+                center = np.mean(cluster, axis=0)
+                
+                # Convert to world coordinates
+                world_x = self.current_map.info.origin.position.x + center[0] * self.current_map.info.resolution
+                world_y = self.current_map.info.origin.position.y + center[1] * self.current_map.info.resolution
+                
+                # Calculate distance
+                dist = math.sqrt((world_x - robot_x)**2 + (world_y - robot_y)**2)
+                
+                # Penalize goals that require the robot to turn around
+                dx = world_x - robot_x
+                dy = world_y - robot_y
+                goal_angle = math.atan2(dy, dx)
+                
+                # Get robot's current orientation
+                q = transform.transform.rotation
+                current_angle = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                                         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+                
+                # Calculate angle difference
+                angle_diff = abs(goal_angle - current_angle)
+                while angle_diff > math.pi:
+                    angle_diff -= 2 * math.pi
+                
+                # Score based on distance and required rotation
+                angle_penalty = abs(angle_diff) / math.pi  # 0 to 1
+                distance_score = 1.0 / (dist + 1.0)  # Favor closer frontiers
+                size_score = len(cluster) / 10.0  # Favor larger frontiers
+                
+                score = distance_score + size_score - angle_penalty
+                
+                if score > best_score:
+                    best_score = score
+                    best_cluster = cluster
+            
+            # Create goal at cluster center
+            center = np.mean(best_cluster, axis=0)
+            
+            # Ensure goal is within map bounds
+            map_width = self.current_map.info.width
+            map_height = self.current_map.info.height
+            center[0] = np.clip(center[0], 0, map_width - 1)
+            center[1] = np.clip(center[1], 0, map_height - 1)
+            
+            goal = PoseStamped()
+            goal.header.frame_id = 'map'
+            goal.header.stamp = self.get_clock().now().to_msg()
+            
+            # Convert back to world coordinates
+            goal.pose.position.x = self.current_map.info.origin.position.x + center[0] * self.current_map.info.resolution
+            goal.pose.position.y = self.current_map.info.origin.position.y + center[1] * self.current_map.info.resolution
+            goal.pose.position.z = 0.0
+            
+            # Set orientation towards cluster center
+            angle = math.atan2(
+                center[1] - robot_y,
+                center[0] - robot_x
+            )
+            goal.pose.orientation.w = math.cos(angle / 2)
+            goal.pose.orientation.z = math.sin(angle / 2)
+            
+            # Log goal position for debugging
+            self.get_logger().info(
+                f'Selected goal: grid=({center[0]:.1f}, {center[1]:.1f}), '
+                f'world=({goal.pose.position.x:.2f}, {goal.pose.position.y:.2f})'
+            )
+            
+            # Publish visualization
+            self.publish_visualization_markers(frontier_clusters, goal)
+            
+            return goal
+            
         except Exception as e:
-            self.get_logger().warning(f'Could not get robot pose: {e}')
+            self.get_logger().error(f'Error finding exploration goal: {e}')
             return None
-        
-        # Find clustered frontiers
-        frontier_clusters = self.find_frontiers()
-        if not frontier_clusters:
-            return None
-        
-        # Convert robot position to grid coordinates
-        resolution = self.current_map.info.resolution
-        origin_x = self.current_map.info.origin.position.x
-        origin_y = self.current_map.info.origin.position.y
-        map_width = self.current_map.info.width
-        map_height = self.current_map.info.height
-        
-        robot_grid_x = int((robot_x - origin_x) / resolution)
-        robot_grid_y = int((robot_y - origin_y) / resolution)
-        
-        # Find best cluster based on size and distance
-        best_cluster = None
-        best_score = float('-inf')
-        
-        for cluster in frontier_clusters:
-            # Calculate cluster center
-            center = np.mean(cluster, axis=0)
-            
-            # Skip clusters outside map bounds
-            if (center[0] < 0 or center[0] >= map_width or 
-                center[1] < 0 or center[1] >= map_height):
-                continue
-            
-            # Calculate distance to cluster
-            dist = np.sqrt((center[0] - robot_grid_x)**2 + (center[1] - robot_grid_y)**2)
-            
-            # Score based on size and distance (prefer larger clusters that aren't too far)
-            cluster_size = len(cluster)
-            score = cluster_size / (dist + 1)  # Add 1 to avoid division by zero
-            
-            if score > best_score:
-                best_score = score
-                best_cluster = cluster
-        
-        if best_cluster is None:
-            return None
-        
-        # Create goal at cluster center
-        center = np.mean(best_cluster, axis=0)
-        
-        # Ensure goal is within map bounds
-        center[0] = np.clip(center[0], 0, map_width - 1)
-        center[1] = np.clip(center[1], 0, map_height - 1)
-        
-        goal = PoseStamped()
-        goal.header.frame_id = 'map'
-        goal.header.stamp = self.get_clock().now().to_msg()
-        
-        # Convert back to world coordinates
-        goal.pose.position.x = origin_x + center[0] * resolution
-        goal.pose.position.y = origin_y + center[1] * resolution
-        goal.pose.position.z = 0.0
-        
-        # Set orientation towards cluster center
-        angle = math.atan2(
-            center[1] - robot_grid_y,
-            center[0] - robot_grid_x
-        )
-        goal.pose.orientation.w = math.cos(angle / 2)
-        goal.pose.orientation.z = math.sin(angle / 2)
-        
-        # Log goal position for debugging
-        self.get_logger().info(
-            f'Selected goal: grid=({center[0]:.1f}, {center[1]:.1f}), '
-            f'world=({goal.pose.position.x:.2f}, {goal.pose.position.y:.2f})'
-        )
-        
-        # Publish visualization
-        self.publish_visualization_markers(frontier_clusters, goal)
-        
-        return goal
 
     def is_valid_goal(self, goal_pose):
         """Check if goal position is valid with more lenient criteria"""
@@ -308,48 +312,53 @@ class ExplorationController(Node):
             return False
         
         try:
+            # Get robot's current position
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            robot_x = transform.transform.translation.x
+            robot_y = transform.transform.translation.y
+            
+            # Check if goal is too close to current position
+            goal_x = goal_pose.pose.position.x
+            goal_y = goal_pose.pose.position.y
+            dist_to_goal = math.sqrt((goal_x - robot_x)**2 + (goal_y - robot_y)**2)
+            
+            if dist_to_goal < 0.5:  # Skip goals too close
+                self.get_logger().warn('Goal too close to current position')
+                return False
+            
             # Convert goal position to grid coordinates
             resolution = self.current_map.info.resolution
             origin_x = self.current_map.info.origin.position.x
             origin_y = self.current_map.info.origin.position.y
             
-            grid_x = int((goal_pose.pose.position.x - origin_x) / resolution)
-            grid_y = int((goal_pose.pose.position.y - origin_y) / resolution)
+            grid_x = int((goal_x - origin_x) / resolution)
+            grid_y = int((goal_y - origin_y) / resolution)
             
-            # Check if within map bounds with some margin
-            margin = 2  # cells
-            if (grid_x < margin or grid_x >= self.current_map.info.width - margin or
-                grid_y < margin or grid_y >= self.current_map.info.height - margin):
-                self.get_logger().warn('Goal too close to map bounds')
-                return False
+            # Check path to goal for obstacles
+            robot_grid_x = int((robot_x - origin_x) / resolution)
+            robot_grid_y = int((robot_y - origin_y) / resolution)
             
-            # Get map data
+            cells = self.get_line_cells(robot_grid_x, robot_grid_y, grid_x, grid_y)
             map_data = np.array(self.current_map.data).reshape(
                 self.current_map.info.height,
                 self.current_map.info.width
             )
             
-            # Check immediate surroundings with smaller radius
-            radius = 1  # Reduced from 2
-            free_space_threshold = 0.5  # At least 50% of cells should be free
-            total_cells = 0
-            free_cells = 0
+            # Check for clear path
+            obstacle_threshold = 0.3  # Maximum fraction of path that can be blocked
+            blocked_cells = 0
+            for x, y in cells:
+                if (0 <= x < self.current_map.info.width and 
+                    0 <= y < self.current_map.info.height):
+                    if map_data[y, x] > self.wall_threshold:
+                        blocked_cells += 1
             
-            for dy in range(-radius, radius + 1):
-                for dx in range(-radius, radius + 1):
-                    check_x = grid_x + dx
-                    check_y = grid_y + dy
-                    if (0 <= check_x < self.current_map.info.width and
-                        0 <= check_y < self.current_map.info.height):
-                        total_cells += 1
-                        cell_value = map_data[check_y, check_x]
-                        # Consider unknown space (-1) as potentially valid
-                        if cell_value != 100 and cell_value != self.wall_threshold:  # Not an obstacle
-                            free_cells += 1
-            
-            # Check if enough free space around goal
-            if free_cells / total_cells < free_space_threshold:
-                self.get_logger().warn('Not enough free space around goal')
+            if blocked_cells / len(cells) > obstacle_threshold:
+                self.get_logger().warn('Path to goal too obstructed')
                 return False
             
             # Check if goal has previously failed

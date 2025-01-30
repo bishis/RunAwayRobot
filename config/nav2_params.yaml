@@ -73,48 +73,54 @@ controller_server:
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       
-      # Slower but more stable velocity limits
+      # Slower, more stable velocity limits
       min_vel_x: 0.0
-      max_vel_x: 0.3
-      min_vel_y: 0.0
-      max_vel_y: 0.0
-      max_vel_theta: 0.8
-      min_vel_theta: -0.8
-      min_speed_xy: 0.3
-      max_speed_xy: 0.05
-      min_speed_theta: 0.0
+      max_vel_x: 0.2
+      max_vel_theta: 0.5
+      max_speed_xy: 0.2
+      
+      # Much gentler acceleration limits
+      acc_lim_x: 0.5
+      acc_lim_theta: 0.8
+      decel_lim_x: -0.5
+      decel_lim_theta: -0.8
+      
+      # Prioritize path following over goal reaching
+      path_distance_bias: 32.0
+      goal_distance_bias: 5.0
+      
+      # Better obstacle avoidance
+      critics: ["Oscillation", "BaseObstacle", "PathAlign", "GoalAlign"]
+      BaseObstacle.scale: 0.02
+      PathAlign.scale: 32.0
+      GoalAlign.scale: 5.0
+      
+      # Prevent rotation oscillation
+      angular_granularity: 0.1
+      xy_goal_tolerance: 0.3
+      yaw_goal_tolerance: 1.0
+      
+      # Reduce trajectory sampling
+      vx_samples: 6
+      vtheta_samples: 8
+      sim_time: 1.5
       
       # Gentler acceleration limits
-      acc_lim_x: 1.0
-      acc_lim_y: 0.0
-      acc_lim_theta: 1.5
-      decel_lim_x: -1.0
-      decel_lim_y: 0.0
-      decel_lim_theta: -1.5
+      min_vel_y: 0.0
+      max_vel_y: 0.0
+      min_vel_theta: -0.8
+      min_speed_theta: 0.0
       
       # Very forgiving goal tolerances
-      xy_goal_tolerance: 0.35
-      yaw_goal_tolerance: 0.75
       trans_stopped_velocity: 0.1
       theta_stopped_velocity: 0.1
       
       # Heavily reduce path precision requirements
-      path_distance_bias: 15.0
-      goal_distance_bias: 5.0
       occdist_scale: 0.01
       
       # Simplified critics with adjusted weights
       critics: ["Oscillation", "BaseObstacle", "PathAlign", "GoalDist"]
-      BaseObstacle.scale: 0.02
-      PathAlign.scale: 15.0
       GoalDist.scale: 5.0
-      
-      # Simpler trajectory generation
-      sim_time: 1.0
-      vx_samples: 6
-      vy_samples: 0
-      vtheta_samples: 8
-      angular_granularity: 0.2
       
       # More lenient oscillation checks
       oscillation_reset_dist: 0.5

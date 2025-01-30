@@ -22,6 +22,9 @@ class ExplorationController(Node):
         self.declare_parameter('safety_margin', 0.3)  # Distance from walls
         self.declare_parameter('waypoint_size', 0.3)  # Size of waypoint markers
         self.declare_parameter('preferred_distance', 1.0)  # Preferred distance for new waypoints
+        self.declare_parameter('min_waypoint_time', 30.0)  # Minimum time to keep a waypoint
+        self.declare_parameter('goal_reached_distance', 0.5)  # Distance to consider goal reached
+        self.declare_parameter('score_hysteresis', 0.3)  # Required score improvement to change waypoint
         
         # Get parameters
         self.min_distance = self.get_parameter('min_distance').value
@@ -29,6 +32,9 @@ class ExplorationController(Node):
         self.safety_margin = self.get_parameter('safety_margin').value
         self.waypoint_size = self.get_parameter('waypoint_size').value
         self.preferred_distance = self.get_parameter('preferred_distance').value
+        self.min_waypoint_time = self.get_parameter('min_waypoint_time').value
+        self.goal_reached_distance = self.get_parameter('goal_reached_distance').value
+        self.score_hysteresis = self.get_parameter('score_hysteresis').value
         
         # Navigation client
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -55,6 +61,8 @@ class ExplorationController(Node):
         self.current_waypoint = None
         self.is_navigating = False
         self.goal_start_time = None
+        self.waypoint_start_time = None
+        self.current_waypoint_score = -float('inf')
         
         # Create timer for exploration control
         self.create_timer(1.0, self.exploration_loop)
@@ -224,47 +232,88 @@ class ExplorationController(Node):
         
         return waypoint
 
+    def is_waypoint_reached(self):
+        """Check if we've reached the current waypoint"""
+        if not self.current_waypoint:
+            return False
+            
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            
+            dx = transform.transform.translation.x - self.current_waypoint.pose.position.x
+            dy = transform.transform.translation.y - self.current_waypoint.pose.position.y
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            return distance < self.goal_reached_distance
+        except:
+            return False
+
+    def should_generate_new_waypoint(self):
+        """Determine if we should generate a new waypoint"""
+        if not self.current_waypoint or not self.waypoint_start_time:
+            return True
+            
+        # Check minimum time
+        time_elapsed = (self.get_clock().now() - self.waypoint_start_time).nanoseconds / 1e9
+        if time_elapsed < self.min_waypoint_time:
+            return False
+            
+        # If we've reached the waypoint, generate a new one
+        if self.is_waypoint_reached():
+            return True
+            
+        # If we're stuck (timeout), generate a new one
+        if time_elapsed > self.goal_timeout:
+            return True
+            
+        return False
+
     def exploration_loop(self):
         """Main control loop for exploration"""
         if not self.current_map:
             return
             
         if not self.is_navigating:
-            # Generate new waypoint if needed
-            if not self.current_waypoint:
-                self.current_waypoint = self.generate_next_waypoint()
-                if self.current_waypoint:
-                    self.publish_waypoint_markers()
-                    self.get_logger().info('Generated new waypoint')
-                else:
-                    return
+            # Only generate new waypoint if needed
+            if self.should_generate_new_waypoint():
+                new_waypoint = self.generate_next_waypoint()
+                if new_waypoint:
+                    # Only accept new waypoint if it's significantly better
+                    new_score = self.score_waypoint(new_waypoint)
+                    if new_score > self.current_waypoint_score + self.score_hysteresis:
+                        self.current_waypoint = new_waypoint
+                        self.current_waypoint_score = new_score
+                        self.waypoint_start_time = self.get_clock().now()
+                        self.publish_waypoint_markers()
+                        self.get_logger().info(
+                            f'Generated new waypoint with score {new_score:.2f}'
+                        )
+                    else:
+                        self.get_logger().info('New waypoint not significantly better, keeping current')
             
-            # Send goal
-            goal_msg = NavigateToPose.Goal()
-            goal_msg.pose = self.current_waypoint
-            
-            self.get_logger().info(
-                f'Navigating to waypoint: ({self.current_waypoint.pose.position.x:.2f}, '
-                f'{self.current_waypoint.pose.position.y:.2f})'
-            )
-            
-            self.nav_client.wait_for_server()
-            self.current_goal = self.nav_client.send_goal_async(
-                goal_msg,
-                feedback_callback=self.feedback_callback
-            )
-            self.current_goal.add_done_callback(self.goal_response_callback)
-            
-            self.is_navigating = True
-            self.goal_start_time = self.get_clock().now()
-        
-        else:
-            # Check for timeout
-            if self.goal_start_time:
-                time_elapsed = (self.get_clock().now() - self.goal_start_time).nanoseconds / 1e9
-                if time_elapsed > self.goal_timeout:
-                    self.get_logger().warn('Goal timeout reached, generating new waypoint')
-                    self.generate_new_goal()
+            if self.current_waypoint:
+                # Send goal
+                goal_msg = NavigateToPose.Goal()
+                goal_msg.pose = self.current_waypoint
+                
+                self.get_logger().info(
+                    f'Navigating to waypoint: ({self.current_waypoint.pose.position.x:.2f}, '
+                    f'{self.current_waypoint.pose.position.y:.2f})'
+                )
+                
+                self.nav_client.wait_for_server()
+                self.current_goal = self.nav_client.send_goal_async(
+                    goal_msg,
+                    feedback_callback=self.feedback_callback
+                )
+                self.current_goal.add_done_callback(self.goal_response_callback)
+                
+                self.is_navigating = True
+                self.goal_start_time = self.get_clock().now()
 
     def generate_new_goal(self):
         """Generate a new goal and reset navigation state"""
@@ -350,6 +399,58 @@ class ExplorationController(Node):
         marker_array.markers.append(arrow_marker)
         
         self.marker_pub.publish(marker_array)
+
+    def score_waypoint(self, waypoint):
+        """Score a waypoint based on exploration potential"""
+        if not self.current_map:
+            return -float('inf')
+            
+        resolution = self.current_map.info.resolution
+        origin_x = self.current_map.info.origin.position.x
+        origin_y = self.current_map.info.origin.position.y
+        
+        # Convert waypoint to grid coordinates
+        grid_x = int((waypoint.pose.position.x - origin_x) / resolution)
+        grid_y = int((waypoint.pose.position.y - origin_y) / resolution)
+        
+        map_data = np.array(self.current_map.data).reshape(
+            self.current_map.info.height,
+            self.current_map.info.width
+        )
+        
+        # Calculate scores using the same metrics as in generate_next_waypoint
+        unknown_area = map_data == -1
+        walls = map_data > 50
+        
+        wall_distance = distance_transform_edt(~walls) * resolution
+        unknown_distance = distance_transform_edt(~unknown_area) * resolution
+        
+        # Calculate component scores
+        unknown_score = 1.0 / (unknown_distance[grid_y, grid_x] + 0.1)
+        wall_score = min(wall_distance[grid_y, grid_x], 2.0) / 2.0
+        
+        # Get robot position for distance score
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            robot_grid_x = int((transform.transform.translation.x - origin_x) / resolution)
+            robot_grid_y = int((transform.transform.translation.y - origin_y) / resolution)
+            
+            dist_to_robot = math.sqrt(
+                (grid_x - robot_grid_x)**2 + 
+                (grid_y - robot_grid_y)**2
+            ) * resolution
+            
+            distance_score = 1.0 - abs(dist_to_robot - self.preferred_distance) / self.preferred_distance
+        except:
+            distance_score = 0.0
+        
+        return (3.0 * unknown_score + 
+                2.0 * wall_score + 
+                1.0 * distance_score)
 
 def main(args=None):
     rclpy.init(args=args)

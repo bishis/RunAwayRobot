@@ -25,6 +25,8 @@ class ExplorationController(Node):
         self.declare_parameter('grid_size', 0.5)  # Size of grid cells for coverage pattern
         self.declare_parameter('goal_timeout', 30.0)  # Seconds before giving up on a goal
         self.declare_parameter('max_retries', 3)      # Max attempts for a single goal
+        self.declare_parameter('min_goal_distance', 0.5)
+        self.declare_parameter('preferred_goal_distance', 1.0)
         
         # Get parameters
         self.min_frontier_size = self.get_parameter('min_frontier_size').value
@@ -35,6 +37,8 @@ class ExplorationController(Node):
         self.grid_size = self.get_parameter('grid_size').value
         self.goal_timeout = self.get_parameter('goal_timeout').value
         self.max_retries = self.get_parameter('max_retries').value
+        self.min_goal_distance = self.get_parameter('min_goal_distance').value
+        self.preferred_goal_distance = self.get_parameter('preferred_goal_distance').value
         
         # Set up Nav2 action client
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -238,15 +242,6 @@ class ExplorationController(Node):
             if not frontier_clusters:
                 return None
             
-            # Get map data for validation
-            map_data = np.array(self.current_map.data).reshape(
-                self.current_map.info.height,
-                self.current_map.info.width
-            )
-            resolution = self.current_map.info.resolution
-            origin_x = self.current_map.info.origin.position.x
-            origin_y = self.current_map.info.origin.position.y
-            
             # Score and validate frontiers
             valid_clusters = []
             scores = []
@@ -255,9 +250,16 @@ class ExplorationController(Node):
                 center = np.mean(cluster, axis=0)
                 
                 # Convert to world coordinates
-                world_x = origin_x + center[0] * resolution
-                world_y = origin_y + center[1] * resolution
+                world_x = self.current_map.info.origin.position.x + center[0] * self.current_map.info.resolution
+                world_y = self.current_map.info.origin.position.y + center[1] * self.current_map.info.resolution
                 
+                # Calculate distance to robot
+                dist = math.sqrt((world_x - robot_x)**2 + (world_y - robot_y)**2)
+                
+                # Skip goals that are too close
+                if dist < self.min_goal_distance:
+                    continue
+                    
                 # Create temporary goal to check validity
                 temp_goal = PoseStamped()
                 temp_goal.header.frame_id = 'map'
@@ -268,9 +270,10 @@ class ExplorationController(Node):
                 if self.is_valid_goal(temp_goal):
                     valid_clusters.append(cluster)
                     
-                    # Calculate score
-                    dist = math.sqrt((world_x - robot_x)**2 + (world_y - robot_y)**2)
-                    score = len(cluster) / (dist + 1.0)  # Favor larger clusters that are closer
+                    # Score based on distance (prefer goals around preferred_goal_distance)
+                    distance_score = 1.0 / (abs(dist - self.preferred_goal_distance) + 0.1)
+                    size_score = len(cluster) / 10.0  # Favor larger frontiers
+                    score = distance_score + size_score
                     scores.append(score)
             
             if not valid_clusters:
@@ -284,14 +287,14 @@ class ExplorationController(Node):
             goal = PoseStamped()
             goal.header.frame_id = 'map'
             goal.header.stamp = self.get_clock().now().to_msg()
-            goal.pose.position.x = origin_x + center[0] * resolution
-            goal.pose.position.y = origin_y + center[1] * resolution
+            goal.pose.position.x = world_x
+            goal.pose.position.y = world_y
             goal.pose.position.z = 0.0
             
             # Set orientation towards center
             angle = math.atan2(
-                center[1] - robot_y,
-                center[0] - robot_x
+                world_y - robot_y,
+                world_x - robot_x
             )
             goal.pose.orientation.w = math.cos(angle / 2)
             goal.pose.orientation.z = math.sin(angle / 2)

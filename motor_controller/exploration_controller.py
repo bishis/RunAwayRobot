@@ -10,6 +10,7 @@ import numpy as np
 import math
 from tf2_ros import Buffer, TransformListener
 import random
+from scipy.ndimage import distance_transform_edt
 
 class ExplorationController(Node):
     def __init__(self):
@@ -103,10 +104,10 @@ class ExplorationController(Node):
         return True
 
     def generate_next_waypoint(self):
-        """Generate a single new waypoint"""
+        """Generate a single new waypoint prioritizing unexplored areas"""
         if not self.current_map:
             return None
-            
+        
         attempts = 0
         max_attempts = 100
         
@@ -120,8 +121,15 @@ class ExplorationController(Node):
             self.current_map.info.width
         )
         
-        # Find areas that are definitely mapped (not unknown)
-        known_area = map_data != -1
+        # Create exploration potential field
+        unknown_area = map_data == -1
+        walls = map_data > 50
+        
+        # Calculate distance transform from walls
+        wall_distance = distance_transform_edt(~walls) * resolution
+        
+        # Calculate distance to unknown areas
+        unknown_distance = distance_transform_edt(~unknown_area) * resolution
         
         # Get current robot position
         try:
@@ -132,18 +140,24 @@ class ExplorationController(Node):
             )
             robot_x = transform.transform.translation.x
             robot_y = transform.transform.translation.y
+            
+            # Convert to grid coordinates
+            robot_grid_x = int((robot_x - origin_x) / resolution)
+            robot_grid_y = int((robot_y - origin_y) / resolution)
         except:
-            self.get_logger().warn('Could not get robot position, using random waypoint')
-            robot_x = None
-            robot_y = None
+            self.get_logger().warn('Could not get robot position')
+            return None
 
-        while attempts < max_attempts:
-            # Find all valid cells (free space)
-            valid_y, valid_x = np.where((map_data == 0) & known_area)
+        best_point = None
+        best_score = -float('inf')
+        
+        # Sample points and score them
+        for _ in range(50):  # Try 50 random points
+            # Find valid cells (free space)
+            valid_y, valid_x = np.where((map_data == 0) & (wall_distance > self.safety_margin))
             
             if len(valid_x) == 0:
-                self.get_logger().warn('No valid points found in map')
-                return None
+                continue
             
             # Randomly select one of the valid cells
             idx = random.randint(0, len(valid_x) - 1)
@@ -154,30 +168,61 @@ class ExplorationController(Node):
             x = origin_x + map_x * resolution
             y = origin_y + map_y * resolution
             
-            # If we have robot position, check if point is at preferred distance
-            if robot_x is not None and robot_y is not None:
-                dist = math.sqrt((x - robot_x)**2 + (y - robot_y)**2)
-                if dist < self.min_distance or abs(dist - self.preferred_distance) > 0.5:
-                    attempts += 1
-                    continue
+            # Calculate scores for different criteria
+            dist_to_robot = math.sqrt((map_x - robot_grid_x)**2 + (map_y - robot_grid_y)**2) * resolution
+            if dist_to_robot < self.min_distance:
+                continue
             
-            # Create waypoint
-            waypoint = PoseStamped()
-            waypoint.header.frame_id = 'map'
-            waypoint.pose.position.x = x
-            waypoint.pose.position.y = y
-            waypoint.pose.position.z = 0.0
+            # Score based on:
+            # 1. Distance to unknown areas (prefer closer to unknown)
+            unknown_score = 1.0 / (unknown_distance[map_y, map_x] + 0.1)
             
-            # Set orientation towards center of map
-            map_center_x = origin_x + (self.current_map.info.width * resolution) / 2
-            map_center_y = origin_y + (self.current_map.info.height * resolution) / 2
-            angle = math.atan2(map_center_y - y, map_center_x - x)
+            # 2. Distance from walls (prefer points away from walls)
+            wall_score = min(wall_distance[map_y, map_x], 2.0) / 2.0
+            
+            # 3. Appropriate distance from robot
+            distance_score = 1.0 - abs(dist_to_robot - self.preferred_distance) / self.preferred_distance
+            
+            # Combine scores with weights
+            total_score = (
+                3.0 * unknown_score +  # Prioritize exploring unknown areas
+                2.0 * wall_score +     # Prefer staying away from walls
+                1.0 * distance_score   # Consider distance from robot
+            )
+            
+            if total_score > best_score:
+                best_score = total_score
+                best_point = (x, y)
+        
+        if best_point is None:
+            return None
+        
+        # Create waypoint with the best point
+        waypoint = PoseStamped()
+        waypoint.header.frame_id = 'map'
+        waypoint.pose.position.x = best_point[0]
+        waypoint.pose.position.y = best_point[1]
+        waypoint.pose.position.z = 0.0
+        
+        # Set orientation towards unexplored area
+        # Find direction of closest unknown area
+        unknown_y, unknown_x = np.where(unknown_area)
+        if len(unknown_x) > 0:
+            # Find closest unknown point
+            dists = [(ux - map_x)**2 + (uy - map_y)**2 for ux, uy in zip(unknown_x, unknown_y)]
+            closest_idx = np.argmin(dists)
+            target_x = origin_x + unknown_x[closest_idx] * resolution
+            target_y = origin_y + unknown_y[closest_idx] * resolution
+            
+            # Calculate angle towards unknown area
+            angle = math.atan2(target_y - best_point[1], target_x - best_point[0])
             waypoint.pose.orientation.z = math.sin(angle / 2)
             waypoint.pose.orientation.w = math.cos(angle / 2)
-            
-            return waypoint
-            
-        return None
+        else:
+            # If no unknown areas, just use default orientation
+            waypoint.pose.orientation.w = 1.0
+        
+        return waypoint
 
     def exploration_loop(self):
         """Main control loop for exploration"""
@@ -190,6 +235,7 @@ class ExplorationController(Node):
                 self.current_waypoint = self.generate_next_waypoint()
                 if self.current_waypoint:
                     self.publish_waypoint_markers()
+                    self.get_logger().info('Generated new waypoint')
                 else:
                     return
             

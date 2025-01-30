@@ -21,7 +21,7 @@ class ExplorationController(Node):
         self.declare_parameter('wall_threshold', 80)      # Value to consider as wall (0-100)
         self.declare_parameter('unknown_threshold', -1)   # Value for unknown cells
         self.declare_parameter('replan_distance', 0.5)  # Distance to trigger replanning
-        self.declare_parameter('coverage_threshold', 0.85)  # When room is considered "mapped enough"
+        self.declare_parameter('coverage_threshold', 0.55)  # When room is considered "mapped enough"
         self.declare_parameter('grid_size', 0.5)  # Size of grid cells for coverage pattern
         self.declare_parameter('goal_timeout', 30.0)  # Seconds before giving up on a goal
         self.declare_parameter('max_retries', 3)      # Max attempts for a single goal

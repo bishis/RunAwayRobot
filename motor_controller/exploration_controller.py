@@ -77,7 +77,7 @@ class ExplorationController(Node):
         self.current_map = msg
 
     def find_frontiers(self):
-        """Find and cluster frontier regions with more lenient criteria"""
+        """Find and cluster frontier regions with better wall avoidance"""
         if not self.current_map:
             return []
 
@@ -89,22 +89,33 @@ class ExplorationController(Node):
         # Create binary maps
         unknown = map_data == self.unknown_threshold
         free = map_data < self.wall_threshold
+        walls = map_data > 50  # Identify walls
         free[unknown] = False
         
-        # Find frontiers (free cells next to unknown cells)
-        kernel = np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])  # 8-connected
-        frontiers = []
+        # Dilate walls to create safety margin
+        kernel_size = 3
+        wall_kernel = np.ones((kernel_size, kernel_size))
+        walls_dilated = walls.copy()
+        for i in range(height - kernel_size + 1):
+            for j in range(width - kernel_size + 1):
+                if np.any(walls[i:i+kernel_size, j:j+kernel_size] * wall_kernel):
+                    walls_dilated[i+1, j+1] = True
         
-        # Iterate through free cells
+        # Remove frontiers too close to walls
+        frontiers = []
+        kernel = np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])
+        
         for y in range(1, height-1):
             for x in range(1, width-1):
-                if not free[y, x]:
+                if not free[y, x] or walls_dilated[y, x]:
                     continue
-                    
+                
                 # Check if cell is next to unknown area
                 window = unknown[y-1:y+2, x-1:x+2]
                 if np.any(window * kernel):
-                    frontiers.append((x, y))
+                    # Check if point is far enough from walls
+                    if not np.any(walls_dilated[y-2:y+3, x-2:x+3]):
+                        frontiers.append((x, y))
         
         # Cluster frontiers using DBSCAN with more lenient parameters
         if not frontiers:
@@ -307,7 +318,7 @@ class ExplorationController(Node):
             return None
 
     def is_valid_goal(self, goal_pose):
-        """Check if goal position is valid with more lenient criteria"""
+        """Check if goal position is valid with stricter wall checking"""
         if not self.current_map:
             return False
         
@@ -321,44 +332,43 @@ class ExplorationController(Node):
             robot_x = transform.transform.translation.x
             robot_y = transform.transform.translation.y
             
-            # Check if goal is too close to current position
-            goal_x = goal_pose.pose.position.x
-            goal_y = goal_pose.pose.position.y
-            dist_to_goal = math.sqrt((goal_x - robot_x)**2 + (goal_y - robot_y)**2)
-            
-            if dist_to_goal < 0.5:  # Skip goals too close
-                self.get_logger().warn('Goal too close to current position')
-                return False
-            
             # Convert goal position to grid coordinates
             resolution = self.current_map.info.resolution
             origin_x = self.current_map.info.origin.position.x
             origin_y = self.current_map.info.origin.position.y
             
+            goal_x = goal_pose.pose.position.x
+            goal_y = goal_pose.pose.position.y
             grid_x = int((goal_x - origin_x) / resolution)
             grid_y = int((goal_y - origin_y) / resolution)
             
-            # Check path to goal for obstacles
-            robot_grid_x = int((robot_x - origin_x) / resolution)
-            robot_grid_y = int((robot_y - origin_y) / resolution)
-            
-            cells = self.get_line_cells(robot_grid_x, robot_grid_y, grid_x, grid_y)
+            # Get map data
             map_data = np.array(self.current_map.data).reshape(
                 self.current_map.info.height,
                 self.current_map.info.width
             )
             
-            # Check for clear path
-            obstacle_threshold = 0.3  # Maximum fraction of path that can be blocked
-            blocked_cells = 0
-            for x, y in cells:
-                if (0 <= x < self.current_map.info.width and 
-                    0 <= y < self.current_map.info.height):
-                    if map_data[y, x] > self.wall_threshold:
-                        blocked_cells += 1
+            # Check larger area around goal for walls
+            safety_radius = 4  # Check 4 cells around goal
+            for dy in range(-safety_radius, safety_radius + 1):
+                for dx in range(-safety_radius, safety_radius + 1):
+                    check_x = grid_x + dx
+                    check_y = grid_y + dy
+                    if (0 <= check_x < self.current_map.info.width and 
+                        0 <= check_y < self.current_map.info.height):
+                        # Calculate distance from center point
+                        dist = math.sqrt(dx*dx + dy*dy)
+                        if dist <= safety_radius:
+                            cell_value = map_data[check_y, check_x]
+                            # If any nearby cell is a wall or unknown, reject the goal
+                            if cell_value > 50 or cell_value == -1:  # Wall or unknown
+                                self.get_logger().warn(f'Goal too close to wall or unknown area at ({dx}, {dy})')
+                                return False
             
-            if blocked_cells / len(cells) > obstacle_threshold:
-                self.get_logger().warn('Path to goal too obstructed')
+            # Check if goal is too close to current position
+            dist_to_goal = math.sqrt((goal_x - robot_x)**2 + (goal_y - robot_y)**2)
+            if dist_to_goal < 0.5:  # Skip goals too close
+                self.get_logger().warn('Goal too close to current position')
                 return False
             
             # Check if goal has previously failed

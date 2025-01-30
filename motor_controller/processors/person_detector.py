@@ -4,37 +4,44 @@ from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
 from visualization_msgs.msg import MarkerArray, Marker
 from geometry_msgs.msg import Point
-from cv_bridge import CvBridge
 import cv2
 import numpy as np
-from ultralytics import YOLO
 import torch
 import os
+from pathlib import Path
 
 class PersonDetector(Node):
     def __init__(self):
         super().__init__('person_detector')
         
-        # Initialize CV Bridge
-        self.bridge = CvBridge()
+        # Initialize model path
+        self.model = None
+        home = str(Path.home())
+        self.model_path = os.path.join(home, 'yolov8n.pt')
         
         # Load YOLO model with error handling
         try:
-            # Check if model exists in home directory, if not download it
-            home = os.path.expanduser("~")
-            model_path = os.path.join(home, 'yolov8n.pt')
+            # First check if we need to install ultralytics
+            try:
+                from ultralytics import YOLO
+            except ImportError:
+                self.get_logger().info('Installing ultralytics...')
+                os.system('pip3 install ultralytics')
+                from ultralytics import YOLO
             
-            if not os.path.exists(model_path):
-                self.get_logger().info('Downloading YOLOv8n model...')
-                self.model = YOLO('yolov8n.pt')  # This will download to home directory
-                self.model.model.eval()  # Set to evaluation mode
+            # Download/load model
+            if not os.path.exists(self.model_path):
+                self.get_logger().info(f'Downloading YOLOv8n model to {self.model_path}...')
+                self.model = YOLO('yolov8n')
+                self.model.export()  # This ensures model is saved
             else:
-                self.get_logger().info(f'Loading model from {model_path}')
-                self.model = YOLO(model_path)
-                self.model.model.eval()
-                
-            # Move model to CPU (safer than GPU for compatibility)
+                self.get_logger().info(f'Loading model from {self.model_path}')
+                self.model = YOLO(self.model_path)
+            
+            # Force CPU mode and eval mode
             self.model.to('cpu')
+            if hasattr(self.model, 'model'):
+                self.model.model.eval()
             
         except Exception as e:
             self.get_logger().error(f'Failed to load YOLO model: {str(e)}')
@@ -62,10 +69,17 @@ class PersonDetector(Node):
             10
         )
         
+        # Debug counter
+        self.frame_count = 0
+        
         self.get_logger().info('Person detector initialized successfully')
         
     def image_callback(self, msg):
         try:
+            self.frame_count += 1
+            if self.frame_count % 30 == 0:  # Log every 30 frames
+                self.get_logger().info('Processing frame...')
+            
             # Convert compressed image to CV2
             np_arr = np.frombuffer(msg.data, np.uint8)
             cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
@@ -73,10 +87,16 @@ class PersonDetector(Node):
             if cv_image is None:
                 self.get_logger().warn('Failed to decode image')
                 return
-                
+            
+            # Log image properties
+            if self.frame_count % 30 == 0:
+                self.get_logger().info(f'Image shape: {cv_image.shape}')
+            
             # Run detection with error handling
             try:
                 results = self.model(cv_image, classes=[0], verbose=False)  # class 0 is person in COCO
+                if self.frame_count % 30 == 0:
+                    self.get_logger().info(f'Detection complete, found {len(results[0].boxes)} boxes')
             except Exception as e:
                 self.get_logger().error(f'YOLO inference failed: {str(e)}')
                 return
@@ -95,7 +115,7 @@ class PersonDetector(Node):
                         x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                         confidence = box.conf[0].cpu().numpy()
                         
-                        if confidence > 0.5:  # Confidence threshold
+                        if confidence > 0.3:  # Lower confidence threshold for testing
                             # Draw on image
                             cv2.rectangle(
                                 viz_image,
@@ -115,6 +135,9 @@ class PersonDetector(Node):
                                 (0, 255, 0),
                                 2
                             )
+                            
+                            if self.frame_count % 30 == 0:
+                                self.get_logger().info(f'Detected person with confidence: {confidence:.2f}')
                             
                             # Create marker for visualization
                             marker = Marker()

@@ -123,7 +123,7 @@ def generate_launch_description():
         name='navigation_controller',
             parameters=[{
                 'max_linear_speed': 0.1,      # Max 0.1 m/s
-                'max_angular_speed': 1.0,     # Max 1.0 rad/s
+                'max_angular_speed': 0.8,     # Max 0.8 rad/s (80% of original)
                 'linear_threshold': 0.01,     # Small threshold for better response
                 'angular_threshold': 0.02,    # Small threshold for better turning
             }],

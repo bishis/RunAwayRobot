@@ -76,12 +76,12 @@ controller_server:
       # Adjust velocity limits
       min_vel_x: 0.0
       max_vel_x: 0.15
-      min_vel_theta: -1.0
-      max_vel_theta: 1.0
+      min_vel_theta: -0.8
+      max_vel_theta: 0.8
       
       # More aggressive rotation
-      acc_lim_theta: 1.0
-      decel_lim_theta: -1.0
+      acc_lim_theta: 0.8
+      decel_lim_theta: -0.8
       
       # Prioritize rotation to goal
       path_distance_bias: 32.0

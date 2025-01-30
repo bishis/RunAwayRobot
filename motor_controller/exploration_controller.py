@@ -494,8 +494,10 @@ class ExplorationController(Node):
     def cancel_current_goal(self):
         """Cancel the current navigation goal"""
         if self.current_goal and self.is_navigating:
-            # Cancel the goal
-            self.nav_client.cancel_goal_async()
+            # Cancel the goal using the correct method
+            future = self.nav_client.cancel_goal()
+            # Wait for cancellation to complete
+            rclpy.spin_until_future_complete(self, future)
             self.is_navigating = False
             self.get_logger().info('Cancelled current navigation goal')
 

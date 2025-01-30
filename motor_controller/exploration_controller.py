@@ -58,7 +58,7 @@ class ExplorationController(Node):
             if self.is_path_blocked(msg):
                 self.get_logger().info('Path to goal blocked, replanning...')
                 self.cancel_current_goal()
-                self.find_new_goal()
+                self.current_goal = None
         
         self.current_map = msg
 
@@ -224,10 +224,7 @@ class ExplorationController(Node):
         robot_grid_x = int((robot_x - origin_x) / resolution)
         robot_grid_y = int((robot_y - origin_y) / resolution)
         
-        # Get map data as numpy array
-        map_data = np.array(self.current_map.data).reshape(map_height, map_width)
-        
-        # Find best cluster based on size, distance, and accessibility
+        # Find best cluster based on size and distance
         best_cluster = None
         best_score = float('-inf')
         
@@ -236,45 +233,30 @@ class ExplorationController(Node):
             center = np.mean(cluster, axis=0)
             
             # Skip clusters outside map bounds
-            if (center[0] < 2 or center[0] >= map_width - 2 or 
-                center[1] < 2 or center[1] >= map_height - 2):
-                continue
-            
-            # Check if area around cluster center is accessible
-            center_x = int(center[0])
-            center_y = int(center[1])
-            area = map_data[center_y-2:center_y+3, center_x-2:center_x+3]
-            if np.any(area > self.wall_threshold):  # Skip if there are walls nearby
+            if (center[0] < 0 or center[0] >= map_width or 
+                center[1] < 0 or center[1] >= map_height):
                 continue
             
             # Calculate distance to cluster
             dist = np.sqrt((center[0] - robot_grid_x)**2 + (center[1] - robot_grid_y)**2)
             
-            # Skip if too close (might be unreachable due to local obstacles)
-            if dist < 5:  # Skip points less than 5 cells away
-                continue
-            
-            # Score based on size and distance (prefer larger clusters at moderate distances)
+            # Score based on size and distance (prefer larger clusters that aren't too far)
             cluster_size = len(cluster)
-            # Gaussian-like distance weighting - prefer points not too close and not too far
-            distance_score = np.exp(-((dist - 20) ** 2) / (2 * 15 ** 2))
-            score = cluster_size * distance_score
+            score = cluster_size / (dist + 1)  # Add 1 to avoid division by zero
             
             if score > best_score:
                 best_score = score
                 best_cluster = cluster
         
         if best_cluster is None:
-            # If no good clusters found, try to recover by moving to a more open area
-            self.get_logger().warn('No valid frontiers found, looking for recovery point')
-            return self.find_recovery_goal()
+            return None
         
         # Create goal at cluster center
         center = np.mean(best_cluster, axis=0)
         
-        # Ensure goal is within map bounds and in free space
-        center[0] = np.clip(center[0], 2, map_width - 3)
-        center[1] = np.clip(center[1], 2, map_height - 3)
+        # Ensure goal is within map bounds
+        center[0] = np.clip(center[0], 0, map_width - 1)
+        center[1] = np.clip(center[1], 0, map_height - 1)
         
         goal = PoseStamped()
         goal.header.frame_id = 'map'
@@ -285,7 +267,7 @@ class ExplorationController(Node):
         goal.pose.position.y = origin_y + center[1] * resolution
         goal.pose.position.z = 0.0
         
-        # Set orientation towards center of frontier
+        # Set orientation towards cluster center
         angle = math.atan2(
             center[1] - robot_grid_y,
             center[0] - robot_grid_x
@@ -293,77 +275,16 @@ class ExplorationController(Node):
         goal.pose.orientation.w = math.cos(angle / 2)
         goal.pose.orientation.z = math.sin(angle / 2)
         
+        # Log goal position for debugging
         self.get_logger().info(
             f'Selected goal: grid=({center[0]:.1f}, {center[1]:.1f}), '
             f'world=({goal.pose.position.x:.2f}, {goal.pose.position.y:.2f})'
         )
         
+        # Publish visualization
+        self.publish_visualization_markers(frontier_clusters, goal)
+        
         return goal
-
-    def find_recovery_goal(self):
-        """Find a recovery goal in an open area when stuck"""
-        if not self.current_map:
-            return None
-        
-        try:
-            # Get current robot pose
-            transform = self.tf_buffer.lookup_transform(
-                'map',
-                'base_link',
-                rclpy.time.Time()
-            )
-            robot_x = transform.transform.translation.x
-            robot_y = transform.transform.translation.y
-        except Exception as e:
-            return None
-        
-        # Convert to grid coordinates
-        resolution = self.current_map.info.resolution
-        origin_x = self.current_map.info.origin.position.x
-        origin_y = self.current_map.info.origin.position.y
-        
-        robot_grid_x = int((robot_x - origin_x) / resolution)
-        robot_grid_y = int((robot_y - origin_y) / resolution)
-        
-        # Get map data
-        map_data = np.array(self.current_map.data).reshape(
-            self.current_map.info.height,
-            self.current_map.info.width
-        )
-        
-        # Look for open areas in increasing radius
-        for radius in range(5, 20, 2):
-            y, x = np.ogrid[-radius:radius+1, -radius:radius+1]
-            mask = x**2 + y**2 <= radius**2
-            
-            for angle in np.linspace(0, 2*np.pi, 16):
-                test_x = robot_grid_x + int(radius * np.cos(angle))
-                test_y = robot_grid_y + int(radius * np.sin(angle))
-                
-                # Check if point is within map bounds
-                if (test_x < 2 or test_x >= self.current_map.info.width - 2 or
-                    test_y < 2 or test_y >= self.current_map.info.height - 2):
-                    continue
-                
-                # Check if area is clear
-                area = map_data[test_y-2:test_y+3, test_x-2:test_x+3]
-                if np.all(area < self.wall_threshold):
-                    # Create recovery goal
-                    goal = PoseStamped()
-                    goal.header.frame_id = 'map'
-                    goal.header.stamp = self.get_clock().now().to_msg()
-                    goal.pose.position.x = origin_x + test_x * resolution
-                    goal.pose.position.y = origin_y + test_y * resolution
-                    goal.pose.position.z = 0.0
-                    
-                    # Orient towards open space
-                    goal.pose.orientation.w = math.cos(angle / 2)
-                    goal.pose.orientation.z = math.sin(angle / 2)
-                    
-                    self.get_logger().info('Found recovery goal in open space')
-                    return goal
-        
-        return None
 
     def send_goal(self, goal_pose):
         """Send navigation goal to Nav2"""
@@ -491,65 +412,6 @@ class ExplorationController(Node):
             self.nav_client.cancel_goal_async()
             self.is_navigating = False
             self.get_logger().info('Cancelled current navigation goal')
-
-    def find_new_goal(self):
-        """Find a new goal when current path is blocked"""
-        # Get current robot pose
-        try:
-            transform = self.tf_buffer.lookup_transform(
-                'map',
-                'base_link',
-                rclpy.time.Time()
-            )
-            robot_pos = np.array([
-                transform.transform.translation.x,
-                transform.transform.translation.y
-            ])
-            
-            # Find frontiers excluding the blocked area
-            frontiers = self.find_frontiers()
-            if not frontiers:
-                return
-            
-            # Score frontiers based on distance and accessibility
-            best_frontier = None
-            best_score = float('-inf')
-            
-            for frontier in frontiers:
-                center = np.mean(frontier, axis=0)
-                
-                # Skip if too close to current blocked path
-                if self.is_near_blocked_path(center):
-                    continue
-                
-                # Score based on distance and size
-                dist = np.linalg.norm(center - robot_pos)
-                size = len(frontier)
-                score = size / (dist + 1)
-                
-                if score > best_score:
-                    best_score = score
-                    best_frontier = frontier
-            
-            if best_frontier is not None:
-                goal = self.create_goal_from_frontier(best_frontier)
-                self.current_goal = goal
-                self.send_goal(goal)
-                
-        except Exception as e:
-            self.get_logger().error(f'Error finding new goal: {e}')
-
-    def is_near_blocked_path(self, point, threshold=1.0):
-        """Check if point is near the previously blocked path"""
-        if not hasattr(self, 'blocked_areas'):
-            self.blocked_areas = []
-            return False
-        
-        for blocked_point in self.blocked_areas:
-            dist = np.linalg.norm(point - blocked_point)
-            if dist < threshold:
-                return True
-        return False
 
     def exploration_loop(self):
         """Main exploration control loop"""

@@ -77,7 +77,7 @@ class ExplorationController(Node):
         self.current_map = msg
 
     def find_frontiers(self):
-        """Find and cluster frontier regions with strict wall checking"""
+        """Find and cluster frontier regions with balanced filtering"""
         if not self.current_map:
             return []
 
@@ -86,42 +86,43 @@ class ExplorationController(Node):
         height = self.current_map.info.height
         map_data = np.array(self.current_map.data).reshape(height, width)
         
-        # Create binary maps with stricter wall detection
+        # Create binary maps
         unknown = map_data == self.unknown_threshold
-        walls = map_data >= 50  # More conservative wall threshold
-        free = (map_data < 50) & (map_data >= 0)  # Must be known and free
+        walls = map_data >= 65  # Higher threshold for walls
+        free = (map_data < 50) & (map_data >= 0)  # More lenient free space definition
         
         # Find frontiers
         frontiers = []
         kernel = np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])
         
-        for y in range(2, height-2):  # Increased margin from map edges
-            for x in range(2, width-2):
+        for y in range(1, height-1):
+            for x in range(1, width-1):
                 if not free[y, x]:
                     continue
                 
                 # Check if cell is next to unknown area
                 window = unknown[y-1:y+2, x-1:x+2]
                 if np.any(window * kernel):
-                    # Check for walls in a larger neighborhood
-                    wall_check = walls[y-2:y+3, x-2:x+3]
-                    if not np.any(wall_check):  # No walls nearby
+                    # Less restrictive wall checking
+                    wall_check = walls[y-1:y+2, x-1:x+2]
+                    if np.sum(wall_check) <= 3:  # Allow some walls nearby
                         frontiers.append((x, y))
         
         if not frontiers:
             return []
         
+        # Cluster frontiers with more lenient parameters
         frontier_points = np.array(frontiers)
         
         clustering = DBSCAN(
-            eps=5,           # Reduced from 8 for tighter clusters
+            eps=6,           # Increased from 5
             min_samples=2    # Keep minimum samples at 2
         ).fit(frontier_points)
         
         # Group points by cluster
         clusters = {}
         for i, label in enumerate(clustering.labels_):
-            if label == -1:  # Include single points for corridors
+            if label == -1:  # Include noise points
                 clusters[len(clusters)] = [frontier_points[i]]
             else:
                 if label not in clusters:
@@ -130,8 +131,8 @@ class ExplorationController(Node):
         
         grouped_frontiers = [np.array(points) for points in clusters.values()]
         
-        # Use smaller minimum size for corridor frontiers
-        min_frontier_size = 2  # Reduced minimum size
+        # More lenient minimum size
+        min_frontier_size = 2
         grouped_frontiers = [f for f in grouped_frontiers if len(f) >= min_frontier_size]
         
         return grouped_frontiers
@@ -298,7 +299,7 @@ class ExplorationController(Node):
             return None
 
     def is_valid_goal(self, goal_pose):
-        """Check if goal position is valid with stricter wall checking"""
+        """Check if goal position is valid with balanced safety checks"""
         if not self.current_map:
             return False
         
@@ -317,8 +318,24 @@ class ExplorationController(Node):
                 self.current_map.info.width
             )
             
-            # Check larger area around goal for walls
-            safety_radius = int(0.4 / resolution)  # 40cm safety radius
+            # First check immediate surroundings (must be free)
+            immediate_radius = 2  # Check 2 cells around goal
+            for dy in range(-immediate_radius, immediate_radius + 1):
+                for dx in range(-immediate_radius, immediate_radius + 1):
+                    check_x = grid_x + dx
+                    check_y = grid_y + dy
+                    if (0 <= check_x < self.current_map.info.width and 
+                        0 <= check_y < self.current_map.info.height):
+                        cell_value = map_data[check_y, check_x]
+                        if cell_value > 65:  # Increased threshold for walls
+                            self.get_logger().warn(f'Goal too close to definite wall at ({dx}, {dy})')
+                            return False
+            
+            # Then check wider area for potential obstacles
+            safety_radius = int(0.3 / resolution)  # 30cm safety radius
+            wall_count = 0
+            total_cells = 0
+            
             for dy in range(-safety_radius, safety_radius + 1):
                 for dx in range(-safety_radius, safety_radius + 1):
                     check_x = grid_x + dx
@@ -326,13 +343,17 @@ class ExplorationController(Node):
                     if (0 <= check_x < self.current_map.info.width and 
                         0 <= check_y < self.current_map.info.height):
                         cell_value = map_data[check_y, check_x]
-                        # More conservative wall checking
-                        if cell_value > 40:  # Lower threshold to be more cautious
-                            self.get_logger().warn(f'Goal too close to wall at ({dx}, {dy})')
-                            return False
+                        total_cells += 1
+                        if cell_value > 50:  # Count potential obstacles
+                            wall_count += 1
+            
+            # Allow goal if less than 30% of surrounding area has obstacles
+            if wall_count / total_cells > 0.3:
+                self.get_logger().warn('Too many obstacles in goal area')
+                return False
             
             return True
-        
+            
         except Exception as e:
             self.get_logger().error(f'Error checking goal validity: {e}')
             return False

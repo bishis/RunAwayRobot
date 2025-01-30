@@ -77,46 +77,63 @@ class ExplorationController(Node):
         self.current_map = msg
 
     def find_frontiers(self):
-        """Find and cluster frontier regions with balanced filtering"""
+        """Find and cluster frontier regions with map bounds checking"""
         if not self.current_map:
             return []
 
-        # Convert map to numpy array
+        # Get map dimensions and info
         width = self.current_map.info.width
         height = self.current_map.info.height
+        resolution = self.current_map.info.resolution
+        origin_x = self.current_map.info.origin.position.x
+        origin_y = self.current_map.info.origin.position.y
+
+        # Calculate map bounds in world coordinates
+        map_bounds_x = (origin_x, origin_x + width * resolution)
+        map_bounds_y = (origin_y, origin_y + height * resolution)
+        
         map_data = np.array(self.current_map.data).reshape(height, width)
         
         # Create binary maps
         unknown = map_data == self.unknown_threshold
-        walls = map_data >= 65  # Higher threshold for walls
-        free = (map_data < 50) & (map_data >= 0)  # More lenient free space definition
+        walls = map_data >= 65
+        free = (map_data < 50) & (map_data >= 0)
         
-        # Find frontiers
+        # Find frontiers with bounds checking
         frontiers = []
         kernel = np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])
         
-        for y in range(1, height-1):
-            for x in range(1, width-1):
+        # Add margin to avoid edge issues
+        margin = 5  # cells
+        for y in range(margin, height - margin):
+            for x in range(margin, width - margin):
                 if not free[y, x]:
                     continue
                 
                 # Check if cell is next to unknown area
                 window = unknown[y-1:y+2, x-1:x+2]
                 if np.any(window * kernel):
-                    # Less restrictive wall checking
-                    wall_check = walls[y-1:y+2, x-1:x+2]
-                    if np.sum(wall_check) <= 3:  # Allow some walls nearby
-                        frontiers.append((x, y))
+                    # Convert to world coordinates for bounds check
+                    world_x = origin_x + x * resolution
+                    world_y = origin_y + y * resolution
+                    
+                    # Ensure point is well within map bounds
+                    if (map_bounds_x[0] + 1.0 < world_x < map_bounds_x[1] - 1.0 and
+                        map_bounds_y[0] + 1.0 < world_y < map_bounds_y[1] - 1.0):
+                        
+                        wall_check = walls[y-1:y+2, x-1:x+2]
+                        if np.sum(wall_check) <= 3:
+                            frontiers.append((x, y))
         
         if not frontiers:
             return []
-        
-        # Cluster frontiers with more lenient parameters
+
+        # Cluster frontiers
         frontier_points = np.array(frontiers)
         
         clustering = DBSCAN(
-            eps=6,           # Increased from 5
-            min_samples=2    # Keep minimum samples at 2
+            eps=6,
+            min_samples=2
         ).fit(frontier_points)
         
         # Group points by cluster
@@ -130,8 +147,6 @@ class ExplorationController(Node):
                 clusters[label].append(frontier_points[i])
         
         grouped_frontiers = [np.array(points) for points in clusters.values()]
-        
-        # More lenient minimum size
         min_frontier_size = 2
         grouped_frontiers = [f for f in grouped_frontiers if len(f) >= min_frontier_size]
         
@@ -299,16 +314,30 @@ class ExplorationController(Node):
             return None
 
     def is_valid_goal(self, goal_pose):
-        """Check if goal position is valid with balanced safety checks"""
+        """Check if goal position is valid with bounds checking"""
         if not self.current_map:
             return False
         
         try:
-            # Convert goal position to grid coordinates
+            # Get map bounds
             resolution = self.current_map.info.resolution
             origin_x = self.current_map.info.origin.position.x
             origin_y = self.current_map.info.origin.position.y
+            width = self.current_map.info.width
+            height = self.current_map.info.height
             
+            # Calculate map bounds in world coordinates
+            map_bounds_x = (origin_x, origin_x + width * resolution)
+            map_bounds_y = (origin_y, origin_y + height * resolution)
+            
+            # Check if goal is within map bounds with margin
+            margin = 1.0  # meters
+            if not (map_bounds_x[0] + margin < goal_pose.pose.position.x < map_bounds_x[1] - margin and
+                    map_bounds_y[0] + margin < goal_pose.pose.position.y < map_bounds_y[1] - margin):
+                self.get_logger().warn('Goal outside map bounds')
+                return False
+            
+            # Rest of the validation code...
             grid_x = int((goal_pose.pose.position.x - origin_x) / resolution)
             grid_y = int((goal_pose.pose.position.y - origin_y) / resolution)
             

@@ -113,6 +113,14 @@ def generate_launch_description():
             parameters=[{
                 'use_sim_time': use_sim_time
             }]
+        ),
+
+        # Person Detector
+        Node(
+            package='motor_controller',
+            executable='person_detector',
+            name='person_detector',
+            output='screen'
         )
 
     ])

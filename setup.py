@@ -30,6 +30,7 @@ setup(
             'navigation_controller = motor_controller.navigation_controller:main',
             'nav2_hardware_bridge = motor_controller.nav2_hardware_bridge:main',
             'exploration_controller = motor_controller.exploration_controller:main',
+            'person_detector = motor_controller.processors.person_detector:main',
         ],
     },
 )

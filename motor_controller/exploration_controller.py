@@ -77,7 +77,7 @@ class ExplorationController(Node):
         self.current_map = msg
 
     def find_frontiers(self):
-        """Find and cluster frontier regions optimized for corridors"""
+        """Find and cluster frontier regions with strict wall checking"""
         if not self.current_map:
             return []
 
@@ -86,34 +86,28 @@ class ExplorationController(Node):
         height = self.current_map.info.height
         map_data = np.array(self.current_map.data).reshape(height, width)
         
-        # Create binary maps
+        # Create binary maps with stricter wall detection
         unknown = map_data == self.unknown_threshold
-        free = map_data < self.wall_threshold
-        walls = map_data > 50
-        free[unknown] = False
-        
-        # Use smaller kernel for wall dilation in corridors
-        kernel_size = 2  # Reduced from 3
-        wall_kernel = np.ones((kernel_size, kernel_size))
-        walls_dilated = walls.copy()
+        walls = map_data >= 50  # More conservative wall threshold
+        free = (map_data < 50) & (map_data >= 0)  # Must be known and free
         
         # Find frontiers
         frontiers = []
         kernel = np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])
         
-        for y in range(1, height-1):
-            for x in range(1, width-1):
-                if not free[y, x] or walls[y, x]:
+        for y in range(2, height-2):  # Increased margin from map edges
+            for x in range(2, width-2):
+                if not free[y, x]:
                     continue
                 
                 # Check if cell is next to unknown area
                 window = unknown[y-1:y+2, x-1:x+2]
                 if np.any(window * kernel):
-                    # Ensure there's enough space for the robot
-                    if not np.any(walls[y-1:y+2, x-1:x+2]):
+                    # Check for walls in a larger neighborhood
+                    wall_check = walls[y-2:y+3, x-2:x+3]
+                    if not np.any(wall_check):  # No walls nearby
                         frontiers.append((x, y))
         
-        # Cluster frontiers with corridor-specific parameters
         if not frontiers:
             return []
         
@@ -211,7 +205,7 @@ class ExplorationController(Node):
         self.marker_pub.publish(marker_array)
 
     def find_exploration_goal(self):
-        """Find the next exploration goal with better selection criteria"""
+        """Find the next exploration goal with better validation"""
         if not self.current_map:
             return None
         
@@ -229,65 +223,57 @@ class ExplorationController(Node):
             if not frontier_clusters:
                 return None
             
-            # Score frontiers based on distance and accessibility
-            best_score = float('-inf')
-            best_cluster = None
+            # Get map data for validation
+            map_data = np.array(self.current_map.data).reshape(
+                self.current_map.info.height,
+                self.current_map.info.width
+            )
+            resolution = self.current_map.info.resolution
+            origin_x = self.current_map.info.origin.position.x
+            origin_y = self.current_map.info.origin.position.y
+            
+            # Score and validate frontiers
+            valid_clusters = []
+            scores = []
             
             for cluster in frontier_clusters:
                 center = np.mean(cluster, axis=0)
                 
                 # Convert to world coordinates
-                world_x = self.current_map.info.origin.position.x + center[0] * self.current_map.info.resolution
-                world_y = self.current_map.info.origin.position.y + center[1] * self.current_map.info.resolution
+                world_x = origin_x + center[0] * resolution
+                world_y = origin_y + center[1] * resolution
                 
-                # Calculate distance
-                dist = math.sqrt((world_x - robot_x)**2 + (world_y - robot_y)**2)
+                # Create temporary goal to check validity
+                temp_goal = PoseStamped()
+                temp_goal.header.frame_id = 'map'
+                temp_goal.pose.position.x = world_x
+                temp_goal.pose.position.y = world_y
                 
-                # Penalize goals that require the robot to turn around
-                dx = world_x - robot_x
-                dy = world_y - robot_y
-                goal_angle = math.atan2(dy, dx)
-                
-                # Get robot's current orientation
-                q = transform.transform.rotation
-                current_angle = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
-                                         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-                
-                # Calculate angle difference
-                angle_diff = abs(goal_angle - current_angle)
-                while angle_diff > math.pi:
-                    angle_diff -= 2 * math.pi
-                
-                # Score based on distance and required rotation
-                angle_penalty = abs(angle_diff) / math.pi  # 0 to 1
-                distance_score = 1.0 / (dist + 1.0)  # Favor closer frontiers
-                size_score = len(cluster) / 10.0  # Favor larger frontiers
-                
-                score = distance_score + size_score - angle_penalty
-                
-                if score > best_score:
-                    best_score = score
-                    best_cluster = cluster
+                # Only consider if goal is valid
+                if self.is_valid_goal(temp_goal):
+                    valid_clusters.append(cluster)
+                    
+                    # Calculate score
+                    dist = math.sqrt((world_x - robot_x)**2 + (world_y - robot_y)**2)
+                    score = len(cluster) / (dist + 1.0)  # Favor larger clusters that are closer
+                    scores.append(score)
             
-            # Create goal at cluster center
+            if not valid_clusters:
+                return None
+            
+            # Select best valid cluster
+            best_cluster = valid_clusters[np.argmax(scores)]
             center = np.mean(best_cluster, axis=0)
             
-            # Ensure goal is within map bounds
-            map_width = self.current_map.info.width
-            map_height = self.current_map.info.height
-            center[0] = np.clip(center[0], 0, map_width - 1)
-            center[1] = np.clip(center[1], 0, map_height - 1)
-            
+            # Create goal
             goal = PoseStamped()
             goal.header.frame_id = 'map'
             goal.header.stamp = self.get_clock().now().to_msg()
-            
-            # Convert back to world coordinates
-            goal.pose.position.x = self.current_map.info.origin.position.x + center[0] * self.current_map.info.resolution
-            goal.pose.position.y = self.current_map.info.origin.position.y + center[1] * self.current_map.info.resolution
+            goal.pose.position.x = origin_x + center[0] * resolution
+            goal.pose.position.y = origin_y + center[1] * resolution
             goal.pose.position.z = 0.0
             
-            # Set orientation towards cluster center
+            # Set orientation towards center
             angle = math.atan2(
                 center[1] - robot_y,
                 center[0] - robot_x
@@ -295,14 +281,15 @@ class ExplorationController(Node):
             goal.pose.orientation.w = math.cos(angle / 2)
             goal.pose.orientation.z = math.sin(angle / 2)
             
-            # Log goal position for debugging
+            # Double-check final goal validity
+            if not self.is_valid_goal(goal):
+                self.get_logger().warn('Final goal validation failed')
+                return None
+            
             self.get_logger().info(
                 f'Selected goal: grid=({center[0]:.1f}, {center[1]:.1f}), '
                 f'world=({goal.pose.position.x:.2f}, {goal.pose.position.y:.2f})'
             )
-            
-            # Publish visualization
-            self.publish_visualization_markers(frontier_clusters, goal)
             
             return goal
             
@@ -519,14 +506,33 @@ class ExplorationController(Node):
             self.current_map.info.width
         )
         
-        # Count known cells (not unknown (-1))
-        total_cells = len(map_data.flatten())
-        known_cells = np.sum(map_data != -1)
+        # Find the actual room boundaries (known space)
+        known = map_data != -1
+        if not np.any(known):
+            return False
         
-        coverage = known_cells / total_cells
+        # Get the bounding box of known space
+        known_y, known_x = np.where(known)
+        min_x, max_x = np.min(known_x), np.max(known_x)
+        min_y, max_y = np.min(known_y), np.max(known_y)
+        
+        # Get the actual room area (known space within bounds)
+        room_area = map_data[min_y:max_y+1, min_x:max_x+1]
+        
+        # Count cells
+        total_cells = (max_x - min_x + 1) * (max_y - min_y + 1)
+        unknown_cells = np.sum(room_area == -1)
+        
+        # Calculate coverage of actual room
+        coverage = 1.0 - (unknown_cells / total_cells)
+        
+        self.get_logger().info(f'Room coverage: {coverage:.2%}')
         
         if coverage >= self.coverage_threshold:
-            self.get_logger().info(f'Room coverage at {coverage:.2%}, switching to coverage pattern')
+            self.get_logger().info(
+                f'Room coverage threshold reached ({coverage:.2%} >= {self.coverage_threshold:.2%}), '
+                'switching to coverage pattern'
+            )
             return True
         return False
 

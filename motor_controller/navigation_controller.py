@@ -99,6 +99,12 @@ class NavigationController(Node):
                 scale = min_side_dist / self.min_distance
                 desired_angular *= max(0.2, scale)  # Minimum 20% of original turn speed
         
+        # Ensure minimum angular speed when turning
+        if abs(desired_angular) > 0:
+            min_angular = 0.1  # Minimum 0.1 rad/s
+            if abs(desired_angular) < min_angular:
+                desired_angular = math.copysign(min_angular, desired_angular)
+        
         return desired_linear, desired_angular
 
     def cmd_vel_callback(self, msg: Twist):

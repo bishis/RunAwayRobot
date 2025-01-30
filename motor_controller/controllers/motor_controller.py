@@ -6,6 +6,7 @@ from gpiozero import OutputDevice, PWMOutputDevice
 import time
 import signal
 import sys
+import math
 
 class MotorController:
     def __init__(self, 
@@ -57,6 +58,11 @@ class MotorController:
         # Clamp values to valid range
         linear = max(min(linear, 1.0), -1.0)
         angular = max(min(angular, 1.0), -1.0)
+        
+        # Enforce minimum angular speed
+        MIN_ANGULAR_SPEED = 0.1  # rad/s
+        if abs(angular) > 0 and abs(angular) < MIN_ANGULAR_SPEED:
+            angular = math.copysign(MIN_ANGULAR_SPEED, angular)
         
         # Increase turning sensitivity
         TURN_BOOST = 1.5  # Amplify turning effect

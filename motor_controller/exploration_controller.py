@@ -77,7 +77,7 @@ class ExplorationController(Node):
         self.current_map = msg
 
     def find_frontiers(self):
-        """Find and cluster frontier regions with better wall avoidance"""
+        """Find and cluster frontier regions optimized for corridors"""
         if not self.current_map:
             return []
 
@@ -89,62 +89,55 @@ class ExplorationController(Node):
         # Create binary maps
         unknown = map_data == self.unknown_threshold
         free = map_data < self.wall_threshold
-        walls = map_data > 50  # Identify walls
+        walls = map_data > 50
         free[unknown] = False
         
-        # Dilate walls to create safety margin
-        kernel_size = 3
+        # Use smaller kernel for wall dilation in corridors
+        kernel_size = 2  # Reduced from 3
         wall_kernel = np.ones((kernel_size, kernel_size))
         walls_dilated = walls.copy()
-        for i in range(height - kernel_size + 1):
-            for j in range(width - kernel_size + 1):
-                if np.any(walls[i:i+kernel_size, j:j+kernel_size] * wall_kernel):
-                    walls_dilated[i+1, j+1] = True
         
-        # Remove frontiers too close to walls
+        # Find frontiers
         frontiers = []
         kernel = np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])
         
         for y in range(1, height-1):
             for x in range(1, width-1):
-                if not free[y, x] or walls_dilated[y, x]:
+                if not free[y, x] or walls[y, x]:
                     continue
                 
                 # Check if cell is next to unknown area
                 window = unknown[y-1:y+2, x-1:x+2]
                 if np.any(window * kernel):
-                    # Check if point is far enough from walls
-                    if not np.any(walls_dilated[y-2:y+3, x-2:x+3]):
+                    # Ensure there's enough space for the robot
+                    if not np.any(walls[y-1:y+2, x-1:x+2]):
                         frontiers.append((x, y))
         
-        # Cluster frontiers using DBSCAN with more lenient parameters
+        # Cluster frontiers with corridor-specific parameters
         if not frontiers:
             return []
         
-        # Convert to numpy array for clustering
         frontier_points = np.array(frontiers)
         
-        # Use DBSCAN with more lenient parameters
         clustering = DBSCAN(
-            eps=8,           # Increased from 5 - larger clusters
-            min_samples=2    # Decreased from 3 - smaller groups acceptable
+            eps=5,           # Reduced from 8 for tighter clusters
+            min_samples=2    # Keep minimum samples at 2
         ).fit(frontier_points)
         
         # Group points by cluster
         clusters = {}
         for i, label in enumerate(clustering.labels_):
-            if label == -1:  # Include noise points as single-point clusters
+            if label == -1:  # Include single points for corridors
                 clusters[len(clusters)] = [frontier_points[i]]
             else:
                 if label not in clusters:
                     clusters[label] = []
                 clusters[label].append(frontier_points[i])
         
-        # Convert clusters to list of point groups
         grouped_frontiers = [np.array(points) for points in clusters.values()]
         
-        # Filter small clusters with lower threshold
-        min_frontier_size = max(2, self.min_frontier_size // 2)  # More lenient size requirement
+        # Use smaller minimum size for corridor frontiers
+        min_frontier_size = 2  # Reduced minimum size
         grouped_frontiers = [f for f in grouped_frontiers if len(f) >= min_frontier_size]
         
         return grouped_frontiers
@@ -318,29 +311,18 @@ class ExplorationController(Node):
             return None
 
     def is_valid_goal(self, goal_pose):
-        """Check if goal position is valid with stricter wall checking"""
+        """Check if goal position is valid with corridor-specific checks"""
         if not self.current_map:
             return False
         
         try:
-            # Get robot's current position
-            transform = self.tf_buffer.lookup_transform(
-                'map',
-                'base_link',
-                rclpy.time.Time()
-            )
-            robot_x = transform.transform.translation.x
-            robot_y = transform.transform.translation.y
-            
             # Convert goal position to grid coordinates
             resolution = self.current_map.info.resolution
             origin_x = self.current_map.info.origin.position.x
             origin_y = self.current_map.info.origin.position.y
             
-            goal_x = goal_pose.pose.position.x
-            goal_y = goal_pose.pose.position.y
-            grid_x = int((goal_x - origin_x) / resolution)
-            grid_y = int((goal_y - origin_y) / resolution)
+            grid_x = int((goal_pose.pose.position.x - origin_x) / resolution)
+            grid_y = int((goal_pose.pose.position.y - origin_y) / resolution)
             
             # Get map data
             map_data = np.array(self.current_map.data).reshape(
@@ -348,27 +330,29 @@ class ExplorationController(Node):
                 self.current_map.info.width
             )
             
-            # Check larger area around goal for walls
-            safety_radius = 4  # Check 4 cells around goal
+            # Check immediate surroundings with smaller radius for corridors
+            safety_radius = 2  # Reduced from 4 to handle narrow corridors
+            min_free_cells = 3  # Need at least 3 free cells in corridor
+            free_cells = 0
+            
             for dy in range(-safety_radius, safety_radius + 1):
                 for dx in range(-safety_radius, safety_radius + 1):
                     check_x = grid_x + dx
                     check_y = grid_y + dy
                     if (0 <= check_x < self.current_map.info.width and 
                         0 <= check_y < self.current_map.info.height):
-                        # Calculate distance from center point
-                        dist = math.sqrt(dx*dx + dy*dy)
-                        if dist <= safety_radius:
-                            cell_value = map_data[check_y, check_x]
-                            # If any nearby cell is a wall or unknown, reject the goal
-                            if cell_value > 50 or cell_value == -1:  # Wall or unknown
-                                self.get_logger().warn(f'Goal too close to wall or unknown area at ({dx}, {dy})')
+                        cell_value = map_data[check_y, check_x]
+                        # Consider only directly adjacent cells for wall checking
+                        if abs(dx) <= 1 and abs(dy) <= 1:
+                            if cell_value > 50:  # Wall
+                                self.get_logger().warn(f'Goal too close to wall at ({dx}, {dy})')
                                 return False
+                        # Count free cells
+                        if cell_value < 50 and cell_value != -1:  # Free and known space
+                            free_cells += 1
             
-            # Check if goal is too close to current position
-            dist_to_goal = math.sqrt((goal_x - robot_x)**2 + (goal_y - robot_y)**2)
-            if dist_to_goal < 0.5:  # Skip goals too close
-                self.get_logger().warn('Goal too close to current position')
+            if free_cells < min_free_cells:
+                self.get_logger().warn('Not enough free space around goal')
                 return False
             
             # Check if goal has previously failed

@@ -9,6 +9,8 @@ import numpy as np
 import torch
 import os
 from pathlib import Path
+import requests
+import shutil
 
 class PersonDetector(Node):
     def __init__(self):
@@ -29,14 +31,20 @@ class PersonDetector(Node):
                 os.system('pip3 install ultralytics')
                 from ultralytics import YOLO
             
-            # Download/load model
+            # Download model directly if it doesn't exist
             if not os.path.exists(self.model_path):
                 self.get_logger().info(f'Downloading YOLOv8n model to {self.model_path}...')
-                self.model = YOLO('yolov8n')
-                self.model.export()  # This ensures model is saved
-            else:
-                self.get_logger().info(f'Loading model from {self.model_path}')
-                self.model = YOLO(self.model_path)
+                url = "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt"
+                
+                # Download with progress reporting
+                with requests.get(url, stream=True) as r:
+                    r.raise_for_status()
+                    with open(self.model_path, 'wb') as f:
+                        shutil.copyfileobj(r.raw, f)
+            
+            # Load the model
+            self.get_logger().info(f'Loading model from {self.model_path}')
+            self.model = YOLO(self.model_path)
             
             # Force CPU mode and eval mode
             self.model.to('cpu')

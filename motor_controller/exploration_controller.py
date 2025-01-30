@@ -77,7 +77,7 @@ class ExplorationController(Node):
         self.current_map = msg
 
     def find_frontiers(self):
-        """Find and cluster frontier regions with map bounds checking"""
+        """Find and cluster frontier regions"""
         if not self.current_map:
             return []
 
@@ -87,24 +87,20 @@ class ExplorationController(Node):
         resolution = self.current_map.info.resolution
         origin_x = self.current_map.info.origin.position.x
         origin_y = self.current_map.info.origin.position.y
-
-        # Calculate map bounds in world coordinates
-        map_bounds_x = (origin_x, origin_x + width * resolution)
-        map_bounds_y = (origin_y, origin_y + height * resolution)
         
         map_data = np.array(self.current_map.data).reshape(height, width)
         
-        # Create binary maps
-        unknown = map_data == self.unknown_threshold
-        walls = map_data >= 65
-        free = (map_data < 50) & (map_data >= 0)
+        # Create binary maps with more lenient thresholds
+        unknown = map_data == -1  # Changed from self.unknown_threshold
+        walls = map_data >= 80    # Increased wall threshold
+        free = (map_data >= 0) & (map_data < 50)  # More lenient free space definition
         
-        # Find frontiers with bounds checking
+        # Find frontiers
         frontiers = []
         kernel = np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])
         
-        # Add margin to avoid edge issues
-        margin = 5  # cells
+        # Reduced margin to find more frontiers
+        margin = 2  # Reduced from 5
         for y in range(margin, height - margin):
             for x in range(margin, width - margin):
                 if not free[y, x]:
@@ -113,33 +109,34 @@ class ExplorationController(Node):
                 # Check if cell is next to unknown area
                 window = unknown[y-1:y+2, x-1:x+2]
                 if np.any(window * kernel):
-                    # Convert to world coordinates for bounds check
+                    # Convert to world coordinates
                     world_x = origin_x + x * resolution
                     world_y = origin_y + y * resolution
                     
-                    # Ensure point is well within map bounds
-                    if (map_bounds_x[0] + 1.0 < world_x < map_bounds_x[1] - 1.0 and
-                        map_bounds_y[0] + 1.0 < world_y < map_bounds_y[1] - 1.0):
+                    # More lenient bounds checking
+                    if (origin_x < world_x < origin_x + width * resolution and
+                        origin_y < world_y < origin_y + height * resolution):
                         
+                        # Allow more walls nearby
                         wall_check = walls[y-1:y+2, x-1:x+2]
-                        if np.sum(wall_check) <= 3:
+                        if np.sum(wall_check) <= 4:  # Increased from 3
                             frontiers.append((x, y))
         
         if not frontiers:
             return []
 
-        # Cluster frontiers
+        # Cluster frontiers with more lenient parameters
         frontier_points = np.array(frontiers)
         
         clustering = DBSCAN(
-            eps=6,
-            min_samples=2
+            eps=8,           # Increased from 6
+            min_samples=1    # Reduced from 2
         ).fit(frontier_points)
         
         # Group points by cluster
         clusters = {}
         for i, label in enumerate(clustering.labels_):
-            if label == -1:  # Include noise points
+            if label == -1:  # Include single points
                 clusters[len(clusters)] = [frontier_points[i]]
             else:
                 if label not in clusters:
@@ -147,7 +144,9 @@ class ExplorationController(Node):
                 clusters[label].append(frontier_points[i])
         
         grouped_frontiers = [np.array(points) for points in clusters.values()]
-        min_frontier_size = 2
+        
+        # More lenient minimum size
+        min_frontier_size = 1  # Reduced from 2
         grouped_frontiers = [f for f in grouped_frontiers if len(f) >= min_frontier_size]
         
         return grouped_frontiers
@@ -314,32 +313,23 @@ class ExplorationController(Node):
             return None
 
     def is_valid_goal(self, goal_pose):
-        """Check if goal position is valid with bounds checking"""
+        """Check if goal position is valid"""
         if not self.current_map:
             return False
         
         try:
-            # Get map bounds
             resolution = self.current_map.info.resolution
             origin_x = self.current_map.info.origin.position.x
             origin_y = self.current_map.info.origin.position.y
-            width = self.current_map.info.width
-            height = self.current_map.info.height
             
-            # Calculate map bounds in world coordinates
-            map_bounds_x = (origin_x, origin_x + width * resolution)
-            map_bounds_y = (origin_y, origin_y + height * resolution)
-            
-            # Check if goal is within map bounds with margin
-            margin = 1.0  # meters
-            if not (map_bounds_x[0] + margin < goal_pose.pose.position.x < map_bounds_x[1] - margin and
-                    map_bounds_y[0] + margin < goal_pose.pose.position.y < map_bounds_y[1] - margin):
-                self.get_logger().warn('Goal outside map bounds')
-                return False
-            
-            # Rest of the validation code...
+            # Convert goal to grid coordinates
             grid_x = int((goal_pose.pose.position.x - origin_x) / resolution)
             grid_y = int((goal_pose.pose.position.y - origin_y) / resolution)
+            
+            # Basic bounds check
+            if (grid_x < 0 or grid_x >= self.current_map.info.width or
+                grid_y < 0 or grid_y >= self.current_map.info.height):
+                return False
             
             # Get map data
             map_data = np.array(self.current_map.data).reshape(
@@ -347,24 +337,8 @@ class ExplorationController(Node):
                 self.current_map.info.width
             )
             
-            # First check immediate surroundings (must be free)
-            immediate_radius = 2  # Check 2 cells around goal
-            for dy in range(-immediate_radius, immediate_radius + 1):
-                for dx in range(-immediate_radius, immediate_radius + 1):
-                    check_x = grid_x + dx
-                    check_y = grid_y + dy
-                    if (0 <= check_x < self.current_map.info.width and 
-                        0 <= check_y < self.current_map.info.height):
-                        cell_value = map_data[check_y, check_x]
-                        if cell_value > 65:  # Increased threshold for walls
-                            self.get_logger().warn(f'Goal too close to definite wall at ({dx}, {dy})')
-                            return False
-            
-            # Then check wider area for potential obstacles
-            safety_radius = int(0.3 / resolution)  # 30cm safety radius
-            wall_count = 0
-            total_cells = 0
-            
+            # Check immediate surroundings (smaller area)
+            safety_radius = 2  # Reduced from 5
             for dy in range(-safety_radius, safety_radius + 1):
                 for dx in range(-safety_radius, safety_radius + 1):
                     check_x = grid_x + dx
@@ -372,14 +346,8 @@ class ExplorationController(Node):
                     if (0 <= check_x < self.current_map.info.width and 
                         0 <= check_y < self.current_map.info.height):
                         cell_value = map_data[check_y, check_x]
-                        total_cells += 1
-                        if cell_value > 50:  # Count potential obstacles
-                            wall_count += 1
-            
-            # Allow goal if less than 30% of surrounding area has obstacles
-            if wall_count / total_cells > 0.3:
-                self.get_logger().warn('Too many obstacles in goal area')
-                return False
+                        if cell_value >= 80:  # Increased threshold
+                            return False
             
             return True
             

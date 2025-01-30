@@ -118,40 +118,67 @@ class ExplorationController(Node):
         origin_x = self.current_map.info.origin.position.x
         origin_y = self.current_map.info.origin.position.y
         
+        # Get map data as 2D array
+        map_data = np.array(self.current_map.data).reshape(
+            self.current_map.info.height,
+            self.current_map.info.width
+        )
+        
+        # Find areas that are definitely mapped (not unknown)
+        known_area = map_data != -1
+        
         while len(self.waypoints) < self.num_waypoints and attempts < max_attempts:
-            # Generate random point in map bounds
-            x = random.uniform(
-                origin_x,
-                origin_x + self.current_map.info.width * resolution
-            )
-            y = random.uniform(
-                origin_y,
-                origin_y + self.current_map.info.height * resolution
-            )
+            # Find all valid cells (free space)
+            valid_y, valid_x = np.where((map_data == 0) & known_area)
             
-            # Check if point is valid and far enough from other waypoints
-            if self.is_valid_point(x, y):
-                is_far_enough = True
-                for wp in self.waypoints:
-                    dist = math.sqrt((x - wp.pose.position.x)**2 + 
-                                   (y - wp.pose.position.y)**2)
-                    if dist < self.min_distance:
-                        is_far_enough = False
-                        break
+            if len(valid_x) == 0:
+                self.get_logger().warn('No valid points found in map')
+                break
+            
+            # Randomly select one of the valid cells
+            idx = random.randint(0, len(valid_x) - 1)
+            map_x = valid_x[idx]
+            map_y = valid_y[idx]
+            
+            # Convert to world coordinates
+            x = origin_x + map_x * resolution
+            y = origin_y + map_y * resolution
+            
+            # Check if point is far enough from other waypoints
+            is_far_enough = True
+            for wp in self.waypoints:
+                dist = math.sqrt((x - wp.pose.position.x)**2 + 
+                               (y - wp.pose.position.y)**2)
+                if dist < self.min_distance:
+                    is_far_enough = False
+                    break
+            
+            if is_far_enough:
+                # Create waypoint
+                waypoint = PoseStamped()
+                waypoint.header.frame_id = 'map'
+                waypoint.pose.position.x = x
+                waypoint.pose.position.y = y
+                waypoint.pose.position.z = 0.0  # Ensure z is 0
                 
-                if is_far_enough:
-                    # Create waypoint
-                    waypoint = PoseStamped()
-                    waypoint.header.frame_id = 'map'
-                    waypoint.pose.position.x = x
-                    waypoint.pose.position.y = y
-                    waypoint.pose.position.z = 0.0
-                    waypoint.pose.orientation.w = 1.0
-                    self.waypoints.append(waypoint)
-                    
-                    self.get_logger().info(f'Generated waypoint {len(self.waypoints)}: ({x:.2f}, {y:.2f})')
+                # Set orientation to face the center of the map
+                map_center_x = origin_x + (self.current_map.info.width * resolution) / 2
+                map_center_y = origin_y + (self.current_map.info.height * resolution) / 2
+                angle = math.atan2(map_center_y - y, map_center_x - x)
+                waypoint.pose.orientation.z = math.sin(angle / 2)
+                waypoint.pose.orientation.w = math.cos(angle / 2)
+                
+                self.waypoints.append(waypoint)
+                self.get_logger().info(
+                    f'Generated waypoint {len(self.waypoints)}: ({x:.2f}, {y:.2f})'
+                )
             
             attempts += 1
+        
+        if attempts >= max_attempts:
+            self.get_logger().warn(
+                f'Max attempts ({max_attempts}) reached, only generated {len(self.waypoints)} waypoints'
+            )
         
         self.publish_waypoint_markers()
 
@@ -169,52 +196,53 @@ class ExplorationController(Node):
         marker_array.markers.append(delete_marker)
         
         for i, waypoint in enumerate(self.waypoints):
-            # Sphere marker for waypoint position
-            sphere_marker = Marker()
-            sphere_marker.header.frame_id = 'map'
-            sphere_marker.header.stamp = self.get_clock().now().to_msg()
-            sphere_marker.ns = 'waypoints'
-            sphere_marker.id = i * 2  # Use even numbers for spheres
-            sphere_marker.type = Marker.SPHERE
-            sphere_marker.action = Marker.ADD
+            # Cylinder marker for waypoint position
+            cylinder_marker = Marker()
+            cylinder_marker.header.frame_id = 'map'
+            cylinder_marker.header.stamp = self.get_clock().now().to_msg()
+            cylinder_marker.ns = 'waypoints'
+            cylinder_marker.id = i * 2  # Use even numbers for cylinders
+            cylinder_marker.type = Marker.CYLINDER
+            cylinder_marker.action = Marker.ADD
             
-            sphere_marker.pose = waypoint.pose
-            sphere_marker.scale.x = self.waypoint_size
-            sphere_marker.scale.y = self.waypoint_size
-            sphere_marker.scale.z = self.waypoint_size
+            cylinder_marker.pose = waypoint.pose
+            cylinder_marker.pose.position.z = 0.1  # Half height of cylinder
+            cylinder_marker.scale.x = self.waypoint_size
+            cylinder_marker.scale.y = self.waypoint_size
+            cylinder_marker.scale.z = 0.2  # Height of cylinder
             
             # Current waypoint is red, others are blue
-            sphere_marker.color.a = 1.0
+            cylinder_marker.color.a = 0.8  # Slightly transparent
             if i == self.current_waypoint_index:
-                sphere_marker.color.r = 1.0
-                sphere_marker.color.g = 0.0
-                sphere_marker.color.b = 0.0
+                cylinder_marker.color.r = 1.0
+                cylinder_marker.color.g = 0.0
+                cylinder_marker.color.b = 0.0
             else:
-                sphere_marker.color.r = 0.0
-                sphere_marker.color.g = 0.0
-                sphere_marker.color.b = 1.0
+                cylinder_marker.color.r = 0.0
+                cylinder_marker.color.g = 0.0
+                cylinder_marker.color.b = 1.0
             
-            # Text marker to show waypoint number
-            text_marker = Marker()
-            text_marker.header.frame_id = 'map'
-            text_marker.header.stamp = self.get_clock().now().to_msg()
-            text_marker.ns = 'waypoints'
-            text_marker.id = i * 2 + 1  # Use odd numbers for text
-            text_marker.type = Marker.TEXT_VIEW_FACING
-            text_marker.action = Marker.ADD
+            # Arrow marker to show orientation
+            arrow_marker = Marker()
+            arrow_marker.header.frame_id = 'map'
+            arrow_marker.header.stamp = self.get_clock().now().to_msg()
+            arrow_marker.ns = 'waypoints'
+            arrow_marker.id = i * 2 + 1  # Use odd numbers for arrows
+            arrow_marker.type = Marker.ARROW
+            arrow_marker.action = Marker.ADD
             
-            text_marker.pose = waypoint.pose
-            text_marker.pose.position.z += 0.3  # Place text above sphere
-            text_marker.text = str(i + 1)  # Waypoint number
+            arrow_marker.pose = waypoint.pose
+            arrow_marker.pose.position.z = 0.1
+            arrow_marker.scale.x = 0.3  # Arrow length
+            arrow_marker.scale.y = 0.05  # Arrow width
+            arrow_marker.scale.z = 0.05  # Arrow height
             
-            text_marker.scale.z = self.text_size  # Text height
-            text_marker.color.r = 1.0
-            text_marker.color.g = 1.0
-            text_marker.color.b = 1.0
-            text_marker.color.a = 1.0
+            # Same color as cylinder but fully opaque
+            arrow_marker.color = cylinder_marker.color
+            arrow_marker.color.a = 1.0
             
-            marker_array.markers.append(sphere_marker)
-            marker_array.markers.append(text_marker)
+            marker_array.markers.append(cylinder_marker)
+            marker_array.markers.append(arrow_marker)
         
         self.marker_pub.publish(marker_array)
 

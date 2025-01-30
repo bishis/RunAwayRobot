@@ -23,6 +23,8 @@ class ExplorationController(Node):
         self.declare_parameter('replan_distance', 0.5)  # Distance to trigger replanning
         self.declare_parameter('coverage_threshold', 0.85)  # When room is considered "mapped enough"
         self.declare_parameter('grid_size', 0.5)  # Size of grid cells for coverage pattern
+        self.declare_parameter('goal_timeout', 30.0)  # Seconds before giving up on a goal
+        self.declare_parameter('max_retries', 3)      # Max attempts for a single goal
         
         # Get parameters
         self.min_frontier_size = self.get_parameter('min_frontier_size').value
@@ -31,6 +33,8 @@ class ExplorationController(Node):
         self.unknown_threshold = self.get_parameter('unknown_threshold').value
         self.coverage_threshold = self.get_parameter('coverage_threshold').value
         self.grid_size = self.get_parameter('grid_size').value
+        self.goal_timeout = self.get_parameter('goal_timeout').value
+        self.max_retries = self.get_parameter('max_retries').value
         
         # Set up Nav2 action client
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -53,6 +57,11 @@ class ExplorationController(Node):
         self.marker_id = 0
         self.last_map = None
         self.exploration_state = 'EXPLORING'  # States: 'EXPLORING', 'COVERAGE'
+        
+        # Add tracking variables
+        self.goal_start_time = None
+        self.current_retries = 0
+        self.failed_goals = set()  # Track failed goal positions
         
         self.get_logger().info('Exploration controller initialized')
 
@@ -291,8 +300,71 @@ class ExplorationController(Node):
         
         return goal
 
+    def is_valid_goal(self, goal_pose):
+        """Check if goal position is valid"""
+        if not self.current_map:
+            return False
+        
+        try:
+            # Convert goal position to grid coordinates
+            resolution = self.current_map.info.resolution
+            origin_x = self.current_map.info.origin.position.x
+            origin_y = self.current_map.info.origin.position.y
+            
+            grid_x = int((goal_pose.pose.position.x - origin_x) / resolution)
+            grid_y = int((goal_pose.pose.position.y - origin_y) / resolution)
+            
+            # Check if within map bounds
+            if (grid_x < 0 or grid_x >= self.current_map.info.width or
+                grid_y < 0 or grid_y >= self.current_map.info.height):
+                self.get_logger().warn('Goal outside map bounds')
+                return False
+            
+            # Check if in free space
+            map_data = np.array(self.current_map.data).reshape(
+                self.current_map.info.height,
+                self.current_map.info.width
+            )
+            
+            # Check surrounding cells too
+            radius = 2  # Check 2 cells around goal
+            for dy in range(-radius, radius + 1):
+                for dx in range(-radius, radius + 1):
+                    check_x = grid_x + dx
+                    check_y = grid_y + dy
+                    if (0 <= check_x < self.current_map.info.width and
+                        0 <= check_y < self.current_map.info.height):
+                        cell_value = map_data[check_y, check_x]
+                        if cell_value > self.wall_threshold or cell_value == -1:
+                            self.get_logger().warn('Goal too close to obstacle or unknown area')
+                            return False
+            
+            # Check if goal has previously failed
+            goal_key = (grid_x, grid_y)
+            if goal_key in self.failed_goals:
+                self.get_logger().warn('Goal previously failed')
+                return False
+            
+            return True
+        
+        except Exception as e:
+            self.get_logger().error(f'Error checking goal validity: {e}')
+            return False
+
+    def check_goal_timeout(self):
+        """Check if current goal has timed out"""
+        if not self.goal_start_time:
+            return False
+        
+        time_elapsed = (self.get_clock().now() - self.goal_start_time).nanoseconds / 1e9
+        return time_elapsed > self.goal_timeout
+
     def send_goal(self, goal_pose):
-        """Send navigation goal to Nav2"""
+        """Send navigation goal to Nav2 with validation"""
+        if not self.is_valid_goal(goal_pose):
+            self.get_logger().warn('Invalid goal, finding new goal')
+            return False
+        
         self.get_logger().info('Sending new navigation goal')
         
         goal_msg = NavigateToPose.Goal()
@@ -306,6 +378,8 @@ class ExplorationController(Node):
         )
         self.current_goal.add_done_callback(self.goal_response_callback)
         self.is_navigating = True
+        self.goal_start_time = self.get_clock().now()
+        return True
 
     def goal_response_callback(self, future):
         """Handle navigation goal response"""
@@ -508,35 +582,57 @@ class ExplorationController(Node):
             return None
 
     def exploration_loop(self):
-        """Main exploration control loop"""
+        """Main exploration control loop with timeout handling"""
         if self.is_navigating:
+            # Check for timeout
+            if self.check_goal_timeout():
+                self.get_logger().warn('Goal timeout reached')
+                self.cancel_current_goal()
+                
+                # Track failed goal
+                if self.current_goal:
+                    resolution = self.current_map.info.resolution
+                    origin_x = self.current_map.info.origin.position.x
+                    origin_y = self.current_map.info.origin.position.y
+                    grid_x = int((self.current_goal.pose.position.x - origin_x) / resolution)
+                    grid_y = int((self.current_goal.pose.position.y - origin_y) / resolution)
+                    self.failed_goals.add((grid_x, grid_y))
+                
+                self.current_retries += 1
+                if self.current_retries >= self.max_retries:
+                    self.get_logger().warn('Max retries reached, switching goals')
+                    self.current_retries = 0
+                    self.is_navigating = False
             return
+
+        # Reset retry counter for new goals
+        self.current_retries = 0
         
         # Check if we should switch to coverage pattern
         if self.exploration_state == 'EXPLORING' and self.check_room_coverage():
             self.exploration_state = 'COVERAGE'
             self.coverage_goals = self.generate_coverage_pattern()
             self.current_coverage_goal = 0
-            
+            self.failed_goals.clear()  # Reset failed goals for new pattern
+        
         # Handle different states
         if self.exploration_state == 'EXPLORING':
-            # Normal frontier exploration
             goal_pose = self.find_exploration_goal()
-            if goal_pose:
+            if goal_pose and self.send_goal(goal_pose):
                 self.current_goal = goal_pose
-                self.send_goal(goal_pose)
             else:
                 self.get_logger().warn('No valid exploration goal found')
             
         elif self.exploration_state == 'COVERAGE':
-            # Follow coverage pattern
-            if self.coverage_goals and self.current_coverage_goal < len(self.coverage_goals):
+            while (self.coverage_goals and 
+                   self.current_coverage_goal < len(self.coverage_goals)):
                 goal = self.coverage_goals[self.current_coverage_goal]
-                self.current_goal = goal
-                self.send_goal(goal)
+                if self.send_goal(goal):
+                    self.current_goal = goal
+                    break
                 self.current_coverage_goal += 1
             else:
-                self.get_logger().info('Coverage pattern completed')
+                self.get_logger().info('Coverage pattern completed or no valid goals remain')
 
 def main(args=None):
     rclpy.init(args=args)

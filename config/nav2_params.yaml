@@ -44,7 +44,10 @@ bt_navigator:
 controller_server:
   ros__parameters:
     use_sim_time: false
+
+    # Increase update rate slightly for quicker feedback
     controller_frequency: 8.0
+
     min_x_velocity_threshold: 0.05
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.2
@@ -85,15 +88,19 @@ controller_server:
       # Velocity / Acceleration Limits
       # -----------------------------------------------------------------------
       min_vel_x: 0.0
-      max_vel_x: 0.15        # Slow forward speed for controlled motion
-      max_speed_xy: 0.2      # Combined XY speed cap
-      min_vel_theta: -0.5
-      max_vel_theta: 0.5
-      acc_lim_x: 0.2         # Gentle linear acceleration
-      decel_lim_x: -0.2      # Gentle linear deceleration
-      acc_lim_theta: 0.3     # Gentle angular acceleration
-      decel_lim_theta: -0.3  # Gentle angular deceleration
-      min_speed_theta: 0.0   # Allow in-place rotation at slow speeds
+      max_vel_x: 0.15        # Moderate forward speed for smooth motion
+      max_speed_xy: 0.2
+      min_vel_theta: -0.3
+      max_vel_theta: 0.3     # Lower angular speed to reduce quick oscillation
+
+      # Gentle acceleration/deceleration so we don’t overshoot or spin rapidly
+      acc_lim_x: 0.2
+      decel_lim_x: -0.2
+      acc_lim_theta: 0.2
+      decel_lim_theta: -0.2
+
+      # Allow slow in-place turns
+      min_speed_theta: 0.0
       min_theta_velocity_threshold: 0.1
 
       # -----------------------------------------------------------------------
@@ -101,27 +108,23 @@ controller_server:
       # -----------------------------------------------------------------------
       vx_samples: 8
       vtheta_samples: 12
-      sim_time: 2.0
+      sim_time: 1.5           # Slightly shorter horizon to reduce overshoot
       angular_granularity: 0.1
 
       # -----------------------------------------------------------------------
       # Distance / Goal Biases
       # -----------------------------------------------------------------------
-      # These biases influence how much the controller prioritizes path-following
-      # vs. heading directly to the goal.
-      path_distance_bias: 32.0
-      goal_distance_bias: 5.0
-      goal_align_bias: 5.0
+      path_distance_bias: 24.0   # Lowered to reduce aggressive path corrections
+      goal_distance_bias: 4.0
+      goal_align_bias: 3.0
 
       # -----------------------------------------------------------------------
       # Critics
       # -----------------------------------------------------------------------
       critics: ["Oscillation", "BaseObstacle", "PathAlign", "GoalAlign"]
-
-      # Adjust how strongly obstacles and path alignment are weighted
       BaseObstacle.scale: 0.01
-      PathAlign.scale: 32.0
-      GoalAlign.scale: 5.0
+      PathAlign.scale: 24.0
+      GoalAlign.scale: 3.0
 
       # -----------------------------------------------------------------------
       # Oscillation and Stopping Tolerances
@@ -289,7 +292,7 @@ global_costmap:
       cost_scaling_factor: 5.0
 
 # -----------------------------------------------------------------------------
-# Collision Monitor (if in use)
+# Collision Monitor
 # -----------------------------------------------------------------------------
 collision_monitor:
   ros__parameters:

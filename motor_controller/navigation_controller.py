@@ -25,23 +25,32 @@ class NavigationController(Node):
         # Initialize state
         self.current_state = RobotState.EXPLORING
         
-        # Create components as part of this node (not as separate nodes)
+        # Create components as separate nodes
         self.obstacle_monitor = ObstacleMonitor()
         self.exploration_controller = ExplorationController()
-        
-        # Share the node's logger with components
-        self.obstacle_monitor.get_logger = self.get_logger
-        self.exploration_controller.get_logger = self.get_logger
         
         # Publishers and subscribers
         self.wheel_speeds_pub = self.create_publisher(Twist, 'wheel_speeds', 10)
         self.scan_sub = self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
+        
+        # Subscribe to cmd_vel from both components
+        self.cmd_vel_sub = self.create_subscription(
+            Twist, 
+            'cmd_vel',
+            self.cmd_vel_callback,
+            10
+        )
         
         # Control loop timer
         self.create_timer(0.1, self.state_machine_loop)  # 10Hz control loop
         
         self.get_logger().info('Navigation controller initialized in EXPLORING state')
 
+    def cmd_vel_callback(self, msg: Twist):
+        """Forward velocity commands to wheel speeds"""
+        # Forward the velocity commands to the motors
+        self.wheel_speeds_pub.publish(msg)
+        
     def scan_callback(self, msg: LaserScan):
         """Forward scan data to obstacle monitor"""
         self.obstacle_monitor.scan_callback(msg)
@@ -60,12 +69,12 @@ class NavigationController(Node):
                     # Store current exploration goal
                     self.obstacle_monitor.last_goal = self.exploration_controller.current_waypoint
                 else:
-                    # Continue exploration
-                    self.exploration_controller.control_loop()
+                    # Continue exploration using exploration controller's functions
+                    self.exploration_controller.exploration_loop()
                     
             elif self.current_state == RobotState.AVOIDING:
                 if obstacle:
-                    # Execute avoidance using obstacle monitor's logic
+                    # Execute avoidance using obstacle monitor's functions
                     self.obstacle_monitor.execute_avoidance(obstacle)
                 else:
                     # Clear of obstacles, switch to recovery

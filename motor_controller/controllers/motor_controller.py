@@ -58,21 +58,10 @@ class MotorController:
         # Clamp values to valid range
         linear = max(min(linear, 1.0), -1.0)
         angular = max(min(angular, 1.0), -1.0)
-        
-        # Calculate left and right motor speeds
-        if abs(angular) > 0.1:  # If turning
-            if abs(linear) < 0.1:  # Spin in place if not moving forward/backward
-                # Pure rotation - opposite directions at equal speeds
-                left_speed = angular
-                right_speed = -angular
-            else:
-                # Turn while moving - one side faster than the other
-                left_speed = linear + angular
-                right_speed = linear - angular
-        else:
-            # Straight movement
-            left_speed = linear
-            right_speed = linear
+
+        left_speed = linear + angular
+        right_speed = linear - angular
+
         
         # Normalize speeds if they exceed [-1, 1]
         max_speed = max(abs(left_speed), abs(right_speed))

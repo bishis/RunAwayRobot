@@ -52,6 +52,11 @@ class NavigationController(Node):
         # Navigation action client
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         
+        # Wait for navigation server
+        while not self.nav_client.wait_for_server(timeout_sec=1.0):
+            self.get_logger().info('Waiting for navigation action server...')
+        self.get_logger().info('Navigation server connected!')
+        
         # State variables
         self.latest_scan = None
         self.current_goal = None
@@ -148,26 +153,32 @@ class NavigationController(Node):
 
     def send_goal(self, waypoint: PoseStamped):
         """Send navigation goal"""
-        # Wait for action server
-        if not self.nav_client.wait_for_server(timeout_sec=1.0):
-            self.get_logger().warn('Navigation action server not available')
-            return
-
-        # Create and send goal
-        goal_msg = NavigateToPose.Goal()
-        goal_msg.pose = waypoint
-        
-        self.get_logger().info(f'Sending goal: ({waypoint.pose.position.x:.2f}, {waypoint.pose.position.y:.2f})')
-        
-        # Send goal and register callbacks
-        self.nav_client.send_goal_async(
-            goal_msg,
-            feedback_callback=self.feedback_callback
-        ).add_done_callback(self.goal_response_callback)
-        
-        self.current_goal = waypoint
-        self.is_navigating = True
-        self.goal_start_time = self.get_clock().now()
+        try:
+            # Create and send goal
+            goal_msg = NavigateToPose.Goal()
+            goal_msg.pose = waypoint
+            
+            self.get_logger().info(
+                f'Sending navigation goal: ({waypoint.pose.position.x:.2f}, '
+                f'{waypoint.pose.position.y:.2f})'
+            )
+            
+            # Send goal and register callbacks
+            send_goal_future = self.nav_client.send_goal_async(
+                goal_msg,
+                feedback_callback=self.feedback_callback
+            )
+            
+            # Add done callback
+            send_goal_future.add_done_callback(self.goal_response_callback)
+            
+            self.current_goal = waypoint
+            self.is_navigating = True
+            self.goal_start_time = self.get_clock().now()
+            
+        except Exception as e:
+            self.get_logger().error(f'Error sending navigation goal: {str(e)}')
+            self.handle_goal_failure()
 
     def goal_response_callback(self, future):
         """Handle navigation goal response"""
@@ -205,7 +216,12 @@ class NavigationController(Node):
 
     def feedback_callback(self, feedback_msg):
         """Handle navigation feedback"""
-        pass
+        # Log progress
+        feedback = feedback_msg.feedback
+        self.get_logger().info(
+            f'Navigation feedback - Distance remaining: '
+            f'{feedback.distance_remaining:.2f}m'
+        )
 
 def main(args=None):
     rclpy.init(args=args)

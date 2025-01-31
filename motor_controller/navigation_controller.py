@@ -10,8 +10,8 @@ import numpy as np
 import math
 from tf2_ros import Buffer, TransformListener
 from enum import Enum
-from ..processors.obstacle_monitor import ObstacleMonitor
-from ..exploration_controller import ExplorationController
+from motor_controller.processors.obstacle_monitor import ObstacleMonitor
+from motor_controller.exploration_controller import ExplorationController
 
 class RobotState(Enum):
     EXPLORING = 1
@@ -25,9 +25,13 @@ class NavigationController(Node):
         # Initialize state
         self.current_state = RobotState.EXPLORING
         
-        # Create components (reusing existing code)
+        # Create components as part of this node (not as separate nodes)
         self.obstacle_monitor = ObstacleMonitor()
         self.exploration_controller = ExplorationController()
+        
+        # Share the node's logger with components
+        self.obstacle_monitor.get_logger = self.get_logger
+        self.exploration_controller.get_logger = self.get_logger
         
         # Publishers and subscribers
         self.wheel_speeds_pub = self.create_publisher(Twist, 'wheel_speeds', 10)

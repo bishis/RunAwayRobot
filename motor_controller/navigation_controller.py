@@ -66,6 +66,10 @@ class NavigationController(Node):
         self.consecutive_failures = 0
         self.max_consecutive_failures = 3
         
+        # Add state for Nav2 readiness
+        self.nav2_ready = False
+        self.nav2_check_timer = self.create_timer(1.0, self.check_nav2_ready)
+        
         # Create timer for exploration control
         self.create_timer(1.0, self.exploration_loop)
         
@@ -121,32 +125,43 @@ class NavigationController(Node):
             stop_msg = Twist()
             self.wheel_speeds_pub.publish(stop_msg)
 
+    def check_nav2_ready(self):
+        """Check if Nav2 stack is ready"""
+        try:
+            if not self.nav2_ready:
+                if self.nav_client.wait_for_server(timeout_sec=0.1):
+                    self.get_logger().info('Nav2 stack is ready!')
+                    self.nav2_ready = True
+                    # Stop checking once ready
+                    self.nav2_check_timer.cancel()
+        except Exception as e:
+            self.get_logger().warn(f'Error checking Nav2 readiness: {str(e)}')
+
     def exploration_loop(self):
         """Main control loop for autonomous exploration"""
         try:
-            # If not navigating, check if we need a new waypoint
-            if not self.is_navigating:
-                if (self.waypoint_generator.has_reached_waypoint() or 
-                    not self.waypoint_generator.is_waypoint_valid()):
-                    
-                    self.get_logger().info('Generating new waypoint...')
-                    waypoint = self.waypoint_generator.generate_waypoint()
-                    if waypoint:
-                        self.get_logger().info('Generated waypoint, sending goal...')
-                        self.send_goal(waypoint)
-                        # Publish visualization
-                        markers = self.waypoint_generator.create_visualization_markers(waypoint)
-                        self.marker_pub.publish(markers)
-                    else:
-                        self.get_logger().warn('Failed to generate waypoint')
-            else:
-                self.get_logger().debug('Currently navigating to goal...')
+            # Only proceed if Nav2 is ready
+            if not self.nav2_ready:
+                return
+
+            # If not navigating or previous goal failed, try to get new waypoint
+            if not self.is_navigating or self.current_goal is None:
+                self.get_logger().info('Generating new waypoint...')
+                waypoint = self.waypoint_generator.generate_waypoint()
+                if waypoint:
+                    self.get_logger().info('Generated waypoint, sending goal...')
+                    self.send_goal(waypoint)
+                    # Publish visualization
+                    markers = self.waypoint_generator.create_visualization_markers(waypoint)
+                    self.marker_pub.publish(markers)
+                else:
+                    self.get_logger().warn('Failed to generate waypoint, will retry...')
             
             # Check for timeout on current goal
             if self.is_navigating and self.goal_start_time:
                 time_elapsed = (self.get_clock().now() - self.goal_start_time).nanoseconds / 1e9
                 if time_elapsed > self.goal_timeout:
-                    self.get_logger().warn('Goal timeout reached')
+                    self.get_logger().warn('Goal timeout reached, will try new waypoint')
                     self.handle_goal_failure()
         
         except Exception as e:
@@ -198,25 +213,40 @@ class NavigationController(Node):
 
     def goal_result_callback(self, future):
         """Handle navigation goal result"""
-        status = future.result().status
-        if status == GoalStatus.STATUS_SUCCEEDED:
-            self.get_logger().info('Navigation succeeded')
-            self.consecutive_failures = 0
-            self.is_navigating = False
-        else:
-            self.get_logger().warn(f'Navigation failed with status: {status}')
+        try:
+            status = future.result().status
+            if status == GoalStatus.STATUS_SUCCEEDED:
+                self.get_logger().info('Navigation succeeded')
+                self.consecutive_failures = 0
+                self.is_navigating = False
+                # Successfully reached goal, generate new waypoint
+                self.exploration_loop()
+            else:
+                self.get_logger().warn(f'Navigation failed with status: {status}')
+                self.handle_goal_failure()
+        except Exception as e:
+            self.get_logger().error(f'Error in goal result callback: {str(e)}')
             self.handle_goal_failure()
 
     def handle_goal_failure(self):
         """Handle navigation failures"""
         self.consecutive_failures += 1
         if self.consecutive_failures >= self.max_consecutive_failures:
-            self.get_logger().warn('Too many consecutive failures, resetting exploration')
+            self.get_logger().warn('Too many consecutive failures, waiting before continuing...')
             self.consecutive_failures = 0
-        
+            # Add a small delay before trying again
+            self.create_timer(5.0, self.reset_navigation_state, oneshot=True)
+        else:
+            # Immediately try a new waypoint
+            self.reset_navigation_state()
+
+    def reset_navigation_state(self):
+        """Reset navigation state and try new waypoint"""
         self.is_navigating = False
         self.current_goal = None
         self.goal_start_time = None
+        # Force exploration loop to generate new waypoint
+        self.exploration_loop()
 
     def feedback_callback(self, feedback_msg):
         """Handle navigation feedback"""

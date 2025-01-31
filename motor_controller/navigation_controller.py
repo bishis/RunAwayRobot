@@ -1,70 +1,97 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, PoseStamped
 from sensor_msgs.msg import LaserScan
+from nav_msgs.msg import Path
+from nav2_msgs.action import NavigateToPose, ComputePathToPose
+from rclpy.action import ActionClient
 import numpy as np
 import math
+from tf2_ros import Buffer, TransformListener
+from enum import Enum
+from ..processors.obstacle_monitor import ObstacleMonitor
+from ..exploration_controller import ExplorationController
+
+class RobotState(Enum):
+    EXPLORING = 1
+    AVOIDING = 2
+    RECOVERING = 3
 
 class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
-        # Parameters
-        self.declare_parameter('robot_radius', 0.16)  # Half of 0.32m
-        self.declare_parameter('safety_margin', 0.1)  # Additional safety distance
-        self.declare_parameter('max_linear_speed', 0.5)
-        self.declare_parameter('max_angular_speed', 1.0)
+        # Initialize state
+        self.current_state = RobotState.EXPLORING
         
-        # Get parameters
-        self.robot_radius = self.get_parameter('robot_radius').value
-        self.safety_margin = self.get_parameter('safety_margin').value
-        self.max_linear_speed = self.get_parameter('max_linear_speed').value
-        self.max_angular_speed = self.get_parameter('max_angular_speed').value
-        
-        # Minimum safe distance (robot radius + safety margin)
-        self.min_distance = self.robot_radius + self.safety_margin
+        # Create components (reusing existing code)
+        self.obstacle_monitor = ObstacleMonitor()
+        self.exploration_controller = ExplorationController()
         
         # Publishers and subscribers
         self.wheel_speeds_pub = self.create_publisher(Twist, 'wheel_speeds', 10)
-        self.cmd_vel_sub = self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.scan_sub = self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         
-        # Store latest scan data
-        self.latest_scan = None
+        # Control loop timer
+        self.create_timer(0.1, self.state_machine_loop)  # 10Hz control loop
         
-        self.get_logger().info('Navigation controller initialized')
+        self.get_logger().info('Navigation controller initialized in EXPLORING state')
 
     def scan_callback(self, msg: LaserScan):
-        """Store latest scan data"""
-        self.latest_scan = msg
+        """Forward scan data to obstacle monitor"""
+        self.obstacle_monitor.scan_callback(msg)
 
-    def cmd_vel_callback(self, msg: Twist):
-        """Handle incoming velocity commands"""
+    def state_machine_loop(self):
+        """Main state machine loop"""
         try:
-            # Process velocities
-            safe_linear = msg.linear.x
-            safe_angular = msg.angular.z
-                        
-            # Create and publish wheel speeds message
-            wheel_speeds = Twist()
-            wheel_speeds.linear.x = safe_linear
-            wheel_speeds.angular.z = safe_angular
-            self.wheel_speeds_pub.publish(wheel_speeds)
+            # Check for obstacles using obstacle monitor's detection
+            obstacle = self.obstacle_monitor.detect_obstacles()
             
-            # Only log significant changes
-            if abs(safe_linear - msg.linear.x) > 0.01 or abs(safe_angular - msg.angular.z) > 0.01:
-                self.get_logger().info(
-                    f'Modified speeds:\n'
-                    f'  Linear: {msg.linear.x:.2f} -> {safe_linear:.2f}\n'
-                    f'  Angular: {msg.angular.z:.2f} -> {safe_angular:.2f}'
-                )
+            if self.current_state == RobotState.EXPLORING:
+                if obstacle:
+                    # Obstacle detected, switch to avoidance
+                    self.get_logger().info('Obstacle detected - Switching to AVOIDING state')
+                    self.current_state = RobotState.AVOIDING
+                    # Store current exploration goal
+                    self.obstacle_monitor.last_goal = self.exploration_controller.current_waypoint
+                else:
+                    # Continue exploration
+                    self.exploration_controller.control_loop()
+                    
+            elif self.current_state == RobotState.AVOIDING:
+                if obstacle:
+                    # Execute avoidance using obstacle monitor's logic
+                    self.obstacle_monitor.execute_avoidance(obstacle)
+                else:
+                    # Clear of obstacles, switch to recovery
+                    self.get_logger().info('Clear of obstacles - Switching to RECOVERY state')
+                    self.current_state = RobotState.RECOVERING
+                    # Request new path to original goal
+                    self.obstacle_monitor.request_new_path()
+                    
+            elif self.current_state == RobotState.RECOVERING:
+                if obstacle:
+                    # Found new obstacle during recovery
+                    self.get_logger().info('New obstacle during recovery - Switching to AVOIDING state')
+                    self.current_state = RobotState.AVOIDING
+                else:
+                    # Check if we've reached a good position to resume exploration
+                    robot_pose = self.obstacle_monitor.get_robot_pose()
+                    if robot_pose:
+                        # Resume exploration from current position
+                        self.get_logger().info('Recovery complete - Resuming EXPLORATION')
+                        self.current_state = RobotState.EXPLORING
+                        self.exploration_controller.generate_new_goal()
             
         except Exception as e:
-            self.get_logger().error(f'Error in cmd_vel callback: {str(e)}')
-            # Stop robot on error
-            stop_msg = Twist()
-            self.wheel_speeds_pub.publish(stop_msg)
+            self.get_logger().error(f'Error in state machine: {str(e)}')
+            self.stop_robot()
+
+    def stop_robot(self):
+        """Emergency stop"""
+        stop_cmd = Twist()
+        self.wheel_speeds_pub.publish(stop_cmd)
 
 def main(args=None):
     rclpy.init(args=args)

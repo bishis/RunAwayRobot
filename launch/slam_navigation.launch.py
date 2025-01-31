@@ -103,18 +103,6 @@ def generate_launch_description():
 
         # Navigation with delay
         navigation_launch,
-
-        # Exploration Controller
-        Node(
-            package='motor_controller',
-            executable='exploration_controller',
-            name='exploration_controller',
-            output='screen',
-            parameters=[{
-                'use_sim_time': use_sim_time
-            }]
-        ),
-
         # Person Detector
         Node(
             package='motor_controller',

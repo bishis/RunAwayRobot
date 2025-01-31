@@ -40,64 +40,7 @@ class NavigationController(Node):
         self.latest_scan = msg
 
     def check_obstacles(self, desired_linear, desired_angular):
-        """Check for obstacles and modify commands if needed"""
-        if not self.latest_scan:
-            return desired_linear, desired_angular
-            
-        # Get scan data as numpy array
-        ranges = np.array(self.latest_scan.ranges)
-        
-        # Replace inf/nan with max range
-        ranges[~np.isfinite(ranges)] = self.latest_scan.range_max
-        
-        # Calculate number of points in scan
-        num_points = len(ranges)
-        
-        # Get angles for each scan point
-        angles = np.linspace(
-            self.latest_scan.angle_min,
-            self.latest_scan.angle_max,
-            num_points
-        )
-        
-        # Check front area when moving forward
-        if desired_linear > 0:
-            # Look at points in front of robot (-30° to 30°)
-            front_mask = np.abs(angles) < np.pi/6  # 30 degrees
-            front_distances = ranges[front_mask]
-            
-            # If any point is too close, stop forward motion
-            if np.any(front_distances < self.min_distance):
-                min_front_dist = np.min(front_distances)
-                self.get_logger().warn(
-                    f'Obstacle detected at {min_front_dist:.2f}m, stopping forward motion'
-                )
-                desired_linear = 0.0
-                
-                # If very close, back up slightly
-                if min_front_dist < self.robot_radius:
-                    desired_linear = -0.1
-        
-        # Check sides when turning
-        if abs(desired_angular) > 0:
-            # Check left side when turning left
-            if desired_angular > 0:
-                left_mask = (angles > np.pi/4) & (angles < np.pi/2)  # 45° to 90°
-                side_distances = ranges[left_mask]
-            # Check right side when turning right
-            else:
-                right_mask = (angles < -np.pi/4) & (angles > -np.pi/2)  # -45° to -90°
-                side_distances = ranges[right_mask]
-            
-            # If side obstacle is too close, reduce turning speed
-            if len(side_distances) > 0 and np.any(side_distances < self.min_distance):
-                min_side_dist = np.min(side_distances)
-                self.get_logger().warn(
-                    f'Side obstacle detected at {min_side_dist:.2f}m, reducing turn speed'
-                )
-                # Scale turn speed based on distance
-                scale = min_side_dist / self.min_distance
-                desired_angular *= max(0.2, scale)  # Minimum 20% of original turn speed
+        """Basic velocity processing without safety checks"""
         
         # Ignore very small rotation commands
         ROTATION_DEADBAND = 0.2  # Ignore rotations smaller than this
@@ -128,14 +71,14 @@ class NavigationController(Node):
         return desired_linear, desired_angular
 
     def cmd_vel_callback(self, msg: Twist):
-        """Handle incoming velocity commands with obstacle avoidance"""
+        """Handle incoming velocity commands"""
         try:
-            # Get desired speeds
-            desired_linear = msg.linear.x
-            desired_angular = msg.angular.z
+            # Process velocities
+            safe_linear = msg.linear.x
+            safe_angular = msg.angular.z
             
-            # Check for obstacles and modify commands if needed
-            safe_linear, safe_angular = self.check_obstacles(desired_linear, desired_angular)
+            # Apply basic velocity processing
+            safe_linear, safe_angular = self.check_obstacles(safe_linear, safe_angular)
             
             # Create and publish wheel speeds message
             wheel_speeds = Twist()
@@ -143,12 +86,12 @@ class NavigationController(Node):
             wheel_speeds.angular.z = safe_angular
             self.wheel_speeds_pub.publish(wheel_speeds)
             
-            # Log if speeds were modified
-            if safe_linear != desired_linear or safe_angular != desired_angular:
+            # Only log significant changes
+            if abs(safe_linear - msg.linear.x) > 0.01 or abs(safe_angular - msg.angular.z) > 0.01:
                 self.get_logger().info(
-                    f'Modified speeds for safety:\n'
-                    f'  Linear: {desired_linear:.2f} -> {safe_linear:.2f}\n'
-                    f'  Angular: {desired_angular:.2f} -> {safe_angular:.2f}'
+                    f'Modified speeds:\n'
+                    f'  Linear: {msg.linear.x:.2f} -> {safe_linear:.2f}\n'
+                    f'  Angular: {msg.angular.z:.2f} -> {safe_angular:.2f}'
                 )
             
         except Exception as e:

@@ -222,22 +222,27 @@ class NavigationController(Node):
                 # Successfully reached goal, generate new waypoint
                 self.exploration_loop()
             else:
-                self.get_logger().warn(f'Navigation failed with status: {status}')
+                self.get_logger().warn(f'Navigation failed with status: {status}, trying new waypoint')
+                # Clear current waypoint in generator to force new one
+                self.waypoint_generator.current_waypoint = None
                 self.handle_goal_failure()
         except Exception as e:
             self.get_logger().error(f'Error in goal result callback: {str(e)}')
             self.handle_goal_failure()
 
     def handle_goal_failure(self):
-        """Handle navigation failures"""
+        """Handle navigation failures by immediately trying a new waypoint"""
         self.consecutive_failures += 1
         if self.consecutive_failures >= self.max_consecutive_failures:
             self.get_logger().warn('Too many consecutive failures, waiting before continuing...')
             self.consecutive_failures = 0
             # Add a small delay before trying again
-            self.create_timer(5.0, self.reset_navigation_state, oneshot=True)
+            self.create_timer(2.0, self.reset_navigation_state, oneshot=True)
         else:
             # Immediately try a new waypoint
+            self.get_logger().info('Attempting new waypoint immediately')
+            # Clear current waypoint to force generator to pick a new one
+            self.waypoint_generator.current_waypoint = None
             self.reset_navigation_state()
 
     def reset_navigation_state(self):
@@ -245,6 +250,8 @@ class NavigationController(Node):
         self.is_navigating = False
         self.current_goal = None
         self.goal_start_time = None
+        # Force waypoint generator to pick new point
+        self.waypoint_generator.current_waypoint = None
         # Force exploration loop to generate new waypoint
         self.exploration_loop()
 

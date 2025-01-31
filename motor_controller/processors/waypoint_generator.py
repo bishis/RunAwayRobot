@@ -137,7 +137,7 @@ class WaypointGenerator:
         return self.is_valid_point(x, y)
 
     def has_reached_waypoint(self) -> bool:
-        """Check if robot has reached current waypoint"""
+        """Check if robot has reached current waypoint (distance only, ignoring orientation)"""
         if not self.current_waypoint:
             return False
             
@@ -149,12 +149,18 @@ class WaypointGenerator:
                 rclpy.time.Time()
             )
             
-            # Calculate distance to waypoint
+            # Calculate distance to waypoint (only position, ignore orientation)
             dx = transform.transform.translation.x - self.current_waypoint.pose.position.x
             dy = transform.transform.translation.y - self.current_waypoint.pose.position.y
             distance = math.sqrt(dx*dx + dy*dy)
             
-            return distance < self.goal_tolerance
+            # Only check distance to consider waypoint reached
+            reached = distance < self.goal_tolerance
+            if reached:
+                self.node.get_logger().info(f'Reached waypoint (distance: {distance:.2f}m)')
+                self.reached_waypoint = True
+            
+            return reached
             
         except TransformException:
             return False

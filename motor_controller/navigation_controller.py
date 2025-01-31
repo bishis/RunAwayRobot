@@ -1,37 +1,67 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, PoseStamped
 from sensor_msgs.msg import LaserScan
+from nav_msgs.msg import OccupancyGrid
+from visualization_msgs.msg import MarkerArray
+from nav2_msgs.action import NavigateToPose
+from rclpy.action import ActionClient
+from action_msgs.msg import GoalStatus
 import numpy as np
 import math
+from .processors.waypoint_generator import WaypointGenerator
 
 class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
         # Parameters
-        self.declare_parameter('robot_radius', 0.16)  # Half of 0.32m
-        self.declare_parameter('safety_margin', 0.1)  # Additional safety distance
-        self.declare_parameter('max_linear_speed', 0.5)
-        self.declare_parameter('max_angular_speed', 1.0)
+        self.declare_parameter('robot_radius', 0.16)
+        self.declare_parameter('safety_margin', 0.3)
+        self.declare_parameter('max_linear_speed', 0.1)
+        self.declare_parameter('max_angular_speed', 1.366)  # Actual max rotation speed
+        self.declare_parameter('min_rotation_speed', 0.2)
+        self.declare_parameter('goal_timeout', 30.0)
         
         # Get parameters
         self.robot_radius = self.get_parameter('robot_radius').value
         self.safety_margin = self.get_parameter('safety_margin').value
         self.max_linear_speed = self.get_parameter('max_linear_speed').value
         self.max_angular_speed = self.get_parameter('max_angular_speed').value
+        self.min_rotation_speed = self.get_parameter('min_rotation_speed').value
+        self.goal_timeout = self.get_parameter('goal_timeout').value
         
-        # Minimum safe distance (robot radius + safety margin)
-        self.min_distance = self.robot_radius + self.safety_margin
+        # Initialize waypoint generator
+        self.waypoint_generator = WaypointGenerator(
+            node=self,
+            min_distance=0.5,
+            safety_margin=self.safety_margin,
+            waypoint_size=0.3,
+            preferred_distance=1.0,
+            goal_tolerance=0.3
+        )
         
         # Publishers and subscribers
         self.wheel_speeds_pub = self.create_publisher(Twist, 'wheel_speeds', 10)
         self.cmd_vel_sub = self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.scan_sub = self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
+        self.map_sub = self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
+        self.marker_pub = self.create_publisher(MarkerArray, 'exploration_markers', 10)
         
-        # Store latest scan data
+        # Navigation action client
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        
+        # State variables
         self.latest_scan = None
+        self.current_goal = None
+        self.is_navigating = False
+        self.goal_start_time = None
+        self.consecutive_failures = 0
+        self.max_consecutive_failures = 3
+        
+        # Create timer for exploration control
+        self.create_timer(1.0, self.exploration_loop)
         
         self.get_logger().info('Navigation controller initialized')
 
@@ -39,32 +69,111 @@ class NavigationController(Node):
         """Store latest scan data"""
         self.latest_scan = msg
 
+    def map_callback(self, msg: OccupancyGrid):
+        """Update map in waypoint generator"""
+        self.waypoint_generator.update_map(msg)
+
     def cmd_vel_callback(self, msg: Twist):
         """Handle incoming velocity commands"""
         try:
-            # Process velocities
-            safe_linear = msg.linear.x
-            safe_angular = msg.angular.z
-                        
+            # Apply minimum rotation threshold
+            if abs(msg.angular.z) < self.min_rotation_speed:
+                msg.angular.z = 0.0
+            
             # Create and publish wheel speeds message
             wheel_speeds = Twist()
-            wheel_speeds.linear.x = safe_linear
-            wheel_speeds.angular.z = safe_angular
+            wheel_speeds.linear.x = msg.linear.x
+            wheel_speeds.angular.z = msg.angular.z
             self.wheel_speeds_pub.publish(wheel_speeds)
-            
-            # Only log significant changes
-            if abs(safe_linear - msg.linear.x) > 0.01 or abs(safe_angular - msg.angular.z) > 0.01:
-                self.get_logger().info(
-                    f'Modified speeds:\n'
-                    f'  Linear: {msg.linear.x:.2f} -> {safe_linear:.2f}\n'
-                    f'  Angular: {msg.angular.z:.2f} -> {safe_angular:.2f}'
-                )
             
         except Exception as e:
             self.get_logger().error(f'Error in cmd_vel callback: {str(e)}')
             # Stop robot on error
             stop_msg = Twist()
             self.wheel_speeds_pub.publish(stop_msg)
+
+    def exploration_loop(self):
+        """Main control loop for autonomous exploration"""
+        try:
+            # If not navigating, generate new waypoint
+            if not self.is_navigating:
+                waypoint = self.waypoint_generator.generate_waypoint()
+                if waypoint:
+                    self.send_goal(waypoint)
+                    # Publish visualization
+                    markers = self.waypoint_generator.create_visualization_markers(waypoint)
+                    self.marker_pub.publish(markers)
+            
+            # Check for timeout on current goal
+            if self.is_navigating and self.goal_start_time:
+                time_elapsed = (self.get_clock().now() - self.goal_start_time).nanoseconds / 1e9
+                if time_elapsed > self.goal_timeout:
+                    self.get_logger().warn('Goal timeout reached')
+                    self.handle_goal_failure()
+        
+        except Exception as e:
+            self.get_logger().error(f'Error in exploration loop: {str(e)}')
+
+    def send_goal(self, waypoint: PoseStamped):
+        """Send navigation goal"""
+        # Wait for action server
+        if not self.nav_client.wait_for_server(timeout_sec=1.0):
+            self.get_logger().warn('Navigation action server not available')
+            return
+
+        # Create and send goal
+        goal_msg = NavigateToPose.Goal()
+        goal_msg.pose = waypoint
+        
+        self.get_logger().info(f'Sending goal: ({waypoint.pose.position.x:.2f}, {waypoint.pose.position.y:.2f})')
+        
+        # Send goal and register callbacks
+        self.nav_client.send_goal_async(
+            goal_msg,
+            feedback_callback=self.feedback_callback
+        ).add_done_callback(self.goal_response_callback)
+        
+        self.current_goal = waypoint
+        self.is_navigating = True
+        self.goal_start_time = self.get_clock().now()
+
+    def goal_response_callback(self, future):
+        """Handle navigation goal response"""
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().warn('Goal rejected')
+            self.handle_goal_failure()
+            return
+
+        self.get_logger().info('Goal accepted')
+        self._get_result_future = goal_handle.get_result_async()
+        self._get_result_future.add_done_callback(self.goal_result_callback)
+
+    def goal_result_callback(self, future):
+        """Handle navigation goal result"""
+        status = future.result().status
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            self.get_logger().info('Navigation succeeded')
+            self.consecutive_failures = 0
+            self.is_navigating = False
+        else:
+            self.get_logger().warn(f'Navigation failed with status: {status}')
+            self.handle_goal_failure()
+
+    def handle_goal_failure(self):
+        """Handle navigation failures"""
+        self.consecutive_failures += 1
+        if self.consecutive_failures >= self.max_consecutive_failures:
+            self.get_logger().warn('Too many consecutive failures, resetting exploration')
+            self.consecutive_failures = 0
+        
+        self.is_navigating = False
+        self.current_goal = None
+        self.goal_start_time = None
+
+    def feedback_callback(self, feedback_msg):
+        """Handle navigation feedback"""
+        pass
 
 def main(args=None):
     rclpy.init(args=args)

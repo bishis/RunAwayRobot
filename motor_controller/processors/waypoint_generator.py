@@ -1,207 +1,238 @@
 import math
 import numpy as np
 from geometry_msgs.msg import Point, PoseStamped
-from nav2_msgs.action import NavigateToPose
-from rclpy.action import ActionClient
-from rclpy.node import Node
-from rclpy.duration import Duration
+from nav_msgs.msg import OccupancyGrid
+from visualization_msgs.msg import MarkerArray, Marker
+from scipy.ndimage import distance_transform_edt
+import random
 import rclpy
+from rclpy.node import Node
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 
-class WaypointGenerator(Node):
-    """ROS2 node for generating and following waypoints for autonomous exploration."""
-
-    def __init__(self, robot_radius=0.15, safety_margin=0.2, num_waypoints=5):
-        super().__init__('waypoint_generator')
+class WaypointGenerator:
+    """Generates exploration waypoints from occupancy grid maps"""
+    
+    def __init__(self, node: Node,
+                 min_distance: float = 0.5,
+                 safety_margin: float = 0.3,
+                 waypoint_size: float = 0.3,
+                 preferred_distance: float = 1.0,
+                 goal_tolerance: float = 0.3):
+        """
+        Initialize waypoint generator.
         
-        # Navigation parameters
-        self.robot_radius = robot_radius
+        Args:
+            node: ROS node for logging and TF
+            min_distance: Minimum distance between waypoints
+            safety_margin: Distance from walls
+            waypoint_size: Size of waypoint markers
+            preferred_distance: Preferred distance for new waypoints
+            goal_tolerance: Distance to consider goal reached
+        """
+        self.node = node
+        self.min_distance = min_distance
         self.safety_margin = safety_margin
-        self.num_waypoints = num_waypoints
-        self.min_waypoint_spacing = robot_radius * 2.5
+        self.waypoint_size = waypoint_size
+        self.preferred_distance = preferred_distance
+        self.goal_tolerance = goal_tolerance
         
-        # Initialize the waypoint following client
-        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
-        
-        # Set up TF listener
+        # TF listener for robot pose
         self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.tf_listener = TransformListener(self.tf_buffer, self.node)
         
-        # Wait for navigation server
-        self.get_logger().info('Waiting for navigation action server...')
-        self.nav_client.wait_for_server()
-        self.get_logger().info('Navigation server connected!')
-        
-    def generate_waypoints(self, current_pose, map_data, map_info, is_valid_point, map_to_world):
-        """Generate waypoints prioritizing unexplored areas and boundary mapping."""
-        if not current_pose or not map_info:
-            return []
-        
-        points = []
-        x = current_pose.position.x
-        y = current_pose.position.y
-        
-        frontiers = self._find_unexplored_frontier(map_data, map_info, map_to_world)
-        boundaries = self._find_boundary_points(map_data, map_info, map_to_world)
-        
-        candidate_points = self._get_candidate_points(frontiers, boundaries, points, x, y)
-        return self._select_waypoints(candidate_points, points, is_valid_point)
+        # State variables
+        self.current_map = None
+        self.current_waypoint = None
 
-    def _is_point_too_close(self, new_x, new_y, existing_points):
-        for point in existing_points:
-            dx = new_x - point.x
-            dy = new_y - point.y
-            if math.sqrt(dx*dx + dy*dy) < self.min_waypoint_spacing:
-                return True
-        return False
+    def update_map(self, map_msg: OccupancyGrid):
+        """Update stored map"""
+        self.current_map = map_msg
 
-    def _find_unexplored_frontier(self, map_data, map_info, map_to_world):
-        frontiers = []
-        height, width = map_data.shape
-        
-        # Improved frontier detection with clustering
-        visited = np.zeros((height, width), dtype=bool)
-        min_frontier_size = 3  # Minimum frontier cluster size
-        
-        for my in range(1, height-1):
-            for mx in range(1, width-1):
-                if map_data[my, mx] == 0 and not visited[my, mx]:  # Free space
-                    frontier_cluster = []
-                    stack = [(mx, my)]
-                    
-                    while stack:
-                        cx, cy = stack.pop()
-                        if visited[cy, cx]:
-                            continue
-                            
-                        visited[cy, cx] = True
-                        has_unknown = False
-                        
-                        # Check 8-connected neighbors
-                        for dy in [-1, 0, 1]:
-                            for dx in [-1, 0, 1]:
-                                nx, ny = cx + dx, cy + dy
-                                if (0 <= ny < height and 0 <= nx < width):
-                                    if map_data[ny, nx] == -1:  # Unknown space
-                                        has_unknown = True
-                                    elif (map_data[ny, nx] == 0 and 
-                                          not visited[ny, nx]):
-                                        stack.append((nx, ny))
-                        
-                        if has_unknown:
-                            frontier_cluster.append((cx, cy))
-                    
-                    # Only add large enough frontier clusters
-                    if len(frontier_cluster) >= min_frontier_size:
-                        # Add center point of the cluster
-                        center_x = sum(x for x, _ in frontier_cluster) / len(frontier_cluster)
-                        center_y = sum(y for _, y in frontier_cluster) / len(frontier_cluster)
-                        wx, wy = map_to_world(int(center_x), int(center_y))
-                        if wx is not None and wy is not None:
-                            frontiers.append((wx, wy))
-        
-        return frontiers
-
-    def _find_boundary_points(self, map_data, map_info, map_to_world):
-        boundaries = []
-        height, width = map_data.shape
-        min_clearance = 3  # Minimum cells from obstacles
-        max_clearance = 8  # Maximum cells from obstacles
-        
-        # Create distance transform from obstacles
-        obstacle_map = (map_data > 50).astype(np.uint8)
-        distance_map = np.zeros((height, width), dtype=np.float32)
-        
-        # Calculate distance to nearest obstacle for each cell
-        for my in range(height):
-            for mx in range(width):
-                if map_data[my, mx] == 0:  # Free space
-                    min_dist = float('inf')
-                    for dy in range(-max_clearance, max_clearance + 1):
-                        ny = my + dy
-                        if 0 <= ny < height:
-                            for dx in range(-max_clearance, max_clearance + 1):
-                                nx = mx + dx
-                                if 0 <= nx < width and obstacle_map[ny, nx]:
-                                    dist = math.sqrt(dx*dx + dy*dy)
-                                    min_dist = min(min_dist, dist)
-                    distance_map[my, mx] = min_dist
-        
-        # Find boundary points with good clearance
-        for my in range(1, height-1):
-            for mx in range(1, width-1):
-                if (map_data[my, mx] == 0 and 
-                    min_clearance <= distance_map[my, mx] <= max_clearance):
-                    # Check if point is on the boundary between open and explored space
-                    has_unknown = False
-                    for dy in [-2, -1, 0, 1, 2]:
-                        for dx in [-2, -1, 0, 1, 2]:
-                            if (0 <= my+dy < height and 0 <= mx+dx < width):
-                                if map_data[my+dy, mx+dx] == -1:
-                                    has_unknown = True
-                                    break
-                        if has_unknown:
-                            break
-                    
-                    if has_unknown:
-                        wx, wy = map_to_world(mx, my)
-                        if wx is not None and wy is not None:
-                            boundaries.append((wx, wy))
-        
-        return boundaries
-
-    def _get_candidate_points(self, frontiers, boundaries, points, x, y):
-        candidates = []
-        
-        for wx, wy in frontiers:
-            if not self._is_point_too_close(wx, wy, points):
-                candidates.append(('frontier', wx, wy))
-        
-        for wx, wy in boundaries:
-            if not self._is_point_too_close(wx, wy, points):
-                candidates.append(('boundary', wx, wy))
-        
-        candidates.sort(key=lambda p: math.sqrt((p[1]-x)**2 + (p[2]-y)**2))
-        return candidates
-
-    def _select_waypoints(self, candidates, points, is_valid_point):
-        while len(points) < self.num_waypoints and candidates:
-            target_type = 'frontier' if len(points) % 2 == 0 else 'boundary'
+    def is_valid_point(self, x: float, y: float) -> bool:
+        """Check if a point is valid (free space and away from obstacles)"""
+        if not self.current_map:
+            return False
             
-            for i, (point_type, wx, wy) in enumerate(candidates):
-                if point_type == target_type:
-                    if is_valid_point(wx, wy) and not self._is_point_too_close(wx, wy, points):
-                        point = Point(x=wx, y=wy, z=0.0)
-                        points.append(point)
-                        candidates.pop(i)
-                        break
-            else:
-                target_type = 'boundary' if target_type == 'frontier' else 'frontier'
+        # Convert world coordinates to map coordinates
+        resolution = self.current_map.info.resolution
+        origin_x = self.current_map.info.origin.position.x
+        origin_y = self.current_map.info.origin.position.y
+        
+        map_x = int((x - origin_x) / resolution)
+        map_y = int((y - origin_y) / resolution)
+        
+        # Check bounds
+        if (map_x < 0 or map_x >= self.current_map.info.width or
+            map_y < 0 or map_y >= self.current_map.info.height):
+            return False
+            
+        # Get map data as 2D array
+        map_data = np.array(self.current_map.data).reshape(
+            self.current_map.info.height,
+            self.current_map.info.width
+        )
+        
+        # Check if point and surrounding area is free space
+        margin = int(self.safety_margin / resolution)
+        for dy in range(-margin, margin + 1):
+            for dx in range(-margin, margin + 1):
+                check_x = map_x + dx
+                check_y = map_y + dy
+                if (0 <= check_x < self.current_map.info.width and 
+                    0 <= check_y < self.current_map.info.height):
+                    if map_data[check_y, check_x] > 0:  # Not free space
+                        return False
+        return True
+
+    def generate_waypoint(self) -> PoseStamped:
+        """Generate a single new waypoint prioritizing unexplored areas"""
+        if not self.current_map:
+            return None
+        
+        resolution = self.current_map.info.resolution
+        origin_x = self.current_map.info.origin.position.x
+        origin_y = self.current_map.info.origin.position.y
+        
+        # Get map data as 2D array
+        map_data = np.array(self.current_map.data).reshape(
+            self.current_map.info.height,
+            self.current_map.info.width
+        )
+        
+        # Create exploration potential field
+        unknown_area = map_data == -1
+        walls = map_data > 50
+        
+        # Calculate distance transform from walls
+        wall_distance = distance_transform_edt(~walls) * resolution
+        
+        # Calculate distance to unknown areas
+        unknown_distance = distance_transform_edt(~unknown_area) * resolution
+        
+        # Get current robot position
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            robot_x = transform.transform.translation.x
+            robot_y = transform.transform.translation.y
+            
+            # Convert to grid coordinates
+            robot_grid_x = int((robot_x - origin_x) / resolution)
+            robot_grid_y = int((robot_y - origin_y) / resolution)
+        except TransformException:
+            self.node.get_logger().warn('Could not get robot position')
+            return None
+
+        best_point = None
+        best_score = -float('inf')
+        
+        # Sample points and score them
+        for _ in range(50):  # Try 50 random points
+            # Find valid cells (free space)
+            valid_y, valid_x = np.where((map_data == 0) & (wall_distance > self.safety_margin))
+            
+            if len(valid_x) == 0:
                 continue
+            
+            # Randomly select one of the valid cells
+            idx = random.randint(0, len(valid_x) - 1)
+            map_x = valid_x[idx]
+            map_y = valid_y[idx]
+            
+            # Convert to world coordinates
+            x = origin_x + map_x * resolution
+            y = origin_y + map_y * resolution
+            
+            # Calculate scores for different criteria
+            dist_to_robot = math.sqrt((map_x - robot_grid_x)**2 + (map_y - robot_grid_y)**2) * resolution
+            if dist_to_robot < self.min_distance:
+                continue
+            
+            # Score based on:
+            # 1. Distance to unknown areas (prefer closer to unknown)
+            unknown_score = 1.0 / (unknown_distance[map_y, map_x] + 0.1)
+            
+            # 2. Distance from walls (prefer points away from walls)
+            wall_score = min(wall_distance[map_y, map_x], 2.0) / 2.0
+            
+            # 3. Appropriate distance from robot
+            distance_score = 1.0 - abs(dist_to_robot - self.preferred_distance) / self.preferred_distance
+            
+            # Combine scores with weights
+            total_score = (
+                3.0 * unknown_score +  # Prioritize exploring unknown areas
+                2.0 * wall_score +     # Prefer staying away from walls
+                1.0 * distance_score   # Consider distance from robot
+            )
+            
+            if total_score > best_score:
+                best_score = total_score
+                best_point = (x, y)
         
-        return points
-
-    def _has_unknown_neighbor(self, map_data, mx, my):
-        for dy in [-1, 0, 1]:
-            for dx in [-1, 0, 1]:
-                if map_data[my+dy, mx+dx] == -1:  # -1 indicates unknown space
-                    return True
-        return False
-
-    def _is_valid_boundary(self, map_data, mx, my, height, width):
-        for radius in range(2, 5):
-            has_obstacle = False
+        if best_point is None:
+            return None
+        
+        # Create waypoint with the best point
+        waypoint = PoseStamped()
+        waypoint.header.frame_id = 'map'
+        waypoint.header.stamp = self.node.get_clock().now().to_msg()
+        waypoint.pose.position.x = best_point[0]
+        waypoint.pose.position.y = best_point[1]
+        waypoint.pose.position.z = 0.0
+        
+        # Set orientation towards unexplored area
+        # Find direction of closest unknown area
+        unknown_y, unknown_x = np.where(unknown_area)
+        if len(unknown_x) > 0:
+            # Find closest unknown point
+            dists = [(ux - map_x)**2 + (uy - map_y)**2 for ux, uy in zip(unknown_x, unknown_y)]
+            closest_idx = np.argmin(dists)
+            target_x = origin_x + unknown_x[closest_idx] * resolution
+            target_y = origin_y + unknown_y[closest_idx] * resolution
             
-            for dy in range(-radius, radius+1):
-                for dx in range(-radius, radius+1):
-                    if (0 <= my+dy < height and 0 <= mx+dx < width):
-                        if map_data[my+dy, mx+dx] > 50:  # Occupied space
-                            if radius == 2:
-                                return False  # Too close to obstacle
-                            has_obstacle = True
+            # Calculate angle towards unknown area
+            angle = math.atan2(target_y - best_point[1], target_x - best_point[0])
+            waypoint.pose.orientation.z = math.sin(angle / 2)
+            waypoint.pose.orientation.w = math.cos(angle / 2)
+        else:
+            # If no unknown areas, just use default orientation
+            waypoint.pose.orientation.w = 1.0
+        
+        return waypoint
+
+    def create_visualization_markers(self, waypoint: PoseStamped = None) -> MarkerArray:
+        """Create visualization markers for waypoints"""
+        markers = MarkerArray()
+        
+        if waypoint:
+            # Create marker for waypoint
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.header.stamp = self.node.get_clock().now().to_msg()
+            marker.ns = 'waypoints'
+            marker.id = 0
+            marker.type = Marker.CYLINDER
+            marker.action = Marker.ADD
             
-            if has_obstacle:
-                return True  # Found a good boundary point
-        return False
+            # Set marker position
+            marker.pose = waypoint.pose
+            
+            # Set marker size
+            marker.scale.x = self.waypoint_size
+            marker.scale.y = self.waypoint_size
+            marker.scale.z = 0.1
+            
+            # Set marker color (green)
+            marker.color.r = 0.0
+            marker.color.g = 1.0
+            marker.color.b = 0.0
+            marker.color.a = 0.5
+            
+            markers.markers.append(marker)
+        
+        return markers

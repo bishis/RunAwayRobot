@@ -139,13 +139,10 @@ class NavigationController(Node):
             # Check for obstacles and modify commands if needed
             safe_linear, safe_angular = self.check_obstacles(desired_linear, desired_angular)
             
-            # Apply velocity smoothing
-            smooth_linear, smooth_angular = self.smooth_velocity(safe_linear, safe_angular)
-            
             # Create and publish wheel speeds message
             wheel_speeds = Twist()
-            wheel_speeds.linear.x = smooth_linear
-            wheel_speeds.angular.z = smooth_angular
+            wheel_speeds.linear.x = safe_linear
+            wheel_speeds.angular.z = safe_angular
             self.wheel_speeds_pub.publish(wheel_speeds)
             
             # Log if speeds were modified

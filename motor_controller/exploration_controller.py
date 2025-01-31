@@ -19,11 +19,12 @@ class ExplorationController(Node):
         
         # Parameters
         self.declare_parameter('min_distance', 0.5)  # Minimum distance between waypoints
-        self.declare_parameter('goal_timeout', 60.0)  # Increased timeout to 60 seconds
+        self.declare_parameter('goal_timeout', 120.0)  # Increased timeout to 120 seconds
         self.declare_parameter('safety_margin', 0.3)  # Distance from walls
         self.declare_parameter('waypoint_size', 0.3)  # Size of waypoint markers
         self.declare_parameter('preferred_distance', 1.0)  # Preferred distance for new waypoints
         self.declare_parameter('goal_tolerance', 0.3)  # Distance to consider goal reached
+        self.declare_parameter('waypoint_cooldown', 5.0)  # Time to wait between waypoint changes
         
         # Get parameters
         self.min_distance = self.get_parameter('min_distance').value
@@ -32,6 +33,7 @@ class ExplorationController(Node):
         self.waypoint_size = self.get_parameter('waypoint_size').value
         self.preferred_distance = self.get_parameter('preferred_distance').value
         self.goal_tolerance = self.get_parameter('goal_tolerance').value
+        self.waypoint_cooldown = self.get_parameter('waypoint_cooldown').value
         
         # Navigation client
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -62,6 +64,9 @@ class ExplorationController(Node):
         # Add state for tracking goal progress
         self.consecutive_failures = 0
         self.max_consecutive_failures = 3
+        
+        # Add state for waypoint timing
+        self.last_waypoint_time = None
         
         # Create timer for exploration control
         self.create_timer(1.0, self.exploration_loop)
@@ -265,6 +270,12 @@ class ExplorationController(Node):
         if not self.is_navigating:
             # Generate new waypoint if needed
             if not self.current_waypoint:
+                # Check cooldown period
+                current_time = self.get_clock().now()
+                if (self.last_waypoint_time and 
+                    (current_time - self.last_waypoint_time).nanoseconds / 1e9 < self.waypoint_cooldown):
+                    return
+                    
                 self.current_waypoint = self.generate_next_waypoint()
                 if self.current_waypoint:
                     self.publish_waypoint_markers()
@@ -272,6 +283,7 @@ class ExplorationController(Node):
                         f'Generated new waypoint at ({self.current_waypoint.pose.position.x:.2f}, '
                         f'{self.current_waypoint.pose.position.y:.2f})'
                     )
+                    self.last_waypoint_time = current_time
                 else:
                     return
             
@@ -314,10 +326,21 @@ class ExplorationController(Node):
                         self.goal_start_time = None
 
     def generate_new_goal(self):
-        """Generate a new goal and reset navigation state"""
+        """Generate a new goal with cooldown check"""
+        current_time = self.get_clock().now()
+        
+        # Check if we're still in cooldown period
+        if (self.last_waypoint_time and 
+            (current_time - self.last_waypoint_time).nanoseconds / 1e9 < self.waypoint_cooldown):
+            self.get_logger().info('In waypoint cooldown period, keeping current waypoint')
+            self.is_navigating = False
+            self.goal_start_time = None
+            return
+            
         self.is_navigating = False
         self.current_waypoint = None
         self.goal_start_time = None
+        self.last_waypoint_time = current_time
 
     def goal_response_callback(self, future):
         """Handle navigation goal response"""

@@ -122,7 +122,7 @@ def generate_launch_description():
         executable='navigation_controller',
         name='navigation_controller',
         parameters=[{
-            'max_linear_speed': 0.1,      
+            'max_linear_speed': 0.08,      
             'max_angular_speed': 1.0,     
             'min_rotation_speed': 0.4,
             'goal_timeout': 30.0,

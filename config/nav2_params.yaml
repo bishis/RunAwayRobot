@@ -76,38 +76,41 @@ controller_server:
       # Adjust velocity limits
       min_vel_x: 0.0
       max_vel_x: 0.15
-      min_vel_theta: -0.8  # Keep max negative
-      max_vel_theta: 0.8   # Keep max positive
+      min_vel_theta: -0.5  # Reduced from -0.8
+      max_vel_theta: 0.5   # Reduced from 0.8
       
-      # More aggressive rotation
-      acc_lim_theta: 0.8
-      decel_lim_theta: -0.8
+      # Gentler acceleration limits
+      acc_lim_theta: 0.3   # Reduced from 0.8
+      decel_lim_theta: -0.3  # Reduced from -0.8
       
       # Minimum speed thresholds
       min_speed_theta: 0.1  # Minimum absolute angular speed when rotating
       min_theta_velocity_threshold: 0.1  # Minimum angular velocity threshold
       
       # Prioritize rotation to goal
-      path_distance_bias: 32.0
-      goal_distance_bias: 20.0
-      goal_align_bias: 10.0
+      path_distance_bias: 32.0    # Weight for following the path
+      goal_distance_bias: 20.0    # Weight for getting to the goal
+      goal_align_bias: 2.0       # Reduced weight for aligning with goal orientation
       
       # Reduce rotation granularity
-      angular_granularity: 0.05
-      yaw_goal_tolerance: 0.1
+      angular_granularity: 0.2    # Increased from 0.1
       
       # Trajectory sampling for rotation
-      vtheta_samples: 20
-      sim_time: 1.5
+      vtheta_samples: 16
+      sim_time: 2.5              # Look further ahead
       
       # Critics weights
-      critics: ["Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "GoalDist"]
-      GoalAlign.scale: 10.0
-      PathAlign.scale: 20.0
+      critics: ["Oscillation", "BaseObstacle", "PathAlign", "GoalAlign", "PathDist"]
+      GoalAlign.scale: 2.0       # Reduced from 5.0
+      PathAlign.scale: 20.0      # Reduced from 32.0
       
       # Prevent oscillation
-      oscillation_reset_dist: 0.05
-      oscillation_reset_angle: 0.2
+      oscillation_reset_dist: 0.3
+      oscillation_reset_angle: 0.5
+      
+      # Increase tolerances to prevent oscillation
+      yaw_goal_tolerance: 0.2    # More forgiving angle tolerance
+      xy_goal_tolerance: 0.2     # More forgiving position tolerance
       
       # Much slower velocity limits for slippery surface
       max_speed_xy: 0.2

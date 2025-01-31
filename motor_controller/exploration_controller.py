@@ -22,9 +22,9 @@ class ExplorationController(Node):
         self.declare_parameter('safety_margin', 0.3)  # Distance from walls
         self.declare_parameter('waypoint_size', 0.3)  # Size of waypoint markers
         self.declare_parameter('preferred_distance', 1.0)  # Preferred distance for new waypoints
-        self.declare_parameter('min_waypoint_time', 30.0)  # Minimum time to keep a waypoint
+        self.declare_parameter('min_waypoint_time', 15.0)  # Minimum time to keep a waypoint
         self.declare_parameter('goal_reached_distance', 0.5)  # Distance to consider goal reached
-        self.declare_parameter('score_hysteresis', 0.3)  # Required score improvement to change waypoint
+        self.declare_parameter('score_hysteresis', 0.1)  # Required score improvement to change waypoint
         
         # Get parameters
         self.min_distance = self.get_parameter('min_distance').value
@@ -287,11 +287,22 @@ class ExplorationController(Node):
             return
         
         if not self.is_navigating:
-            # Only generate new waypoint if needed
-            if self.should_generate_new_waypoint():
+            # If we have no waypoint at all, generate first one without score comparison
+            if self.current_waypoint is None:
                 new_waypoint = self.generate_next_waypoint()
                 if new_waypoint:
-                    # Only accept new waypoint if it's significantly better
+                    self.current_waypoint = new_waypoint
+                    self.current_waypoint_score = self.score_waypoint(new_waypoint)
+                    self.waypoint_start_time = self.get_clock().now()
+                    self.publish_waypoint_markers()
+                    self.get_logger().info(
+                        f'Generated initial waypoint at '
+                        f'({new_waypoint.pose.position.x:.2f}, {new_waypoint.pose.position.y:.2f})'
+                    )
+            # Otherwise, only generate new waypoint if needed
+            elif self.should_generate_new_waypoint():
+                new_waypoint = self.generate_next_waypoint()
+                if new_waypoint:
                     new_score = self.score_waypoint(new_waypoint)
                     if new_score > self.current_waypoint_score + self.score_hysteresis:
                         self.current_waypoint = new_waypoint
@@ -304,11 +315,9 @@ class ExplorationController(Node):
                         )
                     else:
                         self.get_logger().info('New waypoint not significantly better, keeping current')
-                else:
-                    self.get_logger().warn('Failed to generate valid waypoint')
             
+            # Send navigation goal if we have a waypoint
             if self.current_waypoint:
-                # Send goal
                 goal_msg = NavigateToPose.Goal()
                 goal_msg.pose = self.current_waypoint
                 

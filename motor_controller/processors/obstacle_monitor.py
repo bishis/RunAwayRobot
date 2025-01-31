@@ -10,9 +10,6 @@ import numpy as np
 import math
 from tf2_ros import Buffer, TransformListener
 import time
-from visualization_msgs.msg import Marker
-from geometry_msgs.msg import Point
-from std_msgs.msg import ColorRGBA
 
 class ObstacleMonitor(Node):
     def __init__(self):
@@ -52,12 +49,6 @@ class ObstacleMonitor(Node):
         
         # Create monitoring timer
         self.create_timer(0.1, self.monitor_obstacles)  # 10Hz monitoring
-        
-        # Add marker publisher
-        self.marker_pub = self.create_publisher(Marker, 'obstacle_radius', 10)
-        
-        # Create timer for publishing detection radius visualization
-        self.create_timer(0.1, self.publish_detection_radius)  # 10Hz
         
         self.get_logger().info('Obstacle monitor initialized')
 
@@ -182,64 +173,16 @@ class ObstacleMonitor(Node):
         # This would add the obstacle to the local costmap
         pass
 
-    def publish_detection_radius(self):
-        """Publish visualization of obstacle detection radius"""
-        try:
-            marker = Marker()
-            marker.header.frame_id = "base_link"
-            marker.header.stamp = self.get_clock().now().to_msg()
-            marker.ns = "detection_radius"
-            marker.id = 0
-            marker.type = Marker.CYLINDER
-            marker.action = Marker.ADD
-            
-            # Position at robot center
-            marker.pose.position.x = 0.0
-            marker.pose.position.y = 0.0
-            marker.pose.position.z = 0.0  # Slightly above ground
-            
-            # No rotation needed for cylinder
-            marker.pose.orientation.x = 0.0
-            marker.pose.orientation.y = 0.0
-            marker.pose.orientation.z = 0.0
-            marker.pose.orientation.w = 1.0
-            
-            # Set size
-            marker.scale.x = self.scan_threshold * 2  # Diameter
-            marker.scale.y = self.scan_threshold * 2  # Diameter
-            marker.scale.z = 0.01  # Thin disk
-            
-            # Set color (semi-transparent yellow)
-            marker.color = ColorRGBA()
-            marker.color.r = 1.0
-            marker.color.g = 1.0
-            marker.color.b = 0.0
-            marker.color.a = 0.3
-            
-            # Add critical threshold ring
-            critical_marker = Marker()
-            critical_marker.header = marker.header
-            critical_marker.ns = "critical_radius"
-            critical_marker.id = 1
-            critical_marker.type = Marker.CYLINDER
-            critical_marker.action = Marker.ADD
-            critical_marker.pose = marker.pose
-            
-            # Set size for critical threshold
-            critical_marker.scale.x = self.critical_threshold * 2
-            critical_marker.scale.y = self.critical_threshold * 2
-            critical_marker.scale.z = 0.01
-            
-            # Set color (semi-transparent red)
-            critical_marker.color = ColorRGBA()
-            critical_marker.color.r = 1.0
-            critical_marker.color.g = 0.0
-            critical_marker.color.b = 0.0
-            critical_marker.color.a = 0.3
-            
-            # Publish both markers
-            self.marker_pub.publish(marker)
-            self.marker_pub.publish(critical_marker)
-            
-        except Exception as e:
-            self.get_logger().error(f'Error publishing detection radius: {str(e)}')
+def main(args=None):
+    rclpy.init(args=args)
+    node = ObstacleMonitor()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main() 

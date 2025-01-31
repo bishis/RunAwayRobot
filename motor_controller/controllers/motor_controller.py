@@ -55,10 +55,13 @@ class MotorController:
         - Robot Right = Robot's Left side forward, Right side backward
         - Robot Left = Robot's Left side backward, Right side forward
         """
-
+        # Clamp values to valid range
+        linear = max(min(linear, 1.0), -1.0)
+        angular = max(min(angular, 1.0), -1.0)
+        
+        # Calculate left and right motor speeds
         left_speed = linear + angular
         right_speed = linear - angular
-
         
         # Normalize speeds if they exceed [-1, 1]
         max_speed = max(abs(left_speed), abs(right_speed))
@@ -66,24 +69,7 @@ class MotorController:
             left_speed /= max_speed
             right_speed /= max_speed
         
-        # Apply minimum threshold - if speed is non-zero but below threshold, set to threshold
-        MIN_SPEED = 0.7  # 70% power minimum
-        TURN_MIN_SPEED = 0.8  # Higher minimum speed for turning
-        
-        # Use higher minimum speed when turning
-        current_min_speed = TURN_MIN_SPEED if abs(angular) > 0.1 else MIN_SPEED
-        
-        if abs(left_speed) > 0 and abs(left_speed) < current_min_speed:
-            left_speed = current_min_speed if left_speed > 0 else -current_min_speed
-            if self.logger:
-                self.logger.info(f'Left speed boosted to minimum: {left_speed:.2f}')
-        
-        if abs(right_speed) > 0 and abs(right_speed) < current_min_speed:
-            right_speed = current_min_speed if right_speed > 0 else -current_min_speed
-            if self.logger:
-                self.logger.info(f'Right speed boosted to minimum: {right_speed:.2f}')
-        
-        # Set motor directions and speeds
+        # Set motor directions and speeds (reversed because robot is on opposite side)
         if left_speed >= 0:
             self.left_dir.off()  # Forward for motor = Backward for robot
             self.left_pwm.value = abs(left_speed)
@@ -98,11 +84,11 @@ class MotorController:
             self.right_dir.off() # Backward for motor = Forward for robot
             self.right_pwm.value = abs(right_speed)
         
-        # Log actual speeds being applied (show robot's perspective)
+        # Log actual speeds being applied
         if self.logger:
             self.logger.info(
-                f'Robot speeds - Left: {-left_speed:6.3f}, Right: {-right_speed:6.3f} ' +
-                f'(Turn: {abs(angular) > 0.1}, Spin: {abs(angular) > 0.1 and abs(linear) < 0.1})'
+                f'Motor speeds (-1 to 1) - Left: {left_speed:6.3f}, Right: {right_speed:6.3f} | ' +
+                f'Input - Linear: {linear:6.3f}, Angular: {angular:6.3f}'
             )
 
     def stop_motors(self):

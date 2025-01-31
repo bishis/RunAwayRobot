@@ -232,10 +232,6 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /exploration_markers
       Value: true
-    - Class: rviz_default_plugins/Marker
-      Name: ObstacleRadius
-      Topic: /obstacle_radius
-      Enabled: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48

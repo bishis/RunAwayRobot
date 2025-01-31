@@ -103,7 +103,6 @@ def generate_launch_description():
 
         # Navigation with delay
         navigation_launch,
-
         # Person Detector
         Node(
             package='motor_controller',
@@ -111,4 +110,5 @@ def generate_launch_description():
             name='person_detector',
             output='screen'
         )
+
     ])

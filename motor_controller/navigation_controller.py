@@ -81,13 +81,16 @@ class NavigationController(Node):
                 f'Received cmd_vel - Linear: {msg.linear.x:.3f}, Angular: {msg.angular.z:.3f}'
             )
 
-            # Apply minimum rotation threshold
-            original_angular = msg.angular.z
-            if abs(msg.angular.z) < self.min_rotation_speed:
-                msg.angular.z = 0.0
-                if abs(original_angular) > 0.0:
+            # Handle small rotations differently
+            if abs(msg.angular.z) > 0.0:
+                # If we're trying to rotate, ensure minimum effective rotation
+                if abs(msg.angular.z) < self.min_rotation_speed:
+                    # Scale up to minimum rotation speed while preserving direction
+                    msg.angular.z = math.copysign(self.min_rotation_speed, msg.angular.z)
+                    # Stop linear motion during small rotations
+                    msg.linear.x = 0.0
                     self.get_logger().info(
-                        f'Angular speed {original_angular:.3f} below threshold, setting to 0'
+                        f'Small rotation detected, increasing to {msg.angular.z:.3f}'
                     )
             
             # Ensure we're not exceeding max speeds

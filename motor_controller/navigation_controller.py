@@ -118,18 +118,21 @@ class NavigationController(Node):
     def exploration_loop(self):
         """Main control loop for autonomous exploration"""
         try:
-            # If not navigating, generate new waypoint
+            # If not navigating, check if we need a new waypoint
             if not self.is_navigating:
-                self.get_logger().info('Generating new waypoint...')
-                waypoint = self.waypoint_generator.generate_waypoint()
-                if waypoint:
-                    self.get_logger().info('Generated waypoint, sending goal...')
-                    self.send_goal(waypoint)
-                    # Publish visualization
-                    markers = self.waypoint_generator.create_visualization_markers(waypoint)
-                    self.marker_pub.publish(markers)
-                else:
-                    self.get_logger().warn('Failed to generate waypoint')
+                if (self.waypoint_generator.has_reached_waypoint() or 
+                    not self.waypoint_generator.is_waypoint_valid()):
+                    
+                    self.get_logger().info('Generating new waypoint...')
+                    waypoint = self.waypoint_generator.generate_waypoint()
+                    if waypoint:
+                        self.get_logger().info('Generated waypoint, sending goal...')
+                        self.send_goal(waypoint)
+                        # Publish visualization
+                        markers = self.waypoint_generator.create_visualization_markers(waypoint)
+                        self.marker_pub.publish(markers)
+                    else:
+                        self.get_logger().warn('Failed to generate waypoint')
             else:
                 self.get_logger().debug('Currently navigating to goal...')
             

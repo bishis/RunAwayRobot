@@ -45,6 +45,9 @@ class WaypointGenerator:
         # State variables
         self.current_map = None
         self.current_waypoint = None
+        self.last_waypoint_time = None
+        self.min_waypoint_duration = 5.0  # Minimum time to keep a waypoint
+        self.reached_waypoint = False
 
     def update_map(self, map_msg: OccupancyGrid):
         """Update stored map"""
@@ -117,8 +120,52 @@ class WaypointGenerator:
         
         return False
 
+    def is_waypoint_valid(self) -> bool:
+        """Check if current waypoint is still valid"""
+        if not self.current_waypoint or not self.current_map:
+            return False
+            
+        # Check if we've had this waypoint for minimum time
+        if self.last_waypoint_time:
+            time_since_waypoint = (self.node.get_clock().now() - self.last_waypoint_time).nanoseconds / 1e9
+            if time_since_waypoint < self.min_waypoint_duration:
+                return True
+
+        # Check if point is still in free space
+        x = self.current_waypoint.pose.position.x
+        y = self.current_waypoint.pose.position.y
+        return self.is_valid_point(x, y)
+
+    def has_reached_waypoint(self) -> bool:
+        """Check if robot has reached current waypoint"""
+        if not self.current_waypoint:
+            return False
+            
+        try:
+            # Get robot position
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            
+            # Calculate distance to waypoint
+            dx = transform.transform.translation.x - self.current_waypoint.pose.position.x
+            dy = transform.transform.translation.y - self.current_waypoint.pose.position.y
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            return distance < self.goal_tolerance
+            
+        except TransformException:
+            return False
+
     def generate_waypoint(self) -> PoseStamped:
         """Generate a single new waypoint prioritizing unexplored areas"""
+        # Check if current waypoint is still valid and not reached
+        if self.current_waypoint:
+            if self.is_waypoint_valid() and not self.has_reached_waypoint():
+                return self.current_waypoint
+        
         if not self.current_map:
             return None
         
@@ -238,6 +285,12 @@ class WaypointGenerator:
             # If no unknown areas, just use default orientation
             waypoint.pose.orientation.w = 1.0
         
+        # Store waypoint and time
+        if best_point is not None:
+            self.current_waypoint = waypoint
+            self.last_waypoint_time = self.node.get_clock().now()
+            self.reached_waypoint = False
+            
         return waypoint
 
     def create_visualization_markers(self, waypoint: PoseStamped = None) -> MarkerArray:

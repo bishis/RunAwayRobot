@@ -87,7 +87,8 @@ class MotorController:
         # Log actual speeds being applied
         if self.logger:
             self.logger.info(
-                f'Motor speeds - Left: {left_speed:6.3f}, Right: {right_speed:6.3f}'
+                f'Motor speeds (-1 to 1) - Left: {left_speed:6.3f}, Right: {right_speed:6.3f} | ' +
+                f'Input - Linear: {linear:6.3f}, Angular: {angular:6.3f}'
             )
 
     def stop_motors(self):

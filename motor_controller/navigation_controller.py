@@ -59,8 +59,8 @@ class NavigationController(Node):
         """Main state machine loop"""
         try:
             # Check for obstacles using obstacle monitor's detection
-            obstacle = self.obstacle_monitor.detect_obstacles()
-            
+            #obstacle = self.obstacle_monitor.detect_obstacles()
+            obstacle = False
             if self.current_state == RobotState.EXPLORING:
                 if obstacle:
                     # Obstacle detected, switch to avoidance

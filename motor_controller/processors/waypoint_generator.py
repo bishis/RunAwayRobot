@@ -46,8 +46,7 @@ class WaypointGenerator:
         self.current_map = None
         self.current_waypoint = None
         self.last_waypoint_time = None
-        self.min_waypoint_duration = 15.0  # Minimum time to keep a waypoint
-        self.force_new_waypoint = False  # Flag to force new waypoint on failure/timeout
+        self.force_new_waypoint = False
         self.reached_waypoint = False
         
         # Add stability parameters
@@ -133,13 +132,7 @@ class WaypointGenerator:
         if not self.current_waypoint or not self.current_map:
             return False
             
-        # Check if we've had this waypoint for minimum time
-        if self.last_waypoint_time:
-            time_since_waypoint = (self.node.get_clock().now() - self.last_waypoint_time).nanoseconds / 1e9
-            if time_since_waypoint < self.min_waypoint_duration:
-                return True
-
-        # Check if point is still in free space
+        # Only check if point is still in free space
         x = self.current_waypoint.pose.position.x
         y = self.current_waypoint.pose.position.y
         return self.is_valid_point(x, y)
@@ -180,11 +173,10 @@ class WaypointGenerator:
 
     def generate_waypoint(self) -> PoseStamped:
         """Generate a single new waypoint prioritizing unexplored areas"""
-        # Keep current waypoint unless forced to change
+        # Keep current waypoint unless forced to change or reached
         if self.current_waypoint and not self.force_new_waypoint:
             if self.is_waypoint_valid() and not self.has_reached_waypoint():
-                # Add extra logging
-                self.node.get_logger().info('Keeping current waypoint')
+                self.node.get_logger().debug('Keeping existing waypoint')
                 return self.current_waypoint
 
         # Reset force flag
@@ -298,47 +290,39 @@ class WaypointGenerator:
         if best_point is None:
             return None
         
-        # Only update waypoint if score meets minimum threshold
-        if best_score < self.min_score_threshold and self.current_waypoint:
-            self.node.get_logger().info(f'No better waypoint found (best score: {best_score:.2f})')
-            return self.current_waypoint
-        
-        # Create waypoint with the best point
-        waypoint = PoseStamped()
-        waypoint.header.frame_id = 'map'
-        waypoint.header.stamp = self.node.get_clock().now().to_msg()
-        waypoint.pose.position.x = best_point[0]
-        waypoint.pose.position.y = best_point[1]
-        waypoint.pose.position.z = 0.0
-        
-        # Set orientation towards unexplored area
-        # Find direction of closest unknown area
-        unknown_y, unknown_x = np.where(unknown_area)
-        if len(unknown_x) > 0:
-            # Find closest unknown point
-            dists = [(ux - map_x)**2 + (uy - map_y)**2 for ux, uy in zip(unknown_x, unknown_y)]
-            closest_idx = np.argmin(dists)
-            target_x = origin_x + unknown_x[closest_idx] * resolution
-            target_y = origin_y + unknown_y[closest_idx] * resolution
-            
-            # Calculate angle towards unknown area
-            angle = math.atan2(target_y - best_point[1], target_x - best_point[0])
-            waypoint.pose.orientation.z = math.sin(angle / 2)
-            waypoint.pose.orientation.w = math.cos(angle / 2)
-        else:
-            # If no unknown areas, just use default orientation
-            waypoint.pose.orientation.w = 1.0
-        
-        # Store waypoint and score
+        # Once we find a valid waypoint, stick to it
         if best_point is not None:
+            waypoint = PoseStamped()
+            waypoint.header.frame_id = 'map'
+            waypoint.header.stamp = self.node.get_clock().now().to_msg()
+            waypoint.pose.position.x = best_point[0]
+            waypoint.pose.position.y = best_point[1]
+            waypoint.pose.position.z = 0.0
+            
+            # Set orientation towards unexplored area
+            # Find direction of closest unknown area
+            unknown_y, unknown_x = np.where(unknown_area)
+            if len(unknown_x) > 0:
+                # Find closest unknown point
+                dists = [(ux - map_x)**2 + (uy - map_y)**2 for ux, uy in zip(unknown_x, unknown_y)]
+                closest_idx = np.argmin(dists)
+                target_x = origin_x + unknown_x[closest_idx] * resolution
+                target_y = origin_y + unknown_y[closest_idx] * resolution
+                
+                # Calculate angle towards unknown area
+                angle = math.atan2(target_y - best_point[1], target_x - best_point[0])
+                waypoint.pose.orientation.z = math.sin(angle / 2)
+                waypoint.pose.orientation.w = math.cos(angle / 2)
+            else:
+                # If no unknown areas, just use default orientation
+                waypoint.pose.orientation.w = 1.0
+            
             self.current_waypoint = waypoint
             self.last_waypoint_time = self.node.get_clock().now()
-            self.last_best_score = best_score
-            self.waypoint_attempts = 0
             self.reached_waypoint = False
-            self.node.get_logger().info(f'New waypoint selected with score: {best_score:.2f}')
+            self.node.get_logger().info('New waypoint selected')
             
-        return waypoint
+        return self.current_waypoint
 
     def create_visualization_markers(self, waypoint: PoseStamped = None) -> MarkerArray:
         """Create visualization markers for waypoints"""

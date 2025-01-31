@@ -124,7 +124,7 @@ def generate_launch_description():
         parameters=[{
             'max_linear_speed': 0.07,      
             'max_angular_speed': 1.0,     
-            'min_rotation_speed': 0.5,
+            'min_rotation_speed': 0.65,
             'goal_timeout': 30.0,
             'robot_radius': 0.16,
             'safety_margin': 0.3,

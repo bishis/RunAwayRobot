@@ -76,15 +76,35 @@ class NavigationController(Node):
     def cmd_vel_callback(self, msg: Twist):
         """Handle incoming velocity commands"""
         try:
+            # Log incoming command
+            self.get_logger().info(
+                f'Received cmd_vel - Linear: {msg.linear.x:.3f}, Angular: {msg.angular.z:.3f}'
+            )
+
             # Apply minimum rotation threshold
+            original_angular = msg.angular.z
             if abs(msg.angular.z) < self.min_rotation_speed:
                 msg.angular.z = 0.0
+                if abs(original_angular) > 0.0:
+                    self.get_logger().info(
+                        f'Angular speed {original_angular:.3f} below threshold, setting to 0'
+                    )
+            
+            # Ensure we're not exceeding max speeds
+            msg.linear.x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
+            msg.angular.z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
             
             # Create and publish wheel speeds message
             wheel_speeds = Twist()
             wheel_speeds.linear.x = msg.linear.x
             wheel_speeds.angular.z = msg.angular.z
             self.wheel_speeds_pub.publish(wheel_speeds)
+            
+            # Log final speeds
+            if abs(msg.linear.x) > 0.0 or abs(msg.angular.z) > 0.0:
+                self.get_logger().info(
+                    f'Publishing speeds - Linear: {msg.linear.x:.3f}, Angular: {msg.angular.z:.3f}'
+                )
             
         except Exception as e:
             self.get_logger().error(f'Error in cmd_vel callback: {str(e)}')
@@ -97,12 +117,18 @@ class NavigationController(Node):
         try:
             # If not navigating, generate new waypoint
             if not self.is_navigating:
+                self.get_logger().info('Generating new waypoint...')
                 waypoint = self.waypoint_generator.generate_waypoint()
                 if waypoint:
+                    self.get_logger().info('Generated waypoint, sending goal...')
                     self.send_goal(waypoint)
                     # Publish visualization
                     markers = self.waypoint_generator.create_visualization_markers(waypoint)
                     self.marker_pub.publish(markers)
+                else:
+                    self.get_logger().warn('Failed to generate waypoint')
+            else:
+                self.get_logger().debug('Currently navigating to goal...')
             
             # Check for timeout on current goal
             if self.is_navigating and self.goal_start_time:

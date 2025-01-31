@@ -21,7 +21,7 @@ class NavigationController(Node):
         self.declare_parameter('safety_margin', 0.3)
         self.declare_parameter('max_linear_speed', 0.1)
         self.declare_parameter('max_angular_speed', 1.366)  # Actual max rotation speed
-        self.declare_parameter('min_rotation_speed', 0.2)
+        self.declare_parameter('min_rotation_speed', 0.6)
         self.declare_parameter('goal_timeout', 30.0)
         
         # Get parameters

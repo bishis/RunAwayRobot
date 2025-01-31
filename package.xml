@@ -63,4 +63,7 @@
 
   <!-- Add collision monitor -->
   <depend>nav2_collision_monitor</depend>
+
+  <!-- Add image processing -->
+  <depend>image_proc</depend>
 </package> 

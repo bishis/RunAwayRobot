@@ -45,7 +45,7 @@ def generate_launch_description():
 
         # Add Camera Node
         Node(
-            package='v4l2_camera',  # Standard ROS2 USB camera driver
+            package='v4l2_camera',
             executable='v4l2_camera_node',
             name='camera',
             parameters=[{
@@ -54,8 +54,8 @@ def generate_launch_description():
                 'pixel_format': 'YUYV',
                 'frame_rate': 30.0,
                 'camera_frame_id': 'camera_link',
-                'vertical_flip': True,     # Add this to flip the image vertically
-                'horizontal_flip': False   # Add this to keep horizontal orientation
+                'vertical_flip': True,     # Flip the image in the camera driver
+                'horizontal_flip': False
             }],
             remappings=[
                 ('image_raw', '/camera/image_raw'),
@@ -77,7 +77,7 @@ def generate_launch_description():
             name='image_compress',
             arguments=['raw', 'compressed'],
             remappings=[
-                ('in', '/camera/image_raw'),
+                ('in', '/camera/image_raw'),  # Use raw image since it's already flipped
                 ('out/compressed', '/camera/image_raw/compressed'),
             ]
         )

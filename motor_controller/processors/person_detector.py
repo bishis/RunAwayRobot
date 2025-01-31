@@ -58,7 +58,7 @@ class PersonDetector(Node):
         # Create subscribers
         self.image_sub = self.create_subscription(
             CompressedImage,
-            '/camera/image_raw/compressed',
+            '/camera/image_raw/compressed',  # Already flipped from camera driver
             self.image_callback,
             10
         )

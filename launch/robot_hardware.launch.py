@@ -80,20 +80,5 @@ def generate_launch_description():
                 ('in', '/camera/image_raw'),
                 ('out/compressed', '/camera/image_raw/compressed'),
             ]
-        ),
-
-        # Add Obstacle Monitor
-        Node(
-            package='motor_controller',
-            executable='obstacle_monitor',
-            name='obstacle_monitor',
-            parameters=[{
-                'robot_radius': 0.16,
-                'safety_margin': 0.2,
-                'scan_threshold': 0.5,
-                'critical_threshold': 0.3,
-                'avoidance_speed': 0.05
-            }],
-            output='screen'
-        ),
+        )
     ])

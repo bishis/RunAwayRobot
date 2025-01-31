@@ -19,7 +19,7 @@ class WaypointGenerator:
                  safety_margin: float = 0.3,
                  waypoint_size: float = 0.3,
                  preferred_distance: float = 1.0,
-                 goal_tolerance: float = 0.3):
+                 goal_tolerance: float = 0.5):
         """
         Initialize waypoint generator.
         
@@ -46,7 +46,7 @@ class WaypointGenerator:
         self.current_map = None
         self.current_waypoint = None
         self.last_waypoint_time = None
-        self.min_waypoint_duration = 5.0  # Minimum time to keep a waypoint
+        self.min_waypoint_duration = 15.0  # Minimum time to keep a waypoint
         self.force_new_waypoint = False  # Flag to force new waypoint on failure/timeout
         self.reached_waypoint = False
         
@@ -183,6 +183,8 @@ class WaypointGenerator:
         # Keep current waypoint unless forced to change
         if self.current_waypoint and not self.force_new_waypoint:
             if self.is_waypoint_valid() and not self.has_reached_waypoint():
+                # Add extra logging
+                self.node.get_logger().info('Keeping current waypoint')
                 return self.current_waypoint
 
         # Reset force flag
@@ -231,8 +233,8 @@ class WaypointGenerator:
         best_point = None
         best_score = -float('inf')
         
-        # Sample points and score them
-        for _ in range(50):  # Try 50 random points
+        # Reduce number of attempts
+        for _ in range(20):  # Reduced from 50 to 20 attempts
             # Find valid cells (free space)
             valid_y, valid_x = np.where((map_data == 0) & (wall_distance > self.safety_margin))
             

@@ -21,7 +21,7 @@ class NavigationController(Node):
         self.declare_parameter('safety_margin', 0.3)
         self.declare_parameter('max_linear_speed', 0.1)
         self.declare_parameter('max_angular_speed', 1.366)  # Actual max rotation speed
-        self.declare_parameter('min_rotation_speed', 0.6)
+        self.declare_parameter('min_rotation_speed', 0.4)
         self.declare_parameter('goal_timeout', 30.0)
         
         # Get parameters
@@ -217,17 +217,27 @@ class NavigationController(Node):
         """Handle navigation goal result"""
         try:
             status = future.result().status
+            self.get_logger().info(f'Navigation status: {status}')
+            
             if status == GoalStatus.STATUS_SUCCEEDED:
                 self.get_logger().info('Navigation succeeded')
                 self.consecutive_failures = 0
                 self.is_navigating = False
                 # Successfully reached goal, generate new waypoint
                 self.exploration_loop()
-            else:
+            elif status == GoalStatus.STATUS_CANCELED or status == GoalStatus.STATUS_ABORTED:
+                # Only treat cancellation or abortion as failures
                 self.get_logger().warn(f'Navigation failed with status: {status}, trying new waypoint')
-                # Clear current waypoint in generator to force new one
-                self.waypoint_generator.current_waypoint = None
+                self.waypoint_generator.force_waypoint_change()
                 self.handle_goal_failure()
+            else:
+                # For other statuses (like preemption), just reset state and continue
+                self.get_logger().info(f'Navigation preempted or changed, continuing exploration')
+                self.is_navigating = False
+                self.current_goal = None
+                self.goal_start_time = None
+                self.exploration_loop()
+                
         except Exception as e:
             self.get_logger().error(f'Error in goal result callback: {str(e)}')
             self.handle_goal_failure()

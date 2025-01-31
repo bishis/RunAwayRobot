@@ -86,6 +86,37 @@ class WaypointGenerator:
                         return False
         return True
 
+    def is_connected_to_robot(self, map_x: int, map_y: int, robot_x: int, robot_y: int, map_data: np.ndarray) -> bool:
+        """Check if a point is connected to robot position without crossing walls"""
+        # Use flood fill to check connectivity
+        height, width = map_data.shape
+        visited = np.zeros_like(map_data, dtype=bool)
+        
+        # Start flood fill from robot position
+        queue = [(robot_x, robot_y)]
+        visited[robot_y, robot_x] = True
+        
+        while queue:
+            x, y = queue.pop(0)
+            
+            # Check if we've reached the target point
+            if x == map_x and y == map_y:
+                return True
+            
+            # Check all adjacent cells
+            for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+                next_x, next_y = x + dx, y + dy
+                
+                # Check bounds
+                if (0 <= next_x < width and 0 <= next_y < height and
+                    not visited[next_y, next_x] and
+                    map_data[next_y, next_x] <= 50):  # Free or unknown space
+                    
+                    queue.append((next_x, next_y))
+                    visited[next_y, next_x] = True
+        
+        return False
+
     def generate_waypoint(self) -> PoseStamped:
         """Generate a single new waypoint prioritizing unexplored areas"""
         if not self.current_map:
@@ -143,6 +174,10 @@ class WaypointGenerator:
             idx = random.randint(0, len(valid_x) - 1)
             map_x = valid_x[idx]
             map_y = valid_y[idx]
+            
+            # Check if point is connected to robot position
+            if not self.is_connected_to_robot(map_x, map_y, robot_grid_x, robot_grid_y, map_data):
+                continue
             
             # Convert to world coordinates
             x = origin_x + map_x * resolution

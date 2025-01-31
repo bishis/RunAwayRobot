@@ -107,28 +107,6 @@ class NavigationController(Node):
         
         return desired_linear, desired_angular
 
-    def smooth_velocity(self, desired_linear, desired_angular):
-        """Apply smoothing to velocity commands"""
-        if not hasattr(self, 'last_linear'):
-            self.last_linear = 0.0
-            self.last_angular = 0.0
-        
-        # Smoothing factors (adjust these to change responsiveness)
-        LINEAR_SMOOTH = 0.3   # Lower = smoother
-        ANGULAR_SMOOTH = 0.2  # Lower = smoother
-        
-        # Apply exponential smoothing
-        smooth_linear = (LINEAR_SMOOTH * desired_linear + 
-                        (1 - LINEAR_SMOOTH) * self.last_linear)
-        smooth_angular = (ANGULAR_SMOOTH * desired_angular + 
-                         (1 - ANGULAR_SMOOTH) * self.last_angular)
-        
-        # Store for next iteration
-        self.last_linear = smooth_linear
-        self.last_angular = smooth_angular
-        
-        return smooth_linear, smooth_angular
-
     def cmd_vel_callback(self, msg: Twist):
         """Handle incoming velocity commands with obstacle avoidance"""
         try:
@@ -146,11 +124,11 @@ class NavigationController(Node):
             self.wheel_speeds_pub.publish(wheel_speeds)
             
             # Log if speeds were modified
-            if smooth_linear != desired_linear or smooth_angular != desired_angular:
+            if safe_linear != desired_linear or safe_angular != desired_angular:
                 self.get_logger().info(
                     f'Modified speeds for safety:\n'
-                    f'  Linear: {desired_linear:.2f} -> {smooth_linear:.2f}\n'
-                    f'  Angular: {desired_angular:.2f} -> {smooth_angular:.2f}'
+                    f'  Linear: {desired_linear:.2f} -> {safe_linear:.2f}\n'
+                    f'  Angular: {desired_angular:.2f} -> {safe_angular:.2f}'
                 )
             
         except Exception as e:

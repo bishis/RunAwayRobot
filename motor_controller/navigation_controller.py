@@ -59,56 +59,41 @@ class NavigationController(Node):
         """Main state machine loop"""
         try:
             # Check for obstacles using obstacle monitor's detection
-            #obstacle = self.obstacle_monitor.detect_obstacles()
-            obstacle = None
-            # Log current state and obstacle info
-            if obstacle:
-                self.get_logger().info(
-                    f'State: {self.current_state.name} | ' +
-                    f'Obstacle detected at {obstacle["distance"]:.2f}m, ' +
-                    f'angle: {math.degrees(obstacle["angle"]):.1f}°, ' +
-                    f'critical: {obstacle["critical"]}'
-                )
-            else:
-                self.get_logger().debug(f'State: {self.current_state.name} | No obstacles detected')
+            obstacle = self.obstacle_monitor.detect_obstacles()
             
             if self.current_state == RobotState.EXPLORING:
                 if obstacle:
-                    self.get_logger().warn(
-                        'Switching to AVOIDING state - ' +
-                        f'Obstacle at {obstacle["distance"]:.2f}m'
-                    )
+                    # Obstacle detected, switch to avoidance
+                    self.get_logger().info('Obstacle detected - Switching to AVOIDING state')
                     self.current_state = RobotState.AVOIDING
+                    # Store current exploration goal
                     self.obstacle_monitor.last_goal = self.exploration_controller.current_waypoint
                 else:
+                    # Continue exploration using exploration controller's functions
                     self.exploration_controller.exploration_loop()
                     
             elif self.current_state == RobotState.AVOIDING:
                 if obstacle:
-                    self.get_logger().info(
-                        f'Executing avoidance maneuver - ' +
-                        f'Distance: {obstacle["distance"]:.2f}m, ' +
-                        f'Angle: {math.degrees(obstacle["angle"]):.1f}°'
-                    )
+                    # Execute avoidance using obstacle monitor's functions
                     self.obstacle_monitor.execute_avoidance(obstacle)
                 else:
+                    # Clear of obstacles, switch to recovery
                     self.get_logger().info('Clear of obstacles - Switching to RECOVERY state')
                     self.current_state = RobotState.RECOVERING
-                    success = self.obstacle_monitor.request_new_path()
-                    self.get_logger().info(f'Path replanning {"successful" if success else "failed"}')
+                    # Request new path to original goal
+                    self.obstacle_monitor.request_new_path()
                     
             elif self.current_state == RobotState.RECOVERING:
                 if obstacle:
-                    self.get_logger().warn('New obstacle during recovery - Switching to AVOIDING state')
+                    # Found new obstacle during recovery
+                    self.get_logger().info('New obstacle during recovery - Switching to AVOIDING state')
                     self.current_state = RobotState.AVOIDING
                 else:
+                    # Check if we've reached a good position to resume exploration
                     robot_pose = self.obstacle_monitor.get_robot_pose()
                     if robot_pose:
-                        self.get_logger().info(
-                            'Recovery complete - Resuming EXPLORATION at ' +
-                            f'x: {robot_pose.translation.x:.2f}, ' +
-                            f'y: {robot_pose.translation.y:.2f}'
-                        )
+                        # Resume exploration from current position
+                        self.get_logger().info('Recovery complete - Resuming EXPLORATION')
                         self.current_state = RobotState.EXPLORING
                         self.exploration_controller.generate_new_goal()
             

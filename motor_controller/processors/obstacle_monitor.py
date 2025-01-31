@@ -68,7 +68,6 @@ class ObstacleMonitor(Node):
     def detect_obstacles(self):
         """Analyze scan data for obstacles"""
         if not self.current_scan:
-            self.get_logger().debug('No scan data available')
             return None
             
         # Convert scan to numpy array
@@ -85,18 +84,12 @@ class ObstacleMonitor(Node):
         obstacle_mask = valid_mask & close_mask
         
         if not np.any(obstacle_mask):
-            self.get_logger().debug('No obstacles detected within threshold')
             return None
             
         # Get closest obstacle
         min_dist = np.min(ranges[obstacle_mask])
         min_idx = np.where(ranges == min_dist)[0][0]
         obstacle_angle = angles[min_idx]
-        
-        self.get_logger().info(
-            f'Obstacle detected - Distance: {min_dist:.2f}m, ' +
-            f'Angle: {math.degrees(obstacle_angle):.1f}°'
-        )
         
         return {
             'distance': min_dist,
@@ -144,28 +137,23 @@ class ObstacleMonitor(Node):
         
         if not self.avoidance_start_time:
             self.avoidance_start_time = time.time()
-            self.get_logger().info('Starting avoidance maneuver')
             
         # If we've been avoiding for more than 5 seconds, request new path
         if time.time() - self.avoidance_start_time > 5.0:
-            self.get_logger().warn('Avoidance timeout - requesting new path')
             self.request_new_path()
             self.avoiding = False
             self.avoidance_start_time = None
             return
             
         if obstacle['critical']:
-            self.get_logger().warn('Critical distance - emergency stop')
+            # Emergency stop if too close
             cmd.linear.x = 0.0
             cmd.angular.z = 0.0
         else:
             # Basic avoidance - rotate away from obstacle
-            cmd.linear.x = -self.avoidance_speed
+            cmd.linear.x = -self.avoidance_speed  # Back up slowly
+            # Rotate away from obstacle
             cmd.angular.z = -1.0 if obstacle['angle'] > 0 else 1.0
-            self.get_logger().info(
-                f'Avoiding - Backing up at {cmd.linear.x:.2f}m/s, ' +
-                f'Rotating at {cmd.angular.z:.2f}rad/s'
-            )
             
         self.cmd_vel_pub.publish(cmd)
 
@@ -197,41 +185,38 @@ class ObstacleMonitor(Node):
     def publish_detection_radius(self):
         """Publish visualization of obstacle detection radius"""
         try:
-            # Outer detection radius (yellow)
             marker = Marker()
-            marker.header.frame_id = "base_link"  # Make sure this matches your robot's frame
+            marker.header.frame_id = "base_link"
             marker.header.stamp = self.get_clock().now().to_msg()
             marker.ns = "detection_radius"
             marker.id = 0
             marker.type = Marker.CYLINDER
             marker.action = Marker.ADD
             
-            # Position slightly above ground to be visible
+            # Position at robot center
             marker.pose.position.x = 0.0
             marker.pose.position.y = 0.0
-            marker.pose.position.z = 0.05  # Raised slightly to be more visible
+            marker.pose.position.z = 0.0  # Slightly above ground
             
+            # No rotation needed for cylinder
             marker.pose.orientation.x = 0.0
             marker.pose.orientation.y = 0.0
             marker.pose.orientation.z = 0.0
             marker.pose.orientation.w = 1.0
             
-            # Make the visualization more visible
+            # Set size
             marker.scale.x = self.scan_threshold * 2  # Diameter
             marker.scale.y = self.scan_threshold * 2  # Diameter
-            marker.scale.z = 0.05  # Thicker disk
+            marker.scale.z = 0.01  # Thin disk
             
-            # Brighter yellow with higher opacity
+            # Set color (semi-transparent yellow)
             marker.color = ColorRGBA()
             marker.color.r = 1.0
             marker.color.g = 1.0
             marker.color.b = 0.0
-            marker.color.a = 0.5  # More opaque
+            marker.color.a = 0.3
             
-            # Make marker persistent
-            marker.lifetime = rclpy.duration.Duration().to_msg()
-            
-            # Inner critical radius (red)
+            # Add critical threshold ring
             critical_marker = Marker()
             critical_marker.header = marker.header
             critical_marker.ns = "critical_radius"
@@ -240,29 +225,21 @@ class ObstacleMonitor(Node):
             critical_marker.action = Marker.ADD
             critical_marker.pose = marker.pose
             
+            # Set size for critical threshold
             critical_marker.scale.x = self.critical_threshold * 2
             critical_marker.scale.y = self.critical_threshold * 2
-            critical_marker.scale.z = 0.05  # Match outer ring thickness
+            critical_marker.scale.z = 0.01
             
-            # Brighter red with higher opacity
+            # Set color (semi-transparent red)
             critical_marker.color = ColorRGBA()
             critical_marker.color.r = 1.0
             critical_marker.color.g = 0.0
             critical_marker.color.b = 0.0
-            critical_marker.color.a = 0.5  # More opaque
-            
-            # Make marker persistent
-            critical_marker.lifetime = rclpy.duration.Duration().to_msg()
+            critical_marker.color.a = 0.3
             
             # Publish both markers
             self.marker_pub.publish(marker)
             self.marker_pub.publish(critical_marker)
-            
-            # Log marker publication periodically
-            self.get_logger().debug(
-                f'Published obstacle radius markers - Detection: {self.scan_threshold}m, ' +
-                f'Critical: {self.critical_threshold}m'
-            )
             
         except Exception as e:
             self.get_logger().error(f'Error publishing detection radius: {str(e)}')

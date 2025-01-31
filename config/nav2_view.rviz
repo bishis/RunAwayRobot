@@ -236,11 +236,6 @@ Visualization Manager:
       Name: ObstacleRadius
       Topic: /obstacle_radius
       Enabled: true
-      Queue Size: 10
-      Namespaces:
-        detection_radius: true
-        critical_radius: true
-      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48

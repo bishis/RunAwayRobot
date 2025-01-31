@@ -266,57 +266,93 @@ class ExplorationController(Node):
             return False
 
     def exploration_loop(self):
-        """Main exploration control loop"""
-        try:
+        """Main control loop for exploration"""
+        if not self.current_map:
+            return
+            
+        if not self.is_navigating:
+            # Generate new waypoint if needed
             if not self.current_waypoint:
-                self.get_logger().info('No current waypoint - generating new goal')
-                self.generate_new_goal()
-                return
-                
-            # Get robot pose
-            robot_pose = self.get_robot_pose()
-            if not robot_pose:
-                self.get_logger().warn('Cannot get robot pose')
-                return
-                
-            # Calculate distance to goal
-            dx = self.current_waypoint.pose.position.x - robot_pose.position.x
-            dy = self.current_waypoint.pose.position.y - robot_pose.position.y
-            distance = math.sqrt(dx*dx + dy*dy)
+                # Check cooldown period
+                current_time = self.get_clock().now()
+                if (self.last_waypoint_time and 
+                    (current_time - self.last_waypoint_time).nanoseconds / 1e9 < self.waypoint_cooldown):
+                    return
+                    
+                self.current_waypoint = self.generate_next_waypoint()
+                if self.current_waypoint:
+                    self.publish_waypoint_markers()
+                    self.get_logger().info(
+                        f'Generated new waypoint at ({self.current_waypoint.pose.position.x:.2f}, '
+                        f'{self.current_waypoint.pose.position.y:.2f})'
+                    )
+                    self.last_waypoint_time = current_time
+                else:
+                    return
             
-            self.get_logger().info(
-                f'Distance to waypoint: {distance:.2f}m | ' +
-                f'Goal: ({self.current_waypoint.pose.position.x:.2f}, ' +
-                f'{self.current_waypoint.pose.position.y:.2f})'
+            # Send goal
+            goal_msg = NavigateToPose.Goal()
+            goal_msg.pose = self.current_waypoint
+            
+            self.nav_client.wait_for_server()
+            self.current_goal = self.nav_client.send_goal_async(
+                goal_msg,
+                feedback_callback=self.feedback_callback
             )
+            self.current_goal.add_done_callback(self.goal_response_callback)
             
-            # Check if we've reached the waypoint
-            if distance < self.goal_tolerance:
-                self.get_logger().info('Waypoint reached - generating new goal')
+            self.is_navigating = True
+            self.goal_start_time = self.get_clock().now()
+        
+        else:
+            # Check if we've reached the goal
+            if self.check_goal_reached():
+                self.get_logger().info('Goal reached successfully')
+                self.consecutive_failures = 0  # Reset failure counter
                 self.generate_new_goal()
+                return
                 
-        except Exception as e:
-            self.get_logger().error(f'Error in exploration loop: {str(e)}')
+            # Check for timeout
+            if self.goal_start_time:
+                time_elapsed = (self.get_clock().now() - self.goal_start_time).nanoseconds / 1e9
+                if time_elapsed > self.goal_timeout:
+                    self.get_logger().warn('Goal timeout reached')
+                    self.consecutive_failures += 1
+                    
+                    # If too many consecutive failures, try a completely new area
+                    if self.consecutive_failures >= self.max_consecutive_failures:
+                        self.get_logger().warn('Too many consecutive failures, finding new area')
+                        self.generate_new_goal()
+                    else:
+                        # Try to reach the same goal again
+                        self.is_navigating = False
+                        self.goal_start_time = None
 
     def generate_new_goal(self):
-        """Generate new exploration waypoint"""
-        try:
-            if not self.current_map:
-                self.get_logger().warn('No map available for goal generation')
-                return
-                
-            self.get_logger().info('Generating new exploration goal')
-            self.current_waypoint = self.generate_next_waypoint()
-            
-            if self.current_waypoint:
-                self.get_logger().info(
-                    f'New waypoint generated at ' +
-                    f'({self.current_waypoint.pose.position.x:.2f}, ' +
-                    f'{self.current_waypoint.pose.position.y:.2f})'
-                )
-            
-        except Exception as e:
-            self.get_logger().error(f'Error generating new goal: {str(e)}')
+        """Generate a new goal with cooldown check"""
+        current_time = self.get_clock().now()
+        
+        # Skip cooldown if waypoint was invalid
+        if self.is_navigating:
+            self.get_logger().info('Generating new goal due to invalid waypoint - skipping cooldown')
+            self.is_navigating = False
+            self.current_waypoint = None
+            self.goal_start_time = None
+            self.last_waypoint_time = current_time
+            return
+        
+        # Normal cooldown check for regular goal changes
+        if (self.last_waypoint_time and 
+            (current_time - self.last_waypoint_time).nanoseconds / 1e9 < self.waypoint_cooldown):
+            self.get_logger().info('In waypoint cooldown period, keeping current waypoint')
+            self.is_navigating = False
+            self.goal_start_time = None
+            return
+        
+        self.is_navigating = False
+        self.current_waypoint = None
+        self.goal_start_time = None
+        self.last_waypoint_time = current_time
 
     def goal_response_callback(self, future):
         """Handle navigation goal response"""

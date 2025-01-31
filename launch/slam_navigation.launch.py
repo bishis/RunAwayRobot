@@ -104,29 +104,6 @@ def generate_launch_description():
         # Navigation with delay
         navigation_launch,
 
-        # Navigation Controller (with delay to ensure Nav2 is ready)
-        TimerAction(
-            period=5.0,  # 5 second delay after navigation
-            actions=[
-                Node(
-                    package='motor_controller',
-                    executable='navigation_controller',
-                    name='navigation_controller',
-                    output='screen',
-                    parameters=[{
-                        'use_sim_time': False,
-                        'robot_radius': 0.20,
-                        'safety_margin': 0.2,
-                        'scan_threshold': 0.5,
-                        'critical_threshold': 0.3,
-                        'avoidance_speed': 0.05,
-                        'max_linear_speed': 0.1,
-                        'max_angular_speed': 1.366
-                    }]
-                )
-            ]
-        ),
-
         # Person Detector
         Node(
             package='motor_controller',

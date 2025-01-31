@@ -121,12 +121,29 @@ def generate_launch_description():
         package='motor_controller',
         executable='navigation_controller',
         name='navigation_controller',
-            parameters=[{
-                'max_linear_speed': 0.1,      # Max 0.1 m/s
-                'max_angular_speed': 0.8,     # Max 0.8 rad/s (80% of original)
-                'linear_threshold': 0.01,     # Small threshold for better response
-                'angular_threshold': 0.02,    # Small threshold for better turning
-            }],
+        parameters=[{
+            # Speed limits
+            'max_linear_speed': 0.1,      # Max 0.1 m/s
+            'max_angular_speed': 1.366,   # Max rotation speed
+            
+            # Motion thresholds
+            'linear_threshold': 0.01,     # Minimum linear speed
+            'angular_threshold': 0.02,    # Minimum angular speed
+            
+            # Obstacle detection
+            'robot_radius': 0.20,         # Physical robot size
+            'safety_margin': 0.2,         # Additional safety buffer
+            'scan_threshold': 0.3,        # Distance to detect obstacles
+            'critical_threshold': 0.25,    # Emergency stop distance
+            
+            # Avoidance parameters
+            'avoidance_speed': 0.05,      # Slow speed during avoidance
+            'min_rotation_speed': 0.2,    # Minimum speed for rotation
+            
+            # System parameters
+            'use_sim_time': False,
+            'update_frequency': 10.0      # Control loop frequency
+        }],
         output='screen'
     )
 

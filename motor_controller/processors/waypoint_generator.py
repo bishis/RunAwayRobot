@@ -48,6 +48,13 @@ class WaypointGenerator:
         self.last_waypoint_time = None
         self.min_waypoint_duration = 5.0  # Minimum time to keep a waypoint
         self.reached_waypoint = False
+        
+        # Add stability parameters
+        self.min_score_threshold = 0.6  # Minimum score to consider a new waypoint
+        self.score_improvement_threshold = 0.2  # Required improvement to switch waypoints
+        self.last_best_score = -float('inf')
+        self.waypoint_attempts = 0
+        self.max_attempts = 3  # Maximum attempts before accepting a lower score
 
     def update_map(self, map_msg: OccupancyGrid):
         """Update stored map"""
@@ -236,7 +243,7 @@ class WaypointGenerator:
             x = origin_x + map_x * resolution
             y = origin_y + map_y * resolution
             
-            # Calculate scores for different criteria
+            # Calculate scores with additional stability factors
             dist_to_robot = math.sqrt((map_x - robot_grid_x)**2 + (map_y - robot_grid_y)**2) * resolution
             if dist_to_robot < self.min_distance:
                 continue
@@ -251,12 +258,27 @@ class WaypointGenerator:
             # 3. Appropriate distance from robot
             distance_score = 1.0 - abs(dist_to_robot - self.preferred_distance) / self.preferred_distance
             
+            # 4. Stability score (prefer points similar to current waypoint if it exists)
+            stability_score = 0.0
+            if self.current_waypoint:
+                current_x = self.current_waypoint.pose.position.x
+                current_y = self.current_waypoint.pose.position.y
+                dist_to_current = math.sqrt((x - current_x)**2 + (y - current_y)**2)
+                stability_score = 1.0 / (1.0 + dist_to_current)
+            
             # Combine scores with weights
             total_score = (
-                3.0 * unknown_score +  # Prioritize exploring unknown areas
-                2.0 * wall_score +     # Prefer staying away from walls
-                1.0 * distance_score   # Consider distance from robot
+                3.0 * unknown_score +    # Prioritize exploring unknown areas
+                2.0 * wall_score +       # Prefer staying away from walls
+                1.0 * distance_score +   # Consider distance from robot
+                2.0 * stability_score    # Add stability preference
             )
+            
+            # Only accept new waypoint if score is significantly better
+            if self.current_waypoint and total_score < self.last_best_score + self.score_improvement_threshold:
+                self.waypoint_attempts += 1
+                if self.waypoint_attempts < self.max_attempts:
+                    continue
             
             if total_score > best_score:
                 best_score = total_score
@@ -264,6 +286,11 @@ class WaypointGenerator:
         
         if best_point is None:
             return None
+        
+        # Only update waypoint if score meets minimum threshold
+        if best_score < self.min_score_threshold and self.current_waypoint:
+            self.node.get_logger().info(f'No better waypoint found (best score: {best_score:.2f})')
+            return self.current_waypoint
         
         # Create waypoint with the best point
         waypoint = PoseStamped()
@@ -291,11 +318,14 @@ class WaypointGenerator:
             # If no unknown areas, just use default orientation
             waypoint.pose.orientation.w = 1.0
         
-        # Store waypoint and time
+        # Store waypoint and score
         if best_point is not None:
             self.current_waypoint = waypoint
             self.last_waypoint_time = self.node.get_clock().now()
+            self.last_best_score = best_score
+            self.waypoint_attempts = 0
             self.reached_waypoint = False
+            self.node.get_logger().info(f'New waypoint selected with score: {best_score:.2f}')
             
         return waypoint
 

@@ -69,7 +69,9 @@ class NavigationController(Node):
         """Main control loop managing states and behaviors"""
         try:
             # Check for obstacles
-            obstacle = self.obstacle_monitor.detect_obstacles() if self.obstacle_monitor else None
+            #obstacle = self.obstacle_monitor.detect_obstacles() if self.obstacle_monitor else None
+            obstacle = None
+            self.get_logger().info(f'Obstacle detected: {obstacle}')
             
             if obstacle and obstacle['critical']:
                 # Switch to avoidance if obstacle detected

@@ -1,3 +1,6 @@
+###############################################################################
+# Behavior Tree Navigator
+###############################################################################
 bt_navigator:
   ros__parameters:
     use_sim_time: false
@@ -34,14 +37,17 @@ bt_navigator:
       - compute_path_error_code
       - follow_path_error_code
 
+###############################################################################
+# Controller Server
+###############################################################################
 controller_server:
   ros__parameters:
     use_sim_time: false
     controller_frequency: 8.0
-    min_x_velocity_threshold: 0.05
+    min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.2
-    failure_tolerance: 1.0
+    failure_tolerance: 0.3
     progress_checker_plugin: "progress_checker"
     goal_checker_plugin: "goal_checker"
     controller_plugins: ["FollowPath"]
@@ -57,68 +63,103 @@ controller_server:
     heartbeat_interval: 0.1
     heartbeat_timeout: 5.0
 
-    # More forgiving progress checker
+    # Progress checker - more forgiving
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.3
-      movement_time_allowance: 20.0
+      movement_time_allowance: 10.0
 
-    # Much looser goal tolerances
+    # Goal checker - looser tolerances
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.2
-      yaw_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.3
       stateful: true
 
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       
-      # Velocity limits - reduce turning
+      # -----------------------------------------------------------------------
+      # Velocity limits - match robot's actual capabilities
+      # -----------------------------------------------------------------------
       min_vel_x: 0.0
-      max_vel_x: 0.15
-      min_vel_theta: -0.5
-      max_vel_theta: 0.5
-      
-      # Very gentle acceleration
-      acc_lim_x: 0.2
-      acc_lim_theta: 0.2
-      decel_lim_x: -0.2
-      decel_lim_theta: -0.2
-      
-      # Ignore small rotations
-      min_speed_theta: 0.2          # Only rotate if speed would be above this
-      min_theta_velocity_threshold: 0.2  # Ignore small rotation commands
-      
-      # Very forgiving path following
-      path_distance_bias: 15.0      # Reduced from 32.0 - care less about exact path
-      goal_distance_bias: 5.0       # Care more about getting to goal than exact path
-      goal_align_bias: 1.0          # Much less emphasis on orientation
-      
-      # Large tolerances
-      yaw_goal_tolerance: 0.4       # Very forgiving angle tolerance (about 23 degrees)
-      xy_goal_tolerance: 0.3        # Forgiving position tolerance
-      
-      # Prevent small rotations
-      angular_granularity: 0.4      # Increased - fewer rotation options
-      
-      # Trajectory planning
-      vtheta_samples: 10            # Fewer rotation samples
-      sim_time: 2.0                 # Look ahead time
-      
-      # Critics - simplified
-      critics: ["Oscillation", "BaseObstacle", "PathAlign"]  # Removed GoalAlign
-      PathAlign.scale: 10.0         # Reduced path following strictness
-      
-      # Prevent oscillation
-      oscillation_reset_dist: 0.3
-      oscillation_reset_angle: 0.5
-      
-      # Additional parameters to reduce path precision
-      prune_plan: true
-      prune_distance: 1.0           # Simplify path more aggressively
-      xy_goal_tolerance: 0.3        # More forgiving position tolerance
-      transform_tolerance: 0.5      # More forgiving transform timing
+      max_vel_x: 0.1
+      min_vel_y: 0.0
+      max_vel_y: 0.0
+      min_vel_theta: -1.366
+      max_vel_theta: 1.366
 
+      # -----------------------------------------------------------------------
+      # Acceleration limits
+      # -----------------------------------------------------------------------
+      acc_lim_x: 0.2
+      acc_lim_y: 0.0
+      acc_lim_theta: 0.8
+      decel_lim_x: -0.2
+      decel_lim_y: 0.0
+      decel_lim_theta: -0.8
+
+      # -----------------------------------------------------------------------
+      # Minimum speeds
+      #
+      # Set min_speed_theta to 0.5 so we don't command slower rotation than
+      # the robot can physically achieve.
+      # -----------------------------------------------------------------------
+      min_speed_xy: 0.0
+      max_speed_xy: 0.1
+      min_speed_theta: 0.5  # updated from 0.2
+
+      # -----------------------------------------------------------------------
+      # Path following parameters
+      # (Removed the non-DWB "lookahead_distance" param)
+      # -----------------------------------------------------------------------
+      transform_tolerance: 0.5
+      path_distance_bias: 10.0
+      goal_distance_bias: 5.0
+      goal_align_bias: 2.0
+
+      # -----------------------------------------------------------------------
+      # Prevent small rotations
+      # -----------------------------------------------------------------------
+      angular_granularity: 0.2
+
+      # -----------------------------------------------------------------------
+      # Trajectory sampling
+      # -----------------------------------------------------------------------
+      vx_samples: 10
+      vy_samples: 0
+      vtheta_samples: 10
+      sim_time: 1.0
+
+      # -----------------------------------------------------------------------
+      # Critics weights
+      # -----------------------------------------------------------------------
+      critics: ["Oscillation", "BaseObstacle", "PathAlign", "GoalAlign"]
+      BaseObstacle.scale: 0.02
+      PathAlign.scale: 10.0
+      GoalAlign.scale: 2.0
+      PathDist.scale: 10.0
+      GoalDist.scale: 5.0
+
+      # -----------------------------------------------------------------------
+      # Prevent oscillation
+      # -----------------------------------------------------------------------
+      oscillation_reset_dist: 0.05
+      oscillation_reset_angle: 0.2
+
+      # -----------------------------------------------------------------------
+      # Debug
+      # -----------------------------------------------------------------------
+      publish_cost_grid_pc: true
+      publish_evaluation: true
+      publish_global_plan: true
+      publish_local_plan: true
+      publish_trajectories: true
+      publish_transformed_plan: true
+
+###############################################################################
+# Planner Server
+###############################################################################
 planner_server:
   ros__parameters:
     expected_planner_frequency: 20.0
@@ -142,6 +183,9 @@ planner_server:
       use_dijkstra: false
       track_unknown_space: true
 
+###############################################################################
+# Behavior Server
+###############################################################################
 behavior_server:
   ros__parameters:
     use_sim_time: false
@@ -168,6 +212,9 @@ behavior_server:
     rotational_acc_lim: 3.2
     enable_stamped_cmd_vel: true
 
+###############################################################################
+# Local Costmap
+###############################################################################
 local_costmap:
   ros__parameters:
     use_sim_time: false
@@ -227,6 +274,9 @@ local_costmap:
         obstacle_max_range: 2.5
         obstacle_min_range: 0.0
 
+###############################################################################
+# Global Costmap
+###############################################################################
 global_costmap:
   ros__parameters:
     use_sim_time: false
@@ -234,7 +284,7 @@ global_costmap:
     publish_frequency: 2.0
     global_frame: map
     robot_base_frame: base_link
-    footprint: "[[-0.17, -0.15], [-0.17, 0.15], [0.17, 0.15], [0.17, -0.15]]" # Same footprint
+    footprint: "[[-0.17, -0.15], [-0.17, 0.15], [0.17, 0.15], [0.17, -0.15]]"
     footprint_padding: 0.05
     resolution: 0.05
     track_unknown_space: true
@@ -267,6 +317,9 @@ global_costmap:
       inflation_radius: 0.4
       cost_scaling_factor: 5.0
 
+###############################################################################
+# Collision Monitor
+###############################################################################
 collision_monitor:
   ros__parameters:
     use_sim_time: false
@@ -278,7 +331,7 @@ collision_monitor:
     polygons: ["robot_footprint"]
     robot_footprint:
       type: "polygon"
-      points: "[[-0.13, -0.13], [-0.13, 0.13], [0.13, 0.13], [0.13, -0.13]]"  # 13cm radius square approximation
+      points: "[[-0.13, -0.13], [-0.13, 0.13], [0.13, 0.13], [0.13, -0.13]]"
       action_type: "stop"  # Options: "stop", "slowdown", "limit"
       min_points: 3
       visualize: true
@@ -290,29 +343,28 @@ collision_monitor:
       topic: "/scan"
       min_height: 0.05
       max_height: 0.5
-      obstacle_range: 0.5      # Detect obstacles up to 0.5m
-      raytrace_range: 1.0     # Clear space up to 1m
-      observation_persistence: 0.0  # How long to keep obstacle points
+      obstacle_range: 0.5
+      raytrace_range: 1.0
+      observation_persistence: 0.0
       inf_is_valid: false
       marking: true
       clearing: true
       data_type: "LaserScan"
 
     # Collision checking parameters
-    stop_on_collision: true          # Stop robot when collision detected
-    scan_obstacle_range: 0.4         # Maximum range to check for obstacles
-    slowdown_radius: 0.3             # Start slowing at this distance
-    approach_velocity_scaling: 0.5    # Scale velocity when approaching obstacles
-    collision_range: 0.2            # Emergency stop distance (slightly larger than robot radius)
-    
+    stop_on_collision: true
+    scan_obstacle_range: 0.4
+    slowdown_radius: 0.3
+    approach_velocity_scaling: 0.5
+    collision_range: 0.2
+
     # Publishing parameters
     publish_rate: 10.0
     observation_points_per_scan: 2
-    velocity_scaling_factor: 0.5      # Global scaling of velocities
-    min_velocity_scaling: 0.2         # Minimum velocity scaling when near obstacles
-    
+    velocity_scaling_factor: 0.5
+    min_velocity_scaling: 0.2
+
     # Footprint parameters
     footprint_topic: "/local_costmap/published_footprint"
     base_frame_id: "base_link"
     transform_tolerance: 0.5
-

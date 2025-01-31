@@ -11,6 +11,7 @@ import math
 from tf2_ros import Buffer, TransformListener
 import random
 from scipy.ndimage import distance_transform_edt
+from action_msgs.msg import GoalStatus
 
 class ExplorationController(Node):
     def __init__(self):
@@ -18,10 +19,11 @@ class ExplorationController(Node):
         
         # Parameters
         self.declare_parameter('min_distance', 0.5)  # Minimum distance between waypoints
-        self.declare_parameter('goal_timeout', 30.0)  # Seconds before giving up on a goal
+        self.declare_parameter('goal_timeout', 60.0)  # Increased timeout to 60 seconds
         self.declare_parameter('safety_margin', 0.3)  # Distance from walls
         self.declare_parameter('waypoint_size', 0.3)  # Size of waypoint markers
         self.declare_parameter('preferred_distance', 1.0)  # Preferred distance for new waypoints
+        self.declare_parameter('goal_tolerance', 0.3)  # Distance to consider goal reached
         
         # Get parameters
         self.min_distance = self.get_parameter('min_distance').value
@@ -29,6 +31,7 @@ class ExplorationController(Node):
         self.safety_margin = self.get_parameter('safety_margin').value
         self.waypoint_size = self.get_parameter('waypoint_size').value
         self.preferred_distance = self.get_parameter('preferred_distance').value
+        self.goal_tolerance = self.get_parameter('goal_tolerance').value
         
         # Navigation client
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -55,6 +58,10 @@ class ExplorationController(Node):
         self.current_waypoint = None
         self.is_navigating = False
         self.goal_start_time = None
+        
+        # Add state for tracking goal progress
+        self.consecutive_failures = 0
+        self.max_consecutive_failures = 3
         
         # Create timer for exploration control
         self.create_timer(1.0, self.exploration_loop)
@@ -224,6 +231,32 @@ class ExplorationController(Node):
         
         return waypoint
 
+    def check_goal_reached(self):
+        """Check if we're close enough to current goal"""
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            
+            current_x = transform.transform.translation.x
+            current_y = transform.transform.translation.y
+            
+            goal_x = self.current_waypoint.pose.position.x
+            goal_y = self.current_waypoint.pose.position.y
+            
+            distance = math.sqrt(
+                (current_x - goal_x)**2 + 
+                (current_y - goal_y)**2
+            )
+            
+            return distance < self.goal_tolerance
+            
+        except Exception as e:
+            self.get_logger().warn(f'Could not check goal reached: {e}')
+            return False
+
     def exploration_loop(self):
         """Main control loop for exploration"""
         if not self.current_map:
@@ -235,18 +268,16 @@ class ExplorationController(Node):
                 self.current_waypoint = self.generate_next_waypoint()
                 if self.current_waypoint:
                     self.publish_waypoint_markers()
-                    self.get_logger().info('Generated new waypoint')
+                    self.get_logger().info(
+                        f'Generated new waypoint at ({self.current_waypoint.pose.position.x:.2f}, '
+                        f'{self.current_waypoint.pose.position.y:.2f})'
+                    )
                 else:
                     return
             
             # Send goal
             goal_msg = NavigateToPose.Goal()
             goal_msg.pose = self.current_waypoint
-            
-            self.get_logger().info(
-                f'Navigating to waypoint: ({self.current_waypoint.pose.position.x:.2f}, '
-                f'{self.current_waypoint.pose.position.y:.2f})'
-            )
             
             self.nav_client.wait_for_server()
             self.current_goal = self.nav_client.send_goal_async(
@@ -259,12 +290,28 @@ class ExplorationController(Node):
             self.goal_start_time = self.get_clock().now()
         
         else:
+            # Check if we've reached the goal
+            if self.check_goal_reached():
+                self.get_logger().info('Goal reached successfully')
+                self.consecutive_failures = 0  # Reset failure counter
+                self.generate_new_goal()
+                return
+                
             # Check for timeout
             if self.goal_start_time:
                 time_elapsed = (self.get_clock().now() - self.goal_start_time).nanoseconds / 1e9
                 if time_elapsed > self.goal_timeout:
-                    self.get_logger().warn('Goal timeout reached, generating new waypoint')
-                    self.generate_new_goal()
+                    self.get_logger().warn('Goal timeout reached')
+                    self.consecutive_failures += 1
+                    
+                    # If too many consecutive failures, try a completely new area
+                    if self.consecutive_failures >= self.max_consecutive_failures:
+                        self.get_logger().warn('Too many consecutive failures, finding new area')
+                        self.generate_new_goal()
+                    else:
+                        # Try to reach the same goal again
+                        self.is_navigating = False
+                        self.goal_start_time = None
 
     def generate_new_goal(self):
         """Generate a new goal and reset navigation state"""
@@ -286,7 +333,21 @@ class ExplorationController(Node):
 
     def goal_result_callback(self, future):
         """Handle navigation goal result"""
-        self.generate_new_goal()
+        status = future.result().status
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            self.get_logger().info('Navigation succeeded')
+            self.consecutive_failures = 0
+            self.generate_new_goal()
+        else:
+            self.get_logger().warn(f'Navigation failed with status: {status}')
+            self.consecutive_failures += 1
+            if self.consecutive_failures >= self.max_consecutive_failures:
+                self.get_logger().warn('Too many consecutive failures, finding new area')
+                self.generate_new_goal()
+            else:
+                # Try the same goal again
+                self.is_navigating = False
+                self.goal_start_time = None
 
     def feedback_callback(self, feedback_msg):
         """Handle navigation feedback"""

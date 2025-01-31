@@ -49,12 +49,13 @@ class NavigationController(Node):
         self.map_sub = self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
         self.marker_pub = self.create_publisher(MarkerArray, 'exploration_markers', 10)
         
-        # Navigation action client
-        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        # Navigation action client - Add namespace to match Nav2
+        self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')  # Add leading slash
         
-        # Wait for navigation server
+        # Add debug logging for goal sending
+        self.get_logger().info('Waiting for navigation action server...')
         while not self.nav_client.wait_for_server(timeout_sec=1.0):
-            self.get_logger().info('Waiting for navigation action server...')
+            self.get_logger().info('Still waiting for navigation action server...')
         self.get_logger().info('Navigation server connected!')
         
         # State variables
@@ -158,9 +159,12 @@ class NavigationController(Node):
             goal_msg = NavigateToPose.Goal()
             goal_msg.pose = waypoint
             
+            # Add debug info
             self.get_logger().info(
-                f'Sending navigation goal: ({waypoint.pose.position.x:.2f}, '
-                f'{waypoint.pose.position.y:.2f})'
+                f'Sending navigation goal:\n'
+                f'  Position: ({waypoint.pose.position.x:.2f}, {waypoint.pose.position.y:.2f})\n'
+                f'  Frame: {waypoint.header.frame_id}\n'
+                f'  Stamp: {waypoint.header.stamp.sec}.{waypoint.header.stamp.nanosec}'
             )
             
             # Send goal and register callbacks

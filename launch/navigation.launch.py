@@ -121,12 +121,20 @@ def generate_launch_description():
         package='motor_controller',
         executable='navigation_controller',
         name='navigation_controller',
-            parameters=[{
-                'max_linear_speed': 0.1,      # Max 0.1 m/s
-                'max_angular_speed': 0.8,     # Max 0.8 rad/s (80% of original)
-                'linear_threshold': 0.01,     # Small threshold for better response
-                'angular_threshold': 0.02,    # Small threshold for better turning
-            }],
+        parameters=[{
+            'max_linear_speed': 0.1,      
+            'max_angular_speed': 1.0,     
+            'min_rotation_speed': 0.8,
+            'goal_timeout': 30.0,
+            'robot_radius': 0.16,
+            'safety_margin': 0.3,
+        }],
+        remappings=[
+            ('cmd_vel', '/cmd_vel'),
+            ('wheel_speeds', '/wheel_speeds'),
+            ('map', '/map'),
+            ('scan', '/scan'),
+        ],
         output='screen'
     )
 

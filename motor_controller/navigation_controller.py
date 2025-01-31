@@ -236,14 +236,24 @@ class NavigationController(Node):
         if self.consecutive_failures >= self.max_consecutive_failures:
             self.get_logger().warn('Too many consecutive failures, waiting before continuing...')
             self.consecutive_failures = 0
-            # Add a small delay before trying again
-            self.create_timer(2.0, self.reset_navigation_state, oneshot=True)
+            # Create a timer that will only fire once
+            timer = self.create_timer(2.0, self.reset_with_timer)
+            # Store timer to prevent garbage collection
+            self._reset_timer = timer
         else:
             # Immediately try a new waypoint
             self.get_logger().info('Attempting new waypoint immediately')
             # Clear current waypoint to force generator to pick a new one
             self.waypoint_generator.current_waypoint = None
             self.reset_navigation_state()
+
+    def reset_with_timer(self):
+        """Callback for reset timer"""
+        # Cancel and remove the timer
+        self._reset_timer.cancel()
+        self._reset_timer = None
+        # Reset navigation
+        self.reset_navigation_state()
 
     def reset_navigation_state(self):
         """Reset navigation state and try new waypoint"""

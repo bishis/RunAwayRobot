@@ -66,11 +66,20 @@ class HardwareController(Node):
             actual.angular.z = angular_z
             self.actual_speeds_pub.publish(actual)
             
-            # Debug logging
+            # Calculate normalized differential drive speeds
+            left_speed = linear_x + angular_z
+            right_speed = linear_x - angular_z
+            
+            # Normalize if speeds exceed [-1, 1]
+            max_speed = max(abs(left_speed), abs(right_speed))
+            if max_speed > 1.0:
+                left_speed /= max_speed
+                right_speed /= max_speed
+            
+            # Debug logging with normalized speeds
             self.get_logger().info(
-                f'Motor commands:\n'
-                f'  Linear: {linear_x:6.3f} m/s\n'
-                f'  Angular: {angular_z:6.3f} rad/s'
+                f'Speeds (-1 to 1) - Left: {left_speed:6.3f}, Right: {right_speed:6.3f} | ' +
+                f'Input - Linear: {linear_x:6.3f}, Angular: {angular_z:6.3f}'
             )
             
         except Exception as e:

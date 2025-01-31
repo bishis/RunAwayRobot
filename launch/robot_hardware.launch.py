@@ -53,7 +53,9 @@ def generate_launch_description():
                 'image_size': [640, 480],
                 'pixel_format': 'YUYV',
                 'frame_rate': 30.0,
-                'camera_frame_id': 'camera_link'
+                'camera_frame_id': 'camera_link',
+                'vertical_flip': True,     # Add this to flip the image vertically
+                'horizontal_flip': False   # Add this to keep horizontal orientation
             }],
             remappings=[
                 ('image_raw', '/camera/image_raw'),

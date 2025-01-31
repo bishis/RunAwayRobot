@@ -91,9 +91,9 @@ controller_server:
       max_vel_x: 0.15        # Moderate forward speed for smooth motion
       max_speed_xy: 0.2
       min_vel_theta: -0.3
-      max_vel_theta: 0.3     # Lower angular speed to reduce quick oscillation
+      max_vel_theta: 0.3
 
-      # Gentle acceleration/deceleration so we don’t overshoot or spin rapidly
+      # Gentle acceleration/deceleration so we don't overshoot or spin rapidly
       acc_lim_x: 0.2
       decel_lim_x: -0.2
       acc_lim_theta: 0.2

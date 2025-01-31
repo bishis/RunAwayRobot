@@ -99,11 +99,26 @@ class NavigationController(Node):
                 scale = min_side_dist / self.min_distance
                 desired_angular *= max(0.2, scale)  # Minimum 20% of original turn speed
         
-        # Ensure minimum angular speed when turning
+        # Smooth out angular velocity changes
+        MAX_ANGULAR_CHANGE = 0.1  # Reduced from 0.2 for smoother transitions
+        if hasattr(self, 'last_angular'):
+            angular_change = desired_angular - self.last_angular
+            if abs(angular_change) > MAX_ANGULAR_CHANGE:
+                desired_angular = self.last_angular + math.copysign(MAX_ANGULAR_CHANGE, angular_change)
+        self.last_angular = desired_angular
+        
+        # Apply velocity limits
         if abs(desired_angular) > 0:
-            min_angular = 0.1  # Minimum 0.1 rad/s
+            min_angular = 0.15  # Increased minimum to prevent stutter
+            max_angular = 0.3   # Reduced maximum to prevent overshooting
             if abs(desired_angular) < min_angular:
                 desired_angular = math.copysign(min_angular, desired_angular)
+            elif abs(desired_angular) > max_angular:
+                desired_angular = math.copysign(max_angular, desired_angular)
+        
+        # Reduce angular velocity when moving
+        if abs(desired_linear) > 0.05:
+            desired_angular *= 0.5  # Reduce turning more while moving
         
         return desired_linear, desired_angular
 

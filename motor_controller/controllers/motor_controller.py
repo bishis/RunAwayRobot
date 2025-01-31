@@ -59,15 +59,6 @@ class MotorController:
         linear = max(min(linear, 1.0), -1.0)
         angular = max(min(angular, 1.0), -1.0)
         
-        # Enforce minimum angular speed
-        MIN_ANGULAR_SPEED = 0.1  # rad/s
-        if abs(angular) > 0 and abs(angular) < MIN_ANGULAR_SPEED:
-            angular = math.copysign(MIN_ANGULAR_SPEED, angular)
-        
-        # Increase turning sensitivity
-        TURN_BOOST = 1.5  # Amplify turning effect
-        angular *= TURN_BOOST
-        
         # Calculate left and right motor speeds
         if abs(angular) > 0.1:  # If turning
             if abs(linear) < 0.1:  # Spin in place if not moving forward/backward
@@ -90,8 +81,8 @@ class MotorController:
             right_speed /= max_speed
         
         # Apply minimum threshold - if speed is non-zero but below threshold, set to threshold
-        MIN_SPEED = 0.7  # 70% power minimum
-        TURN_MIN_SPEED = 0.8  # Higher minimum speed for turning
+        MIN_SPEED = 0.5  # 70% power minimum
+        TURN_MIN_SPEED = 0.5  # Higher minimum speed for turning
         
         # Use higher minimum speed when turning
         current_min_speed = TURN_MIN_SPEED if abs(angular) > 0.1 else MIN_SPEED

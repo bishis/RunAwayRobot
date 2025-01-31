@@ -8,6 +8,7 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from launch.substitutions import PathJoinSubstitution
 from launch.actions import TimerAction
+from launch.conditions import IfCondition
 
 def generate_launch_description():
     pkg_dir = get_package_share_directory('motor_controller')
@@ -51,6 +52,23 @@ def generate_launch_description():
                 )
             )
         ]
+    )
+
+    # Add navigation controller node
+    navigation_controller = Node(
+        package='motor_controller',
+        executable='navigation_controller',
+        name='navigation_controller',
+        output='screen',
+        parameters=[{
+            'robot_radius': 0.20,
+            'safety_margin': 0.2,
+            'scan_threshold': 0.5,
+            'critical_threshold': 0.3,
+            'avoidance_speed': 0.05
+        }],
+        # Enable debug logging
+        arguments=['--ros-args', '--log-level', 'debug']
     )
 
     return LaunchDescription([
@@ -109,6 +127,8 @@ def generate_launch_description():
             executable='person_detector',
             name='person_detector',
             output='screen'
-        )
+        ),
 
+        # Add navigation controller
+        navigation_controller
     ])

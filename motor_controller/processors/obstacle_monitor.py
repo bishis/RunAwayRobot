@@ -68,6 +68,7 @@ class ObstacleMonitor(Node):
     def detect_obstacles(self):
         """Analyze scan data for obstacles"""
         if not self.current_scan:
+            self.get_logger().debug('No scan data available')
             return None
             
         # Convert scan to numpy array
@@ -84,12 +85,18 @@ class ObstacleMonitor(Node):
         obstacle_mask = valid_mask & close_mask
         
         if not np.any(obstacle_mask):
+            self.get_logger().debug('No obstacles detected within threshold')
             return None
             
         # Get closest obstacle
         min_dist = np.min(ranges[obstacle_mask])
         min_idx = np.where(ranges == min_dist)[0][0]
         obstacle_angle = angles[min_idx]
+        
+        self.get_logger().info(
+            f'Obstacle detected - Distance: {min_dist:.2f}m, ' +
+            f'Angle: {math.degrees(obstacle_angle):.1f}°'
+        )
         
         return {
             'distance': min_dist,
@@ -137,23 +144,28 @@ class ObstacleMonitor(Node):
         
         if not self.avoidance_start_time:
             self.avoidance_start_time = time.time()
+            self.get_logger().info('Starting avoidance maneuver')
             
         # If we've been avoiding for more than 5 seconds, request new path
         if time.time() - self.avoidance_start_time > 5.0:
+            self.get_logger().warn('Avoidance timeout - requesting new path')
             self.request_new_path()
             self.avoiding = False
             self.avoidance_start_time = None
             return
             
         if obstacle['critical']:
-            # Emergency stop if too close
+            self.get_logger().warn('Critical distance - emergency stop')
             cmd.linear.x = 0.0
             cmd.angular.z = 0.0
         else:
             # Basic avoidance - rotate away from obstacle
-            cmd.linear.x = -self.avoidance_speed  # Back up slowly
-            # Rotate away from obstacle
+            cmd.linear.x = -self.avoidance_speed
             cmd.angular.z = -1.0 if obstacle['angle'] > 0 else 1.0
+            self.get_logger().info(
+                f'Avoiding - Backing up at {cmd.linear.x:.2f}m/s, ' +
+                f'Rotating at {cmd.angular.z:.2f}rad/s'
+            )
             
         self.cmd_vel_pub.publish(cmd)
 

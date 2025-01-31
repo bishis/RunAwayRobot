@@ -144,8 +144,17 @@ class NavigationController(Node):
             if not self.nav2_ready:
                 return
 
-            # If not navigating or previous goal failed, try to get new waypoint
-            if not self.is_navigating or self.current_goal is None:
+            # Check for timeout on current goal
+            if self.is_navigating and self.goal_start_time:
+                time_elapsed = (self.get_clock().now() - self.goal_start_time).nanoseconds / 1e9
+                if time_elapsed > self.goal_timeout:
+                    self.get_logger().warn('Goal timeout reached, forcing new waypoint')
+                    self.waypoint_generator.force_waypoint_change()
+                    self.handle_goal_failure()
+                    return
+
+            # Only generate new waypoint if not navigating
+            if not self.is_navigating:
                 self.get_logger().info('Generating new waypoint...')
                 waypoint = self.waypoint_generator.generate_waypoint()
                 if waypoint:
@@ -156,13 +165,6 @@ class NavigationController(Node):
                     self.marker_pub.publish(markers)
                 else:
                     self.get_logger().warn('Failed to generate waypoint, will retry...')
-            
-            # Check for timeout on current goal
-            if self.is_navigating and self.goal_start_time:
-                time_elapsed = (self.get_clock().now() - self.goal_start_time).nanoseconds / 1e9
-                if time_elapsed > self.goal_timeout:
-                    self.get_logger().warn('Goal timeout reached, will try new waypoint')
-                    self.handle_goal_failure()
         
         except Exception as e:
             self.get_logger().error(f'Error in exploration loop: {str(e)}')
@@ -231,7 +233,7 @@ class NavigationController(Node):
             self.handle_goal_failure()
 
     def handle_goal_failure(self):
-        """Handle navigation failures by immediately trying a new waypoint"""
+        """Handle navigation failures by forcing new waypoint"""
         self.consecutive_failures += 1
         if self.consecutive_failures >= self.max_consecutive_failures:
             self.get_logger().warn('Too many consecutive failures, waiting before continuing...')
@@ -241,10 +243,8 @@ class NavigationController(Node):
             # Store timer to prevent garbage collection
             self._reset_timer = timer
         else:
-            # Immediately try a new waypoint
-            self.get_logger().info('Attempting new waypoint immediately')
-            # Clear current waypoint to force generator to pick a new one
-            self.waypoint_generator.current_waypoint = None
+            # Force waypoint generator to pick new point
+            self.waypoint_generator.force_waypoint_change()
             self.reset_navigation_state()
 
     def reset_with_timer(self):

@@ -47,6 +47,7 @@ class WaypointGenerator:
         self.current_waypoint = None
         self.last_waypoint_time = None
         self.min_waypoint_duration = 5.0  # Minimum time to keep a waypoint
+        self.force_new_waypoint = False  # Flag to force new waypoint on failure/timeout
         self.reached_waypoint = False
         
         # Add stability parameters
@@ -172,12 +173,20 @@ class WaypointGenerator:
         except TransformException:
             return False
 
+    def force_waypoint_change(self):
+        """Force the generator to pick a new waypoint"""
+        self.force_new_waypoint = True
+        self.current_waypoint = None
+
     def generate_waypoint(self) -> PoseStamped:
         """Generate a single new waypoint prioritizing unexplored areas"""
-        # Check if current waypoint is still valid and not reached
-        if self.current_waypoint:
+        # Keep current waypoint unless forced to change
+        if self.current_waypoint and not self.force_new_waypoint:
             if self.is_waypoint_valid() and not self.has_reached_waypoint():
                 return self.current_waypoint
+
+        # Reset force flag
+        self.force_new_waypoint = False
         
         if not self.current_map:
             return None

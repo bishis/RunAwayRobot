@@ -40,7 +40,7 @@
   <depend>dwb_controller</depend>
   <depend>dwb_critics</depend>
   <depend>dwb_plugins</depend>
-
+  <depend>nav2_sbpl_planner</depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 

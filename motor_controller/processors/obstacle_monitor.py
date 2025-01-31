@@ -197,38 +197,41 @@ class ObstacleMonitor(Node):
     def publish_detection_radius(self):
         """Publish visualization of obstacle detection radius"""
         try:
+            # Outer detection radius (yellow)
             marker = Marker()
-            marker.header.frame_id = "base_link"
+            marker.header.frame_id = "base_link"  # Make sure this matches your robot's frame
             marker.header.stamp = self.get_clock().now().to_msg()
             marker.ns = "detection_radius"
             marker.id = 0
             marker.type = Marker.CYLINDER
             marker.action = Marker.ADD
             
-            # Position at robot center
+            # Position slightly above ground to be visible
             marker.pose.position.x = 0.0
             marker.pose.position.y = 0.0
-            marker.pose.position.z = 0.0  # Slightly above ground
+            marker.pose.position.z = 0.05  # Raised slightly to be more visible
             
-            # No rotation needed for cylinder
             marker.pose.orientation.x = 0.0
             marker.pose.orientation.y = 0.0
             marker.pose.orientation.z = 0.0
             marker.pose.orientation.w = 1.0
             
-            # Set size
+            # Make the visualization more visible
             marker.scale.x = self.scan_threshold * 2  # Diameter
             marker.scale.y = self.scan_threshold * 2  # Diameter
-            marker.scale.z = 0.01  # Thin disk
+            marker.scale.z = 0.05  # Thicker disk
             
-            # Set color (semi-transparent yellow)
+            # Brighter yellow with higher opacity
             marker.color = ColorRGBA()
             marker.color.r = 1.0
             marker.color.g = 1.0
             marker.color.b = 0.0
-            marker.color.a = 0.3
+            marker.color.a = 0.5  # More opaque
             
-            # Add critical threshold ring
+            # Make marker persistent
+            marker.lifetime = rclpy.duration.Duration().to_msg()
+            
+            # Inner critical radius (red)
             critical_marker = Marker()
             critical_marker.header = marker.header
             critical_marker.ns = "critical_radius"
@@ -237,21 +240,29 @@ class ObstacleMonitor(Node):
             critical_marker.action = Marker.ADD
             critical_marker.pose = marker.pose
             
-            # Set size for critical threshold
             critical_marker.scale.x = self.critical_threshold * 2
             critical_marker.scale.y = self.critical_threshold * 2
-            critical_marker.scale.z = 0.01
+            critical_marker.scale.z = 0.05  # Match outer ring thickness
             
-            # Set color (semi-transparent red)
+            # Brighter red with higher opacity
             critical_marker.color = ColorRGBA()
             critical_marker.color.r = 1.0
             critical_marker.color.g = 0.0
             critical_marker.color.b = 0.0
-            critical_marker.color.a = 0.3
+            critical_marker.color.a = 0.5  # More opaque
+            
+            # Make marker persistent
+            critical_marker.lifetime = rclpy.duration.Duration().to_msg()
             
             # Publish both markers
             self.marker_pub.publish(marker)
             self.marker_pub.publish(critical_marker)
+            
+            # Log marker publication periodically
+            self.get_logger().debug(
+                f'Published obstacle radius markers - Detection: {self.scan_threshold}m, ' +
+                f'Critical: {self.critical_threshold}m'
+            )
             
         except Exception as e:
             self.get_logger().error(f'Error publishing detection radius: {str(e)}')

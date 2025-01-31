@@ -71,6 +71,9 @@ class ExplorationController(Node):
         # Create timer for exploration control
         self.create_timer(1.0, self.exploration_loop)
         
+        # Add validation timer with higher frequency than exploration loop
+        self.create_timer(0.5, self.validate_current_waypoint)  # Check every 0.5 seconds
+        
         self.get_logger().info('Simple exploration controller initialized')
 
     def map_callback(self, msg):
@@ -329,14 +332,23 @@ class ExplorationController(Node):
         """Generate a new goal with cooldown check"""
         current_time = self.get_clock().now()
         
-        # Check if we're still in cooldown period
+        # Skip cooldown if waypoint was invalid
+        if self.is_navigating:
+            self.get_logger().info('Generating new goal due to invalid waypoint - skipping cooldown')
+            self.is_navigating = False
+            self.current_waypoint = None
+            self.goal_start_time = None
+            self.last_waypoint_time = current_time
+            return
+        
+        # Normal cooldown check for regular goal changes
         if (self.last_waypoint_time and 
             (current_time - self.last_waypoint_time).nanoseconds / 1e9 < self.waypoint_cooldown):
             self.get_logger().info('In waypoint cooldown period, keeping current waypoint')
             self.is_navigating = False
             self.goal_start_time = None
             return
-            
+        
         self.is_navigating = False
         self.current_waypoint = None
         self.goal_start_time = None
@@ -434,6 +446,64 @@ class ExplorationController(Node):
         marker_array.markers.append(arrow_marker)
         
         self.marker_pub.publish(marker_array)
+
+    def validate_current_waypoint(self):
+        """Continuously validate current waypoint"""
+        if not self.current_waypoint or not self.current_map:
+            return
+        
+        try:
+            x = self.current_waypoint.pose.position.x
+            y = self.current_waypoint.pose.position.y
+            
+            # Get map data
+            resolution = self.current_map.info.resolution
+            origin_x = self.current_map.info.origin.position.x
+            origin_y = self.current_map.info.origin.position.y
+            
+            # Convert to map coordinates
+            map_x = int((x - origin_x) / resolution)
+            map_y = int((y - origin_y) / resolution)
+            
+            # Get map data as 2D array
+            map_data = np.array(self.current_map.data).reshape(
+                self.current_map.info.height,
+                self.current_map.info.width
+            )
+            
+            # Check if point is within map bounds
+            if (map_x < 0 or map_x >= self.current_map.info.width or
+                map_y < 0 or map_y >= self.current_map.info.height):
+                self.get_logger().warn('Current waypoint is outside map bounds')
+                self.generate_new_goal()
+                return
+            
+            # Check for nearby obstacles
+            margin = int(self.safety_margin / resolution)
+            for dy in range(-margin, margin + 1):
+                for dx in range(-margin, margin + 1):
+                    check_x = map_x + dx
+                    check_y = map_y + dy
+                    if (0 <= check_x < self.current_map.info.width and 
+                        0 <= check_y < self.current_map.info.height):
+                        if map_data[check_y, check_x] > 50:  # Obstacle detected
+                            self.get_logger().warn('Current waypoint is too close to obstacle')
+                            self.generate_new_goal()
+                            return
+            
+            # Calculate distance to nearest wall using distance transform
+            walls = map_data > 50
+            wall_distance = distance_transform_edt(~walls) * resolution
+            
+            if wall_distance[map_y, map_x] < self.safety_margin:
+                self.get_logger().warn(
+                    f'Current waypoint is too close to wall: {wall_distance[map_y, map_x]:.2f}m'
+                )
+                self.generate_new_goal()
+                return
+            
+        except Exception as e:
+            self.get_logger().warn(f'Error validating waypoint: {e}')
 
 def main(args=None):
     rclpy.init(args=args)

@@ -36,8 +36,16 @@ class ExplorationController(Node):
         self.goal_reached_distance = self.get_parameter('goal_reached_distance').value
         self.score_hysteresis = self.get_parameter('score_hysteresis').value
         
-        # Navigation client
+        # Navigation client with timeout
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        
+        # Wait for navigation server at startup
+        if not self.nav_client.wait_for_server(timeout_sec=10.0):
+            self.get_logger().error(
+                'Navigation server not available after 10 seconds!'
+            )
+        else:
+            self.get_logger().info('Connected to navigation server')
         
         # TF listener for robot pose
         self.tf_buffer = Buffer()
@@ -275,8 +283,9 @@ class ExplorationController(Node):
     def exploration_loop(self):
         """Main control loop for exploration"""
         if not self.current_map:
+            self.get_logger().warn('No map available yet')
             return
-            
+        
         if not self.is_navigating:
             # Only generate new waypoint if needed
             if self.should_generate_new_waypoint():
@@ -290,10 +299,13 @@ class ExplorationController(Node):
                         self.waypoint_start_time = self.get_clock().now()
                         self.publish_waypoint_markers()
                         self.get_logger().info(
-                            f'Generated new waypoint with score {new_score:.2f}'
+                            f'Generated new waypoint with score {new_score:.2f} at '
+                            f'({new_waypoint.pose.position.x:.2f}, {new_waypoint.pose.position.y:.2f})'
                         )
                     else:
                         self.get_logger().info('New waypoint not significantly better, keeping current')
+                else:
+                    self.get_logger().warn('Failed to generate valid waypoint')
             
             if self.current_waypoint:
                 # Send goal
@@ -301,19 +313,24 @@ class ExplorationController(Node):
                 goal_msg.pose = self.current_waypoint
                 
                 self.get_logger().info(
-                    f'Navigating to waypoint: ({self.current_waypoint.pose.position.x:.2f}, '
-                    f'{self.current_waypoint.pose.position.y:.2f})'
+                    f'Sending navigation goal:\n'
+                    f'  Position: ({self.current_waypoint.pose.position.x:.2f}, '
+                    f'{self.current_waypoint.pose.position.y:.2f})\n'
+                    f'  Orientation: ({self.current_waypoint.pose.orientation.z:.2f}, '
+                    f'{self.current_waypoint.pose.orientation.w:.2f})'
                 )
                 
-                self.nav_client.wait_for_server()
-                self.current_goal = self.nav_client.send_goal_async(
-                    goal_msg,
-                    feedback_callback=self.feedback_callback
-                )
-                self.current_goal.add_done_callback(self.goal_response_callback)
-                
-                self.is_navigating = True
-                self.goal_start_time = self.get_clock().now()
+                try:
+                    self.nav_client.wait_for_server(timeout_sec=1.0)
+                    self.current_goal = self.nav_client.send_goal_async(
+                        goal_msg,
+                        feedback_callback=self.feedback_callback
+                    )
+                    self.current_goal.add_done_callback(self.goal_response_callback)
+                    self.is_navigating = True
+                    self.goal_start_time = self.get_clock().now()
+                except Exception as e:
+                    self.get_logger().error(f'Failed to send navigation goal: {str(e)}')
 
     def generate_new_goal(self):
         """Generate a new goal and reset navigation state"""
@@ -325,21 +342,33 @@ class ExplorationController(Node):
         """Handle navigation goal response"""
         goal_handle = future.result()
         if not goal_handle.accepted:
-            self.get_logger().warn('Goal rejected')
+            self.get_logger().error('Navigation goal was rejected!')
             self.generate_new_goal()
             return
 
-        self.get_logger().info('Goal accepted')
+        self.get_logger().info('Navigation goal accepted')
         self._get_result_future = goal_handle.get_result_async()
         self._get_result_future.add_done_callback(self.goal_result_callback)
 
     def goal_result_callback(self, future):
         """Handle navigation goal result"""
-        self.generate_new_goal()
+        try:
+            result = future.result().result
+            self.get_logger().info(
+                f'Navigation completed with result: {result}'
+            )
+        except Exception as e:
+            self.get_logger().error(f'Navigation failed: {str(e)}')
+        finally:
+            self.generate_new_goal()
 
     def feedback_callback(self, feedback_msg):
         """Handle navigation feedback"""
-        pass
+        feedback = feedback_msg.feedback
+        self.get_logger().debug(
+            f'Navigation feedback - Distance remaining: '
+            f'{feedback.distance_remaining:.2f}m'
+        )
 
     def publish_waypoint_markers(self):
         """Publish visualization markers for current waypoint"""

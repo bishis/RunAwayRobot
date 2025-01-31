@@ -173,30 +173,22 @@ planner_server:
     use_sim_time: false
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_sbpl_planner/SBPLPlanner"
-      
-      # SBPL-specific parameters
-      primitive_filename: "mprim.mprim"  # Motion primitives file
-      use_custom_primitives: false       # Use default primitives
-      allocated_time: 10.0               # Max planning time in seconds
-      initial_epsilon: 3.0               # Initial heuristic weight
-      force_scratch_limit: 500           # Replanning threshold
-      
-      # Cost parameters
-      forward_penalty: 1.2               # Penalty for forward motion
-      rotation_penalty: 1.0              # Penalty for rotation
-      traversal_cost: 1.0                # Base cost for traversing cells
-      cost_multiplier: 2.0               # Multiplier for costs
-      
-      # Planning parameters
-      search_type: "ARAPlanner"          # Use ARA* planner
-      primitive_type: "XYThetaLattice"   # Use full pose planning
-      num_theta_vals: 16                 # Number of discrete angles
-      min_turning_radius: 0.2            # Minimum turning radius
-      
-      # Optimization parameters
-      smooth_path: true                  # Enable path smoothing
-      post_smoothing_time: 0.1           # Time for post-processing smoothing
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      tolerance: 1.0
+      use_astar: true
+      allow_unknown: false
+      visualize_potential: true
+      lethal_cost: 253
+      neutral_cost: 50
+      scale: 3
+      cost_factor: 3.0
+      publish_potential: true
+      use_quadratic: true
+      orientation_mode: 0
+      use_grid_path: true
+      allow_diagonal: false
+      use_dijkstra: false
+      track_unknown_space: true
 
 behavior_server:
   ros__parameters:

@@ -83,6 +83,10 @@ class NavigationController(Node):
         # Create timer for exploration control
         self.create_timer(1.0, self.exploration_loop)
         
+        # Add variable to store last successful waypoint
+        self.last_successful_waypoint = None
+        self.is_avoiding_obstacle = False
+        
         self.get_logger().info('Navigation controller initialized')
         
         self._current_goal_handle = None  # Add this to store the goal handle
@@ -102,16 +106,26 @@ class NavigationController(Node):
             if self.latest_scan:
                 msg, should_pause = self.obstacle_avoider.process_scan(self.latest_scan, msg)
                 
-                if should_pause and self.is_navigating:
-                    # Cancel current navigation goal
-                    self.get_logger().info('Pausing navigation for obstacle avoidance')
-                    self.cancel_current_goal()
-                    self.is_navigating = False
-                    
-                    # Create timer for replanning
-                    timer = self.create_timer(3.0, self.replan_timer_callback)
-                    timer.reset()  # Start the timer
-                    self._replan_timer = timer  # Store reference to prevent garbage collection
+                if should_pause:
+                    if not self.is_avoiding_obstacle:  # Only do this when first detecting obstacle
+                        self.is_avoiding_obstacle = True
+                        if self.is_navigating:
+                            # Store current waypoint before canceling
+                            self.last_successful_waypoint = self.current_goal
+                            # Cancel current navigation goal
+                            self.get_logger().info('Stopping navigation for obstacle avoidance')
+                            self.cancel_current_goal()
+                            self.is_navigating = False
+                            # Clear current waypoint to stop exploration
+                            self.waypoint_generator.current_waypoint = None
+                            self.current_goal = None
+                elif self.is_avoiding_obstacle:  # Obstacle is now clear
+                    self.is_avoiding_obstacle = False
+                    self.get_logger().info('Obstacle clear, resuming navigation')
+                    # Resume previous waypoint after a short delay
+                    timer = self.create_timer(2.0, self.resume_navigation)
+                    timer.reset()
+                    self._resume_timer = timer
 
             # Log incoming command
             self.get_logger().info(
@@ -271,7 +285,11 @@ class NavigationController(Node):
             self.handle_goal_failure()
 
     def handle_goal_failure(self):
-        """Handle navigation failures by forcing new waypoint"""
+        """Handle navigation failures"""
+        if self.is_avoiding_obstacle:
+            # Don't count failures during obstacle avoidance
+            return
+            
         self.consecutive_failures += 1
         if self.consecutive_failures >= self.max_consecutive_failures:
             self.get_logger().warn('Too many consecutive failures, waiting before continuing...')
@@ -341,15 +359,20 @@ class NavigationController(Node):
         else:
             self.get_logger().warn('Goal cancellation failed')
 
-    def replan_timer_callback(self):
-        """Timer callback for replanning"""
+    def resume_navigation(self):
+        """Resume navigation to last waypoint after obstacle is clear"""
         # Cancel the timer
-        if hasattr(self, '_replan_timer'):
-            self._replan_timer.cancel()
-            self._replan_timer = None
+        if hasattr(self, '_resume_timer'):
+            self._resume_timer.cancel()
+            self._resume_timer = None
         
-        # Do the replanning
-        self.replan_to_waypoint()
+        # Resume to last successful waypoint if we have one
+        if self.last_successful_waypoint:
+            self.get_logger().info('Resuming to previous waypoint')
+            self.send_goal(self.last_successful_waypoint)
+        else:
+            self.get_logger().info('No previous waypoint, generating new one')
+            self.exploration_loop()
 
 def main(args=None):
     rclpy.init(args=args)

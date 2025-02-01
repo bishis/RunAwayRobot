@@ -90,6 +90,7 @@ class NavigationController(Node):
         self.get_logger().info('Navigation controller initialized')
         
         self._current_goal_handle = None  # Add this to store the goal handle
+        self._resume_timer = None  # Add this to track the timer
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -122,10 +123,9 @@ class NavigationController(Node):
                 elif self.is_avoiding_obstacle:  # Obstacle is now clear
                     self.is_avoiding_obstacle = False
                     self.get_logger().info('Obstacle clear, resuming navigation')
-                    # Resume previous waypoint after a short delay
-                    timer = self.create_timer(2.0, self.resume_navigation)
-                    timer.reset()
-                    self._resume_timer = timer
+                    # Create new timer only if one doesn't exist
+                    if self._resume_timer is None:
+                        self._resume_timer = self.create_timer(2.0, self.resume_navigation)
 
             # Log incoming command
             self.get_logger().info(
@@ -361,18 +361,23 @@ class NavigationController(Node):
 
     def resume_navigation(self):
         """Resume navigation to last waypoint after obstacle is clear"""
-        # Cancel the timer
-        if hasattr(self, '_resume_timer'):
-            self._resume_timer.cancel()
+        try:
+            # Cancel and cleanup timer
+            if self._resume_timer is not None:
+                self._resume_timer.cancel()
+                self._resume_timer = None
+            
+            # Resume to last successful waypoint if we have one
+            if self.last_successful_waypoint:
+                self.get_logger().info('Resuming to previous waypoint')
+                self.send_goal(self.last_successful_waypoint)
+            else:
+                self.get_logger().info('No previous waypoint, generating new one')
+                self.exploration_loop()
+        except Exception as e:
+            self.get_logger().error(f'Error in resume navigation: {str(e)}')
+            # Ensure timer is cleaned up even if there's an error
             self._resume_timer = None
-        
-        # Resume to last successful waypoint if we have one
-        if self.last_successful_waypoint:
-            self.get_logger().info('Resuming to previous waypoint')
-            self.send_goal(self.last_successful_waypoint)
-        else:
-            self.get_logger().info('No previous waypoint, generating new one')
-            self.exploration_loop()
 
 def main(args=None):
     rclpy.init(args=args)

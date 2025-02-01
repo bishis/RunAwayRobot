@@ -93,82 +93,62 @@ class PersonDetector(Node):
         self.get_logger().info('Person detector initialized successfully')
         
     def image_callback(self, msg):
+        """Process incoming image messages"""
         try:
+            # Convert ROS Image message to OpenCV image
+            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            
+            # Skip some frames for performance
             self.frame_count += 1
-            if self.frame_count % 30 == 0:  # Log every 30 frames
-                self.get_logger().info('Processing frame...')
-            
-            # Convert compressed image to CV2
-            np_arr = np.frombuffer(msg.data, np.uint8)
-            cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            
-            if cv_image is None:
-                self.get_logger().warn('Failed to decode image')
+            if self.frame_count % 3 != 0:  # Process every 3rd frame
                 return
-            
-            # Log image properties
-            if self.frame_count % 30 == 0:
-                self.get_logger().info(f'Image shape: {cv_image.shape}')
-            
-            # Run detection with error handling
-            try:
-                results = self.model(cv_image, classes=[0], verbose=False)  # class 0 is person in COCO
-                if self.frame_count % 30 == 0:
-                    self.get_logger().info(f'Detection complete, found {len(results[0].boxes)} boxes')
-            except Exception as e:
-                self.get_logger().error(f'YOLO inference failed: {str(e)}')
-                return
-            
-            # Process results
-            markers = MarkerArray()
+                
+            # Run detection
+            results = self.model(cv_image)
             
             # Create visualization image
             viz_image = cv_image.copy()
             
+            # Create marker array for visualization
+            markers = MarkerArray()
+            marker_id = 0
+            
+            # Process results
             for result in results:
                 boxes = result.boxes
                 for box in boxes:
-                    try:
-                        # Get box coordinates
-                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                        confidence = box.conf[0].cpu().numpy()
-                        
-                        if confidence > 0.3:  # Lower confidence threshold for testing
-                            # Draw on image
-                            cv2.rectangle(
-                                viz_image,
-                                (int(x1), int(y1)),
-                                (int(x2), int(y2)),
-                                (0, 255, 0),
-                                2
-                            )
+                    # Only process person detections (class 0 in COCO)
+                    if box.cls == 0:  # Person class
+                        try:
+                            # Get box coordinates
+                            x1, y1, x2, y2 = box.xyxy[0].numpy()
                             
-                            # Add confidence text
-                            cv2.putText(
-                                viz_image,
-                                f'Person: {confidence:.2f}',
-                                (int(x1), int(y1) - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX,
-                                0.5,
-                                (0, 255, 0),
-                                2
-                            )
+                            # Draw rectangle on visualization image
+                            cv2.rectangle(viz_image, 
+                                        (int(x1), int(y1)), 
+                                        (int(x2), int(y2)), 
+                                        (0, 255, 0), 2)
                             
-                            if self.frame_count % 30 == 0:
-                                self.get_logger().info(f'Detected person with confidence: {confidence:.2f}')
+                            # Add text label
+                            conf = float(box.conf[0])
+                            cv2.putText(viz_image, 
+                                      f'Person {conf:.2f}', 
+                                      (int(x1), int(y1-10)), 
+                                      cv2.FONT_HERSHEY_SIMPLEX, 
+                                      0.5, (0, 255, 0), 2)
                             
                             # Create marker for visualization
                             marker = Marker()
-                            marker.header.frame_id = "camera_link"
-                            marker.header.stamp = self.get_clock().now().to_msg()
+                            marker.header = msg.header
                             marker.ns = "persons"
-                            marker.id = len(markers.markers)
+                            marker.id = marker_id
+                            marker_id += 1
                             marker.type = Marker.CUBE
                             marker.action = Marker.ADD
                             
-                            # Set marker position (in camera frame)
-                            marker.pose.position.x = 0.0
-                            marker.pose.position.y = 0.0
+                            # Calculate marker position (center of box)
+                            marker.pose.position.x = (x1 + x2) / 2
+                            marker.pose.position.y = (y1 + y2) / 2
                             marker.pose.position.z = 0.0
                             
                             # Set marker orientation (quaternion)
@@ -178,8 +158,8 @@ class PersonDetector(Node):
                             marker.pose.orientation.w = 1.0
                             
                             # Set marker size
-                            marker.scale.x = 0.5
-                            marker.scale.y = 0.5
+                            marker.scale.x = (x2 - x1) / 2
+                            marker.scale.y = (y2 - y1) / 2
                             marker.scale.z = 1.8  # Approximate human height
                             
                             # Set marker color (green, semi-transparent)
@@ -189,22 +169,22 @@ class PersonDetector(Node):
                             marker.color.a = 0.5
                             
                             markers.markers.append(marker)
-                    except Exception as e:
-                        self.get_logger().warn(f'Error processing detection box: {str(e)}')
-                        continue
+                        except Exception as e:
+                            self.get_logger().warn(f'Error processing detection box: {str(e)}')
+                            continue
             
-            # Publish markers
-            self.viz_pub.publish(self.bridge.cv2_to_imgmsg(viz_image, 'bgr8'))
+            # Publish visualization image
+            viz_msg = self.bridge.cv2_to_imgmsg(viz_image, encoding='bgr8')
+            viz_msg.header = msg.header
+            self.viz_pub.publish(viz_msg)
             
-            # Publish debug image
-            try:
-                debug_msg = CompressedImage()
-                debug_msg.header = msg.header
-                debug_msg.format = "jpeg"
-                debug_msg.data = np.array(cv2.imencode('.jpg', viz_image)[1]).tobytes()
-                self.debug_img_pub.publish(debug_msg)
-            except Exception as e:
-                self.get_logger().error(f'Failed to publish debug image: {str(e)}')
+            # Also publish compressed version for RViz
+            compressed_msg = CompressedImage()
+            compressed_msg.header = msg.header
+            compressed_msg.format = "jpeg"
+            _, compressed_array = cv2.imencode('.jpg', viz_image)
+            compressed_msg.data = compressed_array.tobytes()
+            self.debug_img_pub.publish(compressed_msg)
             
         except Exception as e:
             self.get_logger().error(f'Error in image callback: {str(e)}')

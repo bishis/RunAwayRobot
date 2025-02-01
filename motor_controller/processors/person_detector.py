@@ -116,7 +116,7 @@ class PersonDetector(Node):
         
         self.get_logger().info('Person detector initialized successfully')
         
-    def project_to_map(self, x_pixel, y_pixel, header):
+    def project_to_map(self, x_pixel, y_pixel_pair, header):
         """Project pixel coordinates to map coordinates"""
         try:
             # Get latest transform instead of using image timestamp
@@ -128,12 +128,13 @@ class PersonDetector(Node):
             )
             
             # Calculate depth using human height and pixel height
-            pixel_height = y_pixel[1] - y_pixel[0]  # bottom - top
+            y_top, y_bottom = y_pixel_pair  # Unpack the y coordinates
+            pixel_height = float(y_bottom - y_top)  # Convert to float
             depth = (self.human_height * self.fy) / pixel_height
             
             # Calculate 3D point in camera frame
             x = ((x_pixel - self.cx) * depth) / self.fx
-            y = ((y_pixel - self.cy) * depth) / self.fy
+            y = ((y_bottom - self.cy) * depth) / self.fy  # Use bottom y for ground point
             z = depth
             
             # Create pose in camera frame

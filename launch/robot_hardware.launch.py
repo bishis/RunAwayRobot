@@ -54,8 +54,9 @@ def generate_launch_description():
                 'pixel_format': 'YUYV',
                 'frame_rate': 30.0,
                 'camera_frame_id': 'camera_link',
-                'vertical_flip': True,     # Flip the image in the camera driver
-                'horizontal_flip': False
+                'vertical_flip': True,     # Flip image vertically
+                'horizontal_flip': True,   # Also flip horizontally since camera is rotated 180°
+                'output_encoding': 'rgb8'  # Ensure consistent color encoding
             }],
             remappings=[
                 ('image_raw', '/camera/image_raw'),
@@ -67,7 +68,7 @@ def generate_launch_description():
             package='tf2_ros',
             executable='static_transform_publisher',
             name='camera_link_broadcaster',
-            arguments=['0', '0', '0.1', '0', '0', '0', 'base_link', 'camera_link']
+            arguments=['0', '0', '0.1', '3.14159', '0', '0', 'base_link', 'camera_link']  # Rotate camera 180° (pi radians)
         ),
 
         # Add image compression node

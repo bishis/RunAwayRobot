@@ -29,7 +29,13 @@ class ObstacleAvoider:
         self.max_linear_speed = max_linear_speed
         self.max_angular_speed = max_angular_speed
         
+        # Add cooldown for avoidance
+        self.avoidance_cooldown = 1.0  # seconds to wait before new avoidance
+        self.last_avoidance_end = None
+        self.min_clear_readings = 5  # number of clear readings needed before ending avoidance
+
         # Add state tracking
+        self.clear_readings_count = 0
         self.is_avoiding = False
         self.avoidance_start_time = None
         self.min_avoidance_time = 2.0  # Minimum time to spend avoiding
@@ -74,41 +80,48 @@ class ObstacleAvoider:
         min_distance = np.min(ranges)
         min_angle = angles[np.argmin(ranges)]
         
-        # If in danger zone, take immediate action
+        current_time = self.node.get_clock().now()
+        
+        # Check if we're in danger zone
         if min_distance < self.danger_distance:
+            self.clear_readings_count = 0  # Reset clear readings count
+            
             if not self.is_avoiding:
-                self.is_avoiding = True
-                self.avoidance_start_time = self.node.get_clock().now()
-                # Determine escape direction when starting avoidance
-                self.escape_direction, spaces = self.get_escape_direction(ranges, angles)
-                self.node.get_logger().warn(
-                    f'Obstacle detected at {min_distance:.2f}m, angle: {min_angle:.2f}! '
-                    f'Escaping {self.escape_direction} (spaces: {spaces})'
-                )
+                # Start new avoidance if not in cooldown
+                if (self.last_avoidance_end is None or 
+                    (current_time - self.last_avoidance_end).nanoseconds / 1e9 > self.avoidance_cooldown):
+                    self.is_avoiding = True
+                    self.avoidance_start_time = current_time
+                    self.escape_direction, spaces = self.get_escape_direction(ranges, angles)
+                    self.node.get_logger().warn(
+                        f'Obstacle detected at {min_distance:.2f}m, angle: {min_angle:.2f}! '
+                        f'Escaping {self.escape_direction} (spaces: {spaces})'
+                    )
             
-            # Create escape command
+            # Execute escape maneuver
             modified_cmd = Twist()
-            
-            # Execute escape maneuver based on chosen direction
             if self.escape_direction == 'front':
                 modified_cmd.linear.x = self.max_linear_speed
-                modified_cmd.angular.z = 0.0
             elif self.escape_direction == 'back':
                 modified_cmd.linear.x = -self.max_linear_speed
-                modified_cmd.angular.z = 0.0
             elif self.escape_direction == 'left':
-                modified_cmd.linear.x = 0.0
                 modified_cmd.angular.z = self.max_angular_speed
             else:  # right
-                modified_cmd.linear.x = 0.0
                 modified_cmd.angular.z = -self.max_angular_speed
             
-            return modified_cmd, True  # Pause navigation while avoiding
-            
-        # Check if we should continue avoidance
+            return modified_cmd, True
+
+        # If we're avoiding, check if we should continue
         if self.is_avoiding:
-            time_avoiding = (self.node.get_clock().now() - self.avoidance_start_time).nanoseconds / 1e9
-            if time_avoiding < self.min_avoidance_time:
+            # Check if minimum avoidance time has passed
+            time_avoiding = (current_time - self.avoidance_start_time).nanoseconds / 1e9
+            
+            if min_distance > self.safety_distance:
+                self.clear_readings_count += 1
+            else:
+                self.clear_readings_count = 0
+
+            if time_avoiding < self.min_avoidance_time or self.clear_readings_count < self.min_clear_readings:
                 # Continue escape maneuver
                 modified_cmd = Twist()
                 if self.escape_direction == 'front':
@@ -124,8 +137,10 @@ class ObstacleAvoider:
                 # End avoidance mode
                 self.is_avoiding = False
                 self.escape_direction = None
+                self.last_avoidance_end = current_time
+                self.clear_readings_count = 0
                 self.node.get_logger().info('Ending avoidance maneuver')
-                return cmd_vel, True  # Request replanning after avoidance
+                return cmd_vel, True
 
         # If within safety distance, modify velocity
         elif min_distance < self.safety_distance:

@@ -43,7 +43,7 @@ def generate_launch_description():
             arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
         ),
 
-        # Add Camera Node with camera info
+        # Add Camera Node
         Node(
             package='v4l2_camera',
             executable='v4l2_camera_node',
@@ -54,17 +54,14 @@ def generate_launch_description():
                 'pixel_format': 'YUYV',
                 'frame_rate': 30.0,
                 'camera_frame_id': 'camera_link',
-                'output_encoding': 'rgb8',
-                # Add camera calibration parameters
-                'camera_info_url': f'file://{os.path.join(pkg_dir, "config", "camera_info.yaml")}',
-                'set_camera_info': True
+                'output_encoding': 'rgb8'
             }],
             remappings=[
-                ('image_raw', '/camera/image_raw'),
+                ('image_raw', '/camera/image_raw'),  # Change output topic
             ]
         ),
 
-        # Add Camera Transform
+        # Add camera transform
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
@@ -72,7 +69,7 @@ def generate_launch_description():
             arguments=['0', '0', '0.1', '3.14159', '0', '0', 'base_link', 'camera_link']
         ),
 
-        # Add Image Compression Node
+        # Add image compression node
         Node(
             package='image_transport',
             executable='republish',

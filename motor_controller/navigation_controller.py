@@ -302,7 +302,7 @@ class NavigationController(Node):
         """Handle navigation feedback"""
         # Log progress
         feedback = feedback_msg.feedback
-        self.get_logger().info(
+        self.get_logger().debug(
             f'Navigation feedback - Distance remaining: '
             f'{feedback.distance_remaining:.2f}m'
         )

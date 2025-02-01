@@ -69,4 +69,7 @@
 
   <!-- Add cv_bridge -->
   <depend>cv_bridge</depend>
+
+  <!-- Add vision messages -->
+  <depend>vision_msgs</depend>
 </package> 

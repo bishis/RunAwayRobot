@@ -4,6 +4,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage, Image
 from visualization_msgs.msg import MarkerArray, Marker
 from geometry_msgs.msg import Point
+from vision_msgs.msg import Detection2DArray as DetectionArray
 import cv2
 import numpy as np
 import torch

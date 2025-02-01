@@ -177,7 +177,7 @@ class ObstacleAvoiderNode(Node):
                         cmd.linear.x = -self.max_linear_speed * 0.7
                     else:  # rotate
                         cmd.angular.z = self.max_angular_speed
-                    self.publish_cmd(cmd)
+                    # self.publish_cmd(cmd)
             
         except Exception as e:
             self.get_logger().error(f'Error in scan callback: {str(e)}')

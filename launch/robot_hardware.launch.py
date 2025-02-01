@@ -54,7 +54,7 @@ def generate_launch_description():
                 'pixel_format': 'YUYV',
                 'frame_rate': 30.0,
                 'camera_frame_id': 'camera_link',
-                'vertical_flip': True,     # Flip vertically since camera is upside down
+                'horizontal_flip': True,   # Also flip horizontally to complete 180° rotation
                 'output_encoding': 'rgb8'
             }],
             remappings=[

@@ -11,7 +11,6 @@ from action_msgs.msg import GoalStatus
 import numpy as np
 import math
 from .processors.waypoint_generator import WaypointGenerator
-from .processors.obstacle_avoider import ObstacleAvoider
 
 class NavigationController(Node):
     def __init__(self):
@@ -41,15 +40,6 @@ class NavigationController(Node):
             waypoint_size=0.3,
             preferred_distance=1.0,
             goal_tolerance=0.3
-        )
-        
-        # Initialize obstacle avoider
-        self.obstacle_avoider = ObstacleAvoider(
-            node=self,
-            safety_distance=0.4,
-            danger_distance=0.25,
-            max_linear_speed=self.max_linear_speed,
-            max_angular_speed=self.max_angular_speed
         )
         
         # Publishers and subscribers
@@ -83,11 +73,6 @@ class NavigationController(Node):
         # Create timer for exploration control
         self.create_timer(1.0, self.exploration_loop)
         
-        # Add variable to store last successful waypoint
-        self.last_successful_waypoint = None
-        self.is_avoiding_obstacle = False
-        self.should_show_waypoints = True  # Add flag to control waypoint visibility
-        
         self.get_logger().info('Navigation controller initialized')
         
         self._current_goal_handle = None  # Add this to store the goal handle
@@ -104,72 +89,26 @@ class NavigationController(Node):
     def cmd_vel_callback(self, msg: Twist):
         """Handle incoming velocity commands"""
         try:
-            # Process velocity through obstacle avoider
-            if self.latest_scan:
-                msg, should_pause = self.obstacle_avoider.process_scan(self.latest_scan, msg)
-                
-                if should_pause:
-                    if not self.is_avoiding_obstacle:  # Only do this when first detecting obstacle
-                        self.is_avoiding_obstacle = True
-                        self.should_show_waypoints = False  # Hide waypoints during avoidance
-                        if self.is_navigating:
-                            # Store current waypoint before canceling
-                            self.last_successful_waypoint = self.current_goal
-                            # Cancel current navigation goal
-                            self.get_logger().info('Stopping navigation for obstacle avoidance')
-                            self.cancel_current_goal()
-                            self.is_navigating = False
-                            # Clear current waypoint and visualization
-                            self.waypoint_generator.current_waypoint = None
-                            self.current_goal = None
-                            empty_markers = MarkerArray()
-                            self.marker_pub.publish(empty_markers)
-                elif self.is_avoiding_obstacle:  # Obstacle is now clear
-                    self.is_avoiding_obstacle = False
-                    self.should_show_waypoints = True  # Show waypoints again
-                    self.get_logger().info('Obstacle clear, resuming navigation')
-                    # Create new timer only if one doesn't exist
-                    if self._resume_timer is None:
-                        self._resume_timer = self.create_timer(2.0, self.resume_navigation)
-
-            # Log incoming command
-            self.get_logger().info(
-                f'Received cmd_vel - Linear: {msg.linear.x:.3f}, Angular: {msg.angular.z:.3f}'
-            )
-
-            # Handle small rotations differently
+            # Remove obstacle avoidance processing
+            # Just handle rotation speeds
             if abs(msg.angular.z) > 0.0:
-                # If we're trying to rotate, ensure minimum effective rotation
                 if abs(msg.angular.z) < self.min_rotation_speed:
-                    # Scale up to minimum rotation speed while preserving direction
                     msg.angular.z = math.copysign(self.min_rotation_speed, msg.angular.z)
-                    # Stop linear motion during small rotations
                     msg.linear.x = 0.0
-                    self.get_logger().info(
-                        f'Small rotation detected, increasing to {msg.angular.z:.3f}'
-                    )
             
             # Ensure we're not exceeding max speeds
             msg.linear.x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
             msg.angular.z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
             
-            # Create and publish wheel speeds message
+            # Publish wheel speeds
             wheel_speeds = Twist()
             wheel_speeds.linear.x = msg.linear.x
             wheel_speeds.angular.z = msg.angular.z
             self.wheel_speeds_pub.publish(wheel_speeds)
             
-            # Log final speeds
-            if abs(msg.linear.x) > 0.0 or abs(msg.angular.z) > 0.0:
-                self.get_logger().info(
-                    f'Publishing speeds - Linear: {msg.linear.x:.3f}, Angular: {msg.angular.z:.3f}'
-                )
-            
         except Exception as e:
             self.get_logger().error(f'Error in cmd_vel callback: {str(e)}')
-            # Stop robot on error
-            stop_msg = Twist()
-            self.wheel_speeds_pub.publish(stop_msg)
+            self.wheel_speeds_pub.publish(Twist())
 
     def check_nav2_ready(self):
         """Check if Nav2 stack is ready"""
@@ -186,12 +125,8 @@ class NavigationController(Node):
     def exploration_loop(self):
         """Main control loop for autonomous exploration"""
         try:
-            # Only proceed if Nav2 is ready and not avoiding obstacles
-            if not self.nav2_ready or self.is_avoiding_obstacle:
-                # Clear waypoint visualization during obstacle avoidance
-                if self.is_avoiding_obstacle:
-                    empty_markers = MarkerArray()
-                    self.marker_pub.publish(empty_markers)
+            # Only proceed if Nav2 is ready
+            if not self.nav2_ready:
                 return
 
             # Check for timeout on current goal
@@ -204,13 +139,13 @@ class NavigationController(Node):
                     return
 
             # Only generate new waypoint if not navigating
-            if not self.is_navigating and self.should_show_waypoints:
+            if not self.is_navigating:
                 self.get_logger().info('Generating new waypoint...')
                 waypoint = self.waypoint_generator.generate_waypoint()
                 if waypoint:
                     self.get_logger().info('Generated waypoint, sending goal...')
                     self.send_goal(waypoint)
-                    # Publish visualization only when not avoiding obstacles
+                    # Publish visualization only when not navigating
                     markers = self.waypoint_generator.create_visualization_markers(waypoint)
                     self.marker_pub.publish(markers)
                 else:
@@ -295,10 +230,6 @@ class NavigationController(Node):
 
     def handle_goal_failure(self):
         """Handle navigation failures"""
-        if self.is_avoiding_obstacle:
-            # Don't count failures during obstacle avoidance
-            return
-            
         self.consecutive_failures += 1
         if self.consecutive_failures >= self.max_consecutive_failures:
             self.get_logger().warn('Too many consecutive failures, waiting before continuing...')
@@ -377,9 +308,9 @@ class NavigationController(Node):
                 self._resume_timer = None
             
             # Resume to last successful waypoint if we have one
-            if self.last_successful_waypoint:
+            if self.current_goal:
                 self.get_logger().info('Resuming to previous waypoint')
-                self.send_goal(self.last_successful_waypoint)
+                self.send_goal(self.current_goal)
             else:
                 self.get_logger().info('No previous waypoint, generating new one')
                 self.exploration_loop()

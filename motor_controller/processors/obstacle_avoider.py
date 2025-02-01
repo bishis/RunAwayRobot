@@ -13,8 +13,8 @@ class ObstacleAvoiderNode(Node):
         super().__init__('obstacle_avoider')
         
         # Parameters
-        self.declare_parameter('safety_distance', 0.45)
-        self.declare_parameter('danger_distance', 0.35)
+        self.declare_parameter('safety_distance', 0.28)
+        self.declare_parameter('danger_distance', 0.20)
         self.declare_parameter('max_linear_speed', 0.07)
         self.declare_parameter('max_angular_speed', 1.0)
         
@@ -26,7 +26,7 @@ class ObstacleAvoiderNode(Node):
         # Robot footprint dimensions
         self.robot_length = 0.29  # 29cm
         self.robot_width = 0.34   # 34cm
-        self.safety_boundary = 0.08  # Increased from 0.05 to 8cm
+        self.safety_boundary = 0.04  # Increased from 0.05 to 8cm
         
         # State tracking
         self.is_avoiding = False
@@ -149,15 +149,15 @@ class ObstacleAvoiderNode(Node):
                         self.escape_direction = 'rotate'
                 
                 # Execute escape maneuver based on chosen direction
-                cmd = Twist()
-                if self.escape_direction == 'forward':
-                    cmd.linear.x = self.max_linear_speed * 0.7
-                elif self.escape_direction == 'backward':
-                    cmd.linear.x = -self.max_linear_speed * 0.7
-                else:  # rotate
-                    cmd.angular.z = self.max_angular_speed
+                # cmd = Twist()
+                # if self.escape_direction == 'forward':
+                #     cmd.linear.x = self.max_linear_speed * 0.7
+                # elif self.escape_direction == 'backward':
+                #     cmd.linear.x = -self.max_linear_speed * 0.7
+                # else:  # rotate
+                #     cmd.angular.z = self.max_angular_speed
                 
-                self.publish_cmd(cmd)
+                # self.publish_cmd(cmd)
                 
             # Check if we should continue avoidance
             elif self.is_avoiding:

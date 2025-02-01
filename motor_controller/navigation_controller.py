@@ -11,6 +11,7 @@ from action_msgs.msg import GoalStatus
 import numpy as np
 import math
 from .processors.waypoint_generator import WaypointGenerator
+from .processors.obstacle_avoider import ObstacleAvoider
 
 class NavigationController(Node):
     def __init__(self):
@@ -40,6 +41,15 @@ class NavigationController(Node):
             waypoint_size=0.3,
             preferred_distance=1.0,
             goal_tolerance=0.3
+        )
+        
+        # Initialize obstacle avoider
+        self.obstacle_avoider = ObstacleAvoider(
+            node=self,
+            safety_distance=0.4,
+            danger_distance=0.25,
+            max_linear_speed=self.max_linear_speed,
+            max_angular_speed=self.max_angular_speed
         )
         
         # Publishers and subscribers
@@ -86,6 +96,19 @@ class NavigationController(Node):
     def cmd_vel_callback(self, msg: Twist):
         """Handle incoming velocity commands"""
         try:
+            # Process velocity through obstacle avoider
+            if self.latest_scan:
+                msg, should_pause = self.obstacle_avoider.process_scan(self.latest_scan, msg)
+                
+                if should_pause and self.is_navigating:
+                    # Cancel current navigation goal
+                    self.get_logger().info('Pausing navigation for obstacle avoidance')
+                    self.is_navigating = False
+                    # Don't clear current_goal so we can resume to same waypoint
+                    
+                    # Request replan after brief delay
+                    self.create_timer(3.0, self.replan_to_waypoint, oneshot=True)
+
             # Log incoming command
             self.get_logger().info(
                 f'Received cmd_vel - Linear: {msg.linear.x:.3f}, Angular: {msg.angular.z:.3f}'
@@ -283,6 +306,14 @@ class NavigationController(Node):
             f'Navigation feedback - Distance remaining: '
             f'{feedback.distance_remaining:.2f}m'
         )
+
+    def replan_to_waypoint(self):
+        """Replan path to current waypoint after obstacle avoidance"""
+        if self.current_goal:
+            self.get_logger().info('Replanning path to waypoint after avoidance')
+            self.send_goal(self.current_goal)
+        else:
+            self.exploration_loop()
 
 def main(args=None):
     rclpy.init(args=args)

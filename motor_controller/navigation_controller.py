@@ -11,7 +11,6 @@ from action_msgs.msg import GoalStatus
 import numpy as np
 import math
 from .processors.waypoint_generator import WaypointGenerator
-from .processors.obstacle_avoider import ObstacleAvoider
 
 class NavigationController(Node):
     def __init__(self):
@@ -43,15 +42,6 @@ class NavigationController(Node):
             goal_tolerance=0.3
         )
         
-        # Initialize obstacle avoider
-        self.obstacle_avoider = ObstacleAvoider(
-            node=self,
-            safety_distance=0.4,
-            danger_distance=0.3,
-            max_linear_speed=self.max_linear_speed,
-            max_angular_speed=self.max_angular_speed
-        )
-        
         # Add current_map storage
         self.current_map = None
         
@@ -62,8 +52,8 @@ class NavigationController(Node):
         self.map_sub = self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
         self.marker_pub = self.create_publisher(MarkerArray, 'exploration_markers', 10)
         
-        # Navigation action client - Add namespace to match Nav2
-        self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')  # Add leading slash
+        # Navigation action client
+        self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
         
         # Add debug logging for goal sending
         self.get_logger().info('Waiting for navigation action server...')
@@ -86,13 +76,9 @@ class NavigationController(Node):
         # Create timer for exploration control
         self.create_timer(1.0, self.exploration_loop)
         
-        # Add state for obstacle avoidance
-        self.is_avoiding_obstacle = False
-        self._resume_timer = None
-        
         self.get_logger().info('Navigation controller initialized')
         
-        self._current_goal_handle = None  # Add this to store the goal handle
+        self._current_goal_handle = None
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -106,25 +92,6 @@ class NavigationController(Node):
     def cmd_vel_callback(self, msg: Twist):
         """Handle incoming velocity commands"""
         try:
-            # Process velocity through obstacle avoider
-            if self.latest_scan:
-                msg, should_pause = self.obstacle_avoider.process_scan(self.latest_scan, msg)
-                
-                if should_pause and self.is_navigating:
-                    # Cancel current navigation goal and waypoint
-                    self.get_logger().info('Pausing navigation for obstacle avoidance')
-                    self.cancel_current_goal()
-                    self.is_navigating = False
-                    
-                    # Cancel waypoint and clear visualization
-                    empty_markers = self.waypoint_generator.cancel_waypoint()
-                    self.marker_pub.publish(empty_markers)
-                    
-                    # Create timer for replanning
-                    if self._resume_timer is None:
-                        self._resume_timer = self.create_timer(3.0, self.resume_navigation)
-
-            # Remove obstacle avoidance processing
             # Just handle rotation speeds
             if abs(msg.angular.z) > 0.0:
                 if abs(msg.angular.z) < self.min_rotation_speed:
@@ -332,26 +299,6 @@ class NavigationController(Node):
             self.get_logger().info('Goal successfully canceled')
         else:
             self.get_logger().warn('Goal cancellation failed')
-
-    def resume_navigation(self):
-        """Resume navigation to last waypoint after obstacle is clear"""
-        try:
-            # Cancel and cleanup timer
-            if self._resume_timer is not None:
-                self._resume_timer.cancel()
-                self._resume_timer = None
-            
-            # Resume to last successful waypoint if we have one
-            if self.current_goal:
-                self.get_logger().info('Resuming to previous waypoint')
-                self.send_goal(self.current_goal)
-            else:
-                self.get_logger().info('No previous waypoint, generating new one')
-                self.exploration_loop()
-        except Exception as e:
-            self.get_logger().error(f'Error in resume navigation: {str(e)}')
-            # Ensure timer is cleaned up even if there's an error
-            self._resume_timer = None
 
 def main(args=None):
     rclpy.init(args=args)

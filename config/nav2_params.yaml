@@ -354,7 +354,7 @@ collision_monitor:
     scan_obstacle_range: 0.4         # Maximum range to check for obstacles
     slowdown_radius: 0.3             # Start slowing at this distance
     approach_velocity_scaling: 0.5    # Scale velocity when approaching obstacles
-    collision_range: 0.24            # Emergency stop distance (slightly larger than robot radius)
+    collision_range: 0.2             # Emergency stop distance (slightly larger than robot radius)
     
     # Publishing parameters
     publish_rate: 10.0

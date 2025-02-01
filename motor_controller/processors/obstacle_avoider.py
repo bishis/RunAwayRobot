@@ -24,8 +24,8 @@ class ObstacleAvoiderNode(Node):
         self.max_angular_speed = self.get_parameter('max_angular_speed').value
         
         # Robot footprint dimensions
-        self.robot_length = 0.29  # 29cm
-        self.robot_width = 0.21   # Reduced to 18cm for left/right clearance
+        self.robot_length = 0.28  # 29cm
+        self.robot_width = 0.22   # Reduced to 18cm for left/right clearance
         self.safety_boundary = 0.04  # 4cm safety margin
         
         # State tracking
@@ -40,7 +40,7 @@ class ObstacleAvoiderNode(Node):
         self.scan_sub = self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         
         # Create timer for constant forward motion (for testing)
-        # self.create_timer(0.1, self.move_forward)
+        self.create_timer(0.1, self.move_forward)
         
         self.get_logger().info('Obstacle avoider node started')
 
@@ -149,15 +149,15 @@ class ObstacleAvoiderNode(Node):
                         self.escape_direction = 'rotate'
                 
                 # Execute escape maneuver based on chosen direction
-                # cmd = Twist()
-                # if self.escape_direction == 'forward':
-                #     cmd.linear.x = self.max_linear_speed * 0.7
-                # elif self.escape_direction == 'backward':
-                #     cmd.linear.x = -self.max_linear_speed * 0.7
-                # else:  # rotate
-                #     cmd.angular.z = self.max_angular_speed
+                cmd = Twist()
+                if self.escape_direction == 'forward':
+                    cmd.linear.x = self.max_linear_speed * 0.7
+                elif self.escape_direction == 'backward':
+                    cmd.linear.x = -self.max_linear_speed * 0.7
+                else:  # rotate
+                    cmd.angular.z = self.max_angular_speed
                 
-                # self.publish_cmd(cmd)
+                self.publish_cmd(cmd)
                 
             # Check if we should continue avoidance
             elif self.is_avoiding:
@@ -177,7 +177,7 @@ class ObstacleAvoiderNode(Node):
                         cmd.linear.x = -self.max_linear_speed * 0.7
                     else:  # rotate
                         cmd.angular.z = self.max_angular_speed
-                    # self.publish_cmd(cmd)
+                    self.publish_cmd(cmd)
             
         except Exception as e:
             self.get_logger().error(f'Error in scan callback: {str(e)}')

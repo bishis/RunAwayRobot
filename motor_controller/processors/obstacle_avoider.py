@@ -25,7 +25,7 @@ class ObstacleAvoiderNode(Node):
         
         # Robot footprint dimensions
         self.robot_length = 0.29  # 29cm
-        self.robot_width = 0.18   # Reduced to 18cm for left/right clearance
+        self.robot_width = 0.19   # Reduced to 18cm for left/right clearance
         self.safety_boundary = 0.04  # 4cm safety margin
         
         # State tracking

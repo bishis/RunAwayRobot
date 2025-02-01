@@ -61,7 +61,7 @@ def generate_launch_description():
             ]
         ),
 
-        # Add camera transform
+        # Add Camera Transform
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
@@ -69,7 +69,21 @@ def generate_launch_description():
             arguments=['0', '0', '0.1', '3.14159', '0', '0', 'base_link', 'camera_link']
         ),
 
-        # Add image compression node
+        # Add CameraInfo Publisher
+        Node(
+            package='camera_info_manager',
+            executable='camera_info_manager_node',
+            name='camera_info_manager',
+            parameters=[{
+                'camera_name': 'camera',
+                'camera_info_url': f'file://{os.path.join(pkg_dir, "config", "camera_info.yaml")}'
+            }],
+            remappings=[
+                ('camera_info', '/camera/camera_info')
+            ]
+        ),
+
+        # Add Image Compression Node
         Node(
             package='image_transport',
             executable='republish',
@@ -80,6 +94,7 @@ def generate_launch_description():
                 ('out/compressed', '/camera/image_raw/compressed'),
             ]
         ),
+
 
         # Add robot visualizer
         Node(

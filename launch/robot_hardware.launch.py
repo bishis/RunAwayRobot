@@ -54,10 +54,6 @@ def generate_launch_description():
                 'pixel_format': 'YUYV',
                 'frame_rate': 30.0,
                 'camera_frame_id': 'camera_link',
-                'output_encoding': 'rgb8',
-                # Add camera calibration parameters
-                'camera_info_url': 'package://motor_controller/config/camera_info.yaml',
-                'camera_name': 'camera'
             }],
             remappings=[
                 ('image_raw', '/camera/image_raw'),

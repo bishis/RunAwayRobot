@@ -250,6 +250,18 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /robot_footprint
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Map Persons
+      Namespaces:
+        map_persons: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map_person_detections
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48

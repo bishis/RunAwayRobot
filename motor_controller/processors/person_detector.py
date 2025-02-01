@@ -13,6 +13,10 @@ from pathlib import Path
 import requests
 import shutil
 from cv_bridge import CvBridge
+from tf2_ros import Buffer, TransformListener
+from geometry_msgs.msg import TransformStamped, PoseStamped
+import tf2_geometry_msgs
+import math
 
 class PersonDetector(Node):
     def __init__(self):
@@ -90,8 +94,65 @@ class PersonDetector(Node):
         # Debug counter
         self.frame_count = 0
         
+        # Add TF buffer and listener
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        
+        # Add map visualization publisher
+        self.map_marker_pub = self.create_publisher(
+            MarkerArray,
+            '/map_person_detections',
+            10
+        )
+        
+        # Camera parameters (from camera_info.yaml)
+        self.fx = 500.0  # focal length x
+        self.fy = 500.0  # focal length y
+        self.cx = 320.0  # optical center x
+        self.cy = 240.0  # optical center y
+        
+        # Approximate human height (meters)
+        self.human_height = 1.7
+        
         self.get_logger().info('Person detector initialized successfully')
         
+    def project_to_map(self, x_pixel, y_pixel, header):
+        """Project pixel coordinates to map coordinates"""
+        try:
+            # Get transform from camera to map
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                header.frame_id,
+                header.stamp,
+                timeout=rclpy.duration.Duration(seconds=1.0)
+            )
+            
+            # Calculate depth using human height and pixel height
+            pixel_height = y_pixel[1] - y_pixel[0]  # bottom - top
+            depth = (self.human_height * self.fy) / pixel_height
+            
+            # Calculate 3D point in camera frame
+            x = ((x_pixel - self.cx) * depth) / self.fx
+            y = ((y_pixel - self.cy) * depth) / self.fy
+            z = depth
+            
+            # Create pose in camera frame
+            pose = PoseStamped()
+            pose.header = header
+            pose.pose.position.x = x
+            pose.pose.position.y = y
+            pose.pose.position.z = z
+            pose.pose.orientation.w = 1.0
+            
+            # Transform to map frame
+            map_pose = tf2_geometry_msgs.do_transform_pose(pose, transform)
+            
+            return map_pose
+            
+        except Exception as e:
+            self.get_logger().warn(f'Failed to project to map: {str(e)}')
+            return None
+            
     def image_callback(self, msg):
         """Process incoming image messages"""
         try:
@@ -112,6 +173,10 @@ class PersonDetector(Node):
             # Create marker array for visualization
             markers = MarkerArray()
             marker_id = 0
+            
+            # Create map markers
+            map_markers = MarkerArray()
+            map_marker_id = 0
             
             # Process results
             for result in results:
@@ -169,6 +234,47 @@ class PersonDetector(Node):
                             marker.color.a = 0.5
                             
                             markers.markers.append(marker)
+                            
+                            # Project bottom center of bounding box to map
+                            bottom_center_x = (x1 + x2) / 2
+                            bottom_y = y2  # Bottom of bounding box
+                            
+                            map_pose = self.project_to_map(
+                                bottom_center_x,
+                                [y1, y2],  # Pass both top and bottom y for height calculation
+                                msg.header
+                            )
+                            
+                            if map_pose:
+                                # Create map marker
+                                map_marker = Marker()
+                                map_marker.header.frame_id = 'map'
+                                map_marker.header.stamp = self.get_clock().now().to_msg()
+                                map_marker.ns = 'map_persons'
+                                map_marker.id = map_marker_id
+                                map_marker_id += 1
+                                map_marker.type = Marker.CYLINDER
+                                map_marker.action = Marker.ADD
+                                
+                                # Set position from map pose
+                                map_marker.pose = map_pose.pose
+                                
+                                # Set marker size
+                                map_marker.scale.x = 0.5  # 50cm diameter
+                                map_marker.scale.y = 0.5
+                                map_marker.scale.z = 1.7  # Human height
+                                
+                                # Set color (blue, semi-transparent)
+                                map_marker.color.r = 0.0
+                                map_marker.color.g = 0.0
+                                map_marker.color.b = 1.0
+                                map_marker.color.a = 0.5
+                                
+                                # Set lifetime
+                                map_marker.lifetime = rclpy.duration.Duration(seconds=1.0).to_msg()
+                                
+                                map_markers.markers.append(map_marker)
+                                
                         except Exception as e:
                             self.get_logger().warn(f'Error processing detection box: {str(e)}')
                             continue
@@ -185,6 +291,10 @@ class PersonDetector(Node):
             _, compressed_array = cv2.imencode('.jpg', viz_image)
             compressed_msg.data = compressed_array.tobytes()
             self.debug_img_pub.publish(compressed_msg)
+            
+            # Publish map markers
+            if len(map_markers.markers) > 0:
+                self.map_marker_pub.publish(map_markers)
             
         except Exception as e:
             self.get_logger().error(f'Error in image callback: {str(e)}')

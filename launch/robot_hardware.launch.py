@@ -54,8 +54,6 @@ def generate_launch_description():
                 'pixel_format': 'YUYV',
                 'frame_rate': 30.0,
                 'camera_frame_id': 'camera_link',
-                'vertical_flip': True,     # Flip vertically since camera is upside down
-                'horizontal_flip': True,   # Also flip horizontally to complete 180° rotation
                 'output_encoding': 'rgb8',
                 # Add camera calibration parameters
                 'camera_info_url': 'package://motor_controller/config/camera_info.yaml',
@@ -67,23 +65,26 @@ def generate_launch_description():
             ]
         ),
 
-        # Add camera transform - rotate 180° in TF
         Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='camera_link_broadcaster',
-            arguments=['0', '0', '0.1', '3.14159', '0', '0', 'base_link', 'camera_link']
+            package='image_proc',
+            executable='image_rotate',
+            name='image_rotate',
+            parameters=[{'angle': 3.14159}],  # Rotate by 180 degrees (π radians)
+            remappings=[
+                ('image', '/camera/image_raw'),
+                ('image_rotated', '/camera/image_rotated')
+            ]
         ),
-
-        # Add image compression node
+        
         Node(
             package='image_transport',
             executable='republish',
             name='image_compress',
             arguments=['raw', 'compressed'],
             remappings=[
-                ('in', '/camera/image_raw'),
+                ('in', '/camera/image_rotated'),  # Subscribe to the rotated image
                 ('out/compressed', '/camera/image_raw/compressed'),
             ]
-        )
+        ),
+
     ])

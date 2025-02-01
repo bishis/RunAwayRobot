@@ -32,6 +32,7 @@ class ObstacleAvoiderNode(Node):
         self.is_avoiding = False
         self.avoidance_start_time = None
         self.min_avoidance_time = 2.0
+        self.escape_direction = None
         
         # Publishers and subscribers
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
@@ -125,30 +126,35 @@ class ObstacleAvoiderNode(Node):
             collision_imminent = self.check_footprint_collision(ranges, angles)
             
             if collision_imminent:
+                # Determine escape direction based on obstacle positions
+                front_clear = not any(np.abs(angles) < np.pi/4 and r < self.safety_distance for r in ranges)
+                back_clear = not any(np.abs(angles) > 3*np.pi/4 and r < self.safety_distance for r in ranges)
+                
+                # Start new avoidance if not already avoiding
                 if not self.is_avoiding:
                     self.is_avoiding = True
                     self.avoidance_start_time = self.get_clock().now()
                     
-                    # Determine escape direction based on obstacle positions
-                    front_clear = not any(np.abs(angles) < np.pi/4 and r < self.safety_distance for r in ranges)
-                    back_clear = not any(np.abs(angles) > 3*np.pi/4 and r < self.safety_distance for r in ranges)
-                    
-                    # Choose escape direction
                     if front_clear:
                         self.get_logger().info('Front is clear - moving forward')
-                        cmd = Twist()
-                        cmd.linear.x = self.max_linear_speed * 0.7
+                        self.escape_direction = 'forward'
                     elif back_clear:
                         self.get_logger().info('Back is clear - reversing')
-                        cmd = Twist()
-                        cmd.linear.x = -self.max_linear_speed * 0.7
+                        self.escape_direction = 'backward'
                     else:
-                        # If both front and back blocked, try rotating
                         self.get_logger().info('Both directions blocked - rotating')
-                        cmd = Twist()
-                        cmd.angular.z = self.max_angular_speed
-                    
-                    self.publish_cmd(cmd)
+                        self.escape_direction = 'rotate'
+                
+                # Execute escape maneuver based on chosen direction
+                cmd = Twist()
+                if self.escape_direction == 'forward':
+                    cmd.linear.x = self.max_linear_speed * 0.7
+                elif self.escape_direction == 'backward':
+                    cmd.linear.x = -self.max_linear_speed * 0.7
+                else:  # rotate
+                    cmd.angular.z = self.max_angular_speed
+                
+                self.publish_cmd(cmd)
                 
             # Check if we should continue avoidance
             elif self.is_avoiding:
@@ -158,6 +164,17 @@ class ObstacleAvoiderNode(Node):
                 if time_avoiding > self.min_avoidance_time and not collision_imminent:
                     self.get_logger().info('Exiting avoidance mode - area clear')
                     self.is_avoiding = False
+                    self.escape_direction = None
+                else:
+                    # Continue the escape maneuver
+                    cmd = Twist()
+                    if self.escape_direction == 'forward':
+                        cmd.linear.x = self.max_linear_speed * 0.7
+                    elif self.escape_direction == 'backward':
+                        cmd.linear.x = -self.max_linear_speed * 0.7
+                    else:  # rotate
+                        cmd.angular.z = self.max_angular_speed
+                    self.publish_cmd(cmd)
             
         except Exception as e:
             self.get_logger().error(f'Error in scan callback: {str(e)}')

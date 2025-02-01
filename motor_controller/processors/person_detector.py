@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import CompressedImage, Image
 from visualization_msgs.msg import MarkerArray, Marker
 from geometry_msgs.msg import Point
 import cv2
@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import requests
 import shutil
+from cv_bridge import CvBridge
 
 class PersonDetector(Node):
     def __init__(self):
@@ -55,18 +56,26 @@ class PersonDetector(Node):
             self.get_logger().error(f'Failed to load YOLO model: {str(e)}')
             raise
         
+        # Create CV bridge
+        self.bridge = CvBridge()
+        
         # Create subscribers
         self.image_sub = self.create_subscription(
-            CompressedImage,
-            '/camera/image_raw/compressed',  # Already flipped from camera driver
+            Image,
+            '/camera/image_raw_flipped',  # Changed from image_raw to image_raw_flipped
             self.image_callback,
             10
         )
         
         # Create publishers
+        self.detection_pub = self.create_publisher(
+            DetectionArray, 
+            '/person_detections',
+            10
+        )
         self.viz_pub = self.create_publisher(
-            MarkerArray,
-            '/detected_persons',
+            Image,
+            '/person_detections/image',
             10
         )
         
@@ -184,7 +193,7 @@ class PersonDetector(Node):
                         continue
             
             # Publish markers
-            self.viz_pub.publish(markers)
+            self.viz_pub.publish(self.bridge.cv2_to_imgmsg(viz_image, 'bgr8'))
             
             # Publish debug image
             try:

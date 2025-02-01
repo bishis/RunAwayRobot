@@ -66,4 +66,7 @@
 
   <!-- Add image processing -->
   <depend>image_proc</depend>
+
+  <!-- Add cv_bridge -->
+  <depend>cv_bridge</depend>
 </package> 

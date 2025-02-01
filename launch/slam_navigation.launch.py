@@ -53,6 +53,18 @@ def generate_launch_description():
         ]
     )
 
+    # Add image flipper node
+    image_flipper_node = Node(
+        package='motor_controller',
+        executable='image_flipper',
+        name='image_flipper',
+        output='screen',
+        remappings=[
+            ('image_raw', '/camera/image_raw'),
+            ('image_raw_flipped', '/camera/image_raw_flipped')
+        ]
+    )
+
     return LaunchDescription([
         # Network setup
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
@@ -109,6 +121,8 @@ def generate_launch_description():
             executable='person_detector',
             name='person_detector',
             output='screen'
-        )
+        ),
 
+        # Add image flipper
+        image_flipper_node
     ])

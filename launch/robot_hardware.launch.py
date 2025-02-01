@@ -66,7 +66,7 @@ def generate_launch_description():
             package='tf2_ros',
             executable='static_transform_publisher',
             name='camera_link_broadcaster',
-            arguments=['0', '0', '0.1', '3.14159', '0', '0', 'base_link', 'camera_link']
+            arguments=['0', '0', '0.1', '0', '0', '0', 'base_link', 'camera_link']
         ),
 
         # Add image compression node

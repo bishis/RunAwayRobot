@@ -105,11 +105,13 @@ class NavigationController(Node):
                 if should_pause and self.is_navigating:
                     # Cancel current navigation goal
                     self.get_logger().info('Pausing navigation for obstacle avoidance')
-                    self.cancel_current_goal()  # Cancel the goal properly
+                    self.cancel_current_goal()
                     self.is_navigating = False
                     
-                    # Create timer for replanning with oneshot=True
-                    self.create_timer(3.0, self.replan_to_waypoint, oneshot=True)
+                    # Create timer for replanning
+                    timer = self.create_timer(3.0, self.replan_timer_callback)
+                    timer.reset()  # Start the timer
+                    self._replan_timer = timer  # Store reference to prevent garbage collection
 
             # Log incoming command
             self.get_logger().info(
@@ -338,6 +340,16 @@ class NavigationController(Node):
             self.get_logger().info('Goal successfully canceled')
         else:
             self.get_logger().warn('Goal cancellation failed')
+
+    def replan_timer_callback(self):
+        """Timer callback for replanning"""
+        # Cancel the timer
+        if hasattr(self, '_replan_timer'):
+            self._replan_timer.cancel()
+            self._replan_timer = None
+        
+        # Do the replanning
+        self.replan_to_waypoint()
 
 def main(args=None):
     rclpy.init(args=args)

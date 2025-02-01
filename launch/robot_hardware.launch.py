@@ -54,34 +54,16 @@ def generate_launch_description():
                 'pixel_format': 'YUYV',
                 'frame_rate': 30.0,
                 'camera_frame_id': 'camera_link',
+                'vertical_flip': True,     # Flip vertically since camera is upside down
+                'horizontal_flip': True,   # Also flip horizontally to complete 180° rotation
                 'output_encoding': 'rgb8'
             }],
             remappings=[
-                ('image_raw', '/camera/image_raw_unflipped'),
+                ('image_raw', '/camera/image_raw'),
             ]
         ),
 
-        # Add image rotation node
-        Node(
-            package='image_rotate',
-            executable='image_rotate',
-            name='image_rotator',
-            parameters=[{
-                'target_frame_id': '',
-                'source_frame_id': '',
-                'target_x': 0.0,
-                'target_y': 0.0,
-                'target_z': 1.0,
-                'angle_offset': 3.14159,  # 180 degrees in radians
-                'use_camera_info': False
-            }],
-            remappings=[
-                ('image', '/camera/image_raw_unflipped'),
-                ('rotated/image', '/camera/image_raw')
-            ]
-        ),
-
-        # Add camera transform
+        # Add camera transform - rotate 180° in TF
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',

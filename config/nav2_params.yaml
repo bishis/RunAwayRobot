@@ -77,9 +77,9 @@ controller_server:
       plugin: "dwb_core::DWBLocalPlanner"
       
       # Adjust velocity limits
-      min_vel_x: -0.06
+      min_vel_x: -0.08
       max_vel_x: 0.1
-      min_vel_y: -0.06
+      min_vel_y: -0.08
       max_vel_y: 0.1
       min_vel_theta: -1.0
       max_vel_theta: 1.0

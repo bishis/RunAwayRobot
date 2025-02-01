@@ -125,31 +125,27 @@ class NavigationController(Node):
     def exploration_loop(self):
         """Main control loop for autonomous exploration"""
         try:
-            # Only proceed if Nav2 is ready
             if not self.nav2_ready:
                 return
 
-            # Check for timeout on current goal
-            if self.is_navigating and self.goal_start_time:
-                time_elapsed = (self.get_clock().now() - self.goal_start_time).nanoseconds / 1e9
-                if time_elapsed > self.goal_timeout:
-                    self.get_logger().warn('Goal timeout reached, forcing new waypoint')
-                    self.waypoint_generator.force_waypoint_change()
-                    self.handle_goal_failure()
-                    return
-
-            # Only generate new waypoint if not navigating
             if not self.is_navigating:
-                self.get_logger().info('Generating new waypoint...')
                 waypoint = self.waypoint_generator.generate_waypoint()
                 if waypoint:
-                    self.get_logger().info('Generated waypoint, sending goal...')
-                    self.send_goal(waypoint)
-                    # Publish visualization only when not navigating
-                    markers = self.waypoint_generator.create_visualization_markers(waypoint)
-                    self.marker_pub.publish(markers)
-                else:
-                    self.get_logger().warn('Failed to generate waypoint, will retry...')
+                    # Additional safety check before sending
+                    if not self.waypoint_generator.is_near_wall(
+                        waypoint.pose.position.x,
+                        waypoint.pose.position.y,
+                        self.current_map.data,
+                        self.current_map.info.resolution,
+                        self.current_map.info.origin.position.x,
+                        self.current_map.info.origin.position.y
+                    ):
+                        self.send_goal(waypoint)
+                        markers = self.waypoint_generator.create_visualization_markers(waypoint)
+                        self.marker_pub.publish(markers)
+                    else:
+                        self.node.get_logger().warn('Generated waypoint too close to wall, skipping')
+                        self.waypoint_generator.force_waypoint_change()
         
         except Exception as e:
             self.get_logger().error(f'Error in exploration loop: {str(e)}')

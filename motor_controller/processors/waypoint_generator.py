@@ -55,10 +55,34 @@ class WaypointGenerator:
         self.last_best_score = -float('inf')
         self.waypoint_attempts = 0
         self.max_attempts = 3  # Maximum attempts before accepting a lower score
+        self.wall_check_distance = 0.4  # Distance to check for walls
+        self.max_wall_retry = 5  # Maximum attempts to find non-wall waypoint
 
     def update_map(self, map_msg: OccupancyGrid):
-        """Update stored map"""
+        """Update stored map and validate current waypoint"""
         self.current_map = map_msg
+        
+        # Check if current waypoint is too close to walls
+        if self.current_waypoint and self.current_map:
+            map_data = np.array(self.current_map.data).reshape(
+                self.current_map.info.height,
+                self.current_map.info.width
+            )
+            x = self.current_waypoint.pose.position.x
+            y = self.current_waypoint.pose.position.y
+            
+            if self.is_near_wall(x, y, map_data, 
+                               self.current_map.info.resolution,
+                               self.current_map.info.origin.position.x,
+                               self.current_map.info.origin.position.y):
+                self.node.get_logger().warn('Current waypoint is too close to wall, forcing new waypoint')
+                self.force_waypoint_change()
+                return
+            
+            # Also check if point is still in free space
+            if not self.is_valid_point(x, y):
+                self.node.get_logger().warn('Current waypoint is no longer in free space, forcing new waypoint')
+                self.force_waypoint_change()
 
     def is_valid_point(self, x: float, y: float) -> bool:
         """Check if a point is valid (free space and away from obstacles)"""
@@ -170,6 +194,45 @@ class WaypointGenerator:
         """Force the generator to pick a new waypoint"""
         self.force_new_waypoint = True
         self.current_waypoint = None
+
+    def is_near_wall(self, x: float, y: float, costmap_data: np.ndarray, resolution: float, origin_x: float, origin_y: float) -> bool:
+        """Check if a point is too close to walls in multiple directions"""
+        # Convert to map coordinates
+        map_x = int((x - origin_x) / resolution)
+        map_y = int((y - origin_y) / resolution)
+        
+        # Check points in a circle around the position
+        check_radius = int(self.wall_check_distance / resolution)
+        angles = np.linspace(0, 2*np.pi, 16)  # Check 16 directions
+        
+        for angle in angles:
+            # Get point at check_radius distance in this direction
+            check_x = int(map_x + check_radius * np.cos(angle))
+            check_y = int(map_y + check_radius * np.sin(angle))
+            
+            # Ensure within bounds
+            if (0 <= check_x < costmap_data.shape[1] and 
+                0 <= check_y < costmap_data.shape[0]):
+                # Check if there's a wall (cost > 50 typically indicates obstacle)
+                if costmap_data[check_y, check_x] > 50:
+                    return True
+        return False
+
+    def find_alternative_waypoint(self, x: float, y: float, costmap_data: np.ndarray, 
+                                resolution: float, origin_x: float, origin_y: float) -> tuple[float, float]:
+        """Find alternative waypoint away from walls"""
+        search_radius = 0.5  # meters
+        angles = np.linspace(0, 2*np.pi, 8)  # Try 8 different directions
+        
+        for radius in np.linspace(0.2, search_radius, 3):
+            for angle in angles:
+                new_x = x + radius * np.cos(angle)
+                new_y = y + radius * np.sin(angle)
+                
+                if not self.is_near_wall(new_x, new_y, costmap_data, resolution, origin_x, origin_y):
+                    return new_x, new_y
+        
+        return x, y  # Return original if no alternative found
 
     def generate_waypoint(self) -> PoseStamped:
         """Generate a single new waypoint prioritizing unexplored areas"""
@@ -301,6 +364,20 @@ class WaypointGenerator:
         
         # Once we find a valid waypoint, stick to it
         if best_point is not None:
+            # Check if waypoint is near walls
+            attempts = 0
+            while (self.is_near_wall(best_point[0], best_point[1], map_data, 
+                   resolution, origin_x, origin_y) and attempts < self.max_wall_retry):
+                self.node.get_logger().warn(f'Waypoint too close to wall, finding alternative (attempt {attempts + 1})')
+                best_point = self.find_alternative_waypoint(
+                    best_point[0], best_point[1],
+                    map_data, resolution, origin_x, origin_y
+                )
+                attempts += 1
+            
+            if attempts >= self.max_wall_retry:
+                self.node.get_logger().warn('Could not find waypoint away from walls')
+            
             waypoint = PoseStamped()
             waypoint.header.frame_id = 'map'
             waypoint.header.stamp = self.node.get_clock().now().to_msg()

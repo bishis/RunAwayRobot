@@ -116,7 +116,9 @@ controller_server:
       # Increase path following precision
       path_distance_bias: 45.0
       goal_distance_bias: 3.0
-
+      
+      prefer_forward_cost_function: False  # Don't prefer forward motion
+      backward_motion_enabled: True 
       # Better obstacle avoidance
       critics: ["Oscillation", "BaseObstacle", "PathAlign", "GoalAlign"]
       BaseObstacle.scale: 0.02

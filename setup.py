@@ -32,6 +32,7 @@ setup(
             'exploration_controller = motor_controller.exploration_controller:main',
             'person_detector = motor_controller.processors.person_detector:main',
             'robot_visualizer = motor_controller.processors.robot_visualizer:main',
+            'obstacle_avoider = motor_controller.processors.obstacle_avoider:main',
         ],
     },
 )

@@ -65,17 +65,18 @@ def generate_launch_description():
             ]
         ),
 
+
         Node(
-            package='image_proc',
-            executable='image_rotate',
+            package='image_rotate',  # Correct package name
+            executable='image_rotate',  # Use the correct executable
             name='image_rotate',
             parameters=[{'angle': 3.14159}],  # Rotate by 180 degrees (π radians)
             remappings=[
-                ('image', '/camera/image_raw'),
-                ('image_rotated', '/camera/image_rotated')
+                ('image', '/camera/image_raw'),  # Input topic
+                ('image_rotated', '/camera/image_rotated')  # Output topic
             ]
-        ),
-        
+        ), 
+
         Node(
             package='image_transport',
             executable='republish',

@@ -26,7 +26,7 @@ class ObstacleAvoiderNode(Node):
         # Robot footprint dimensions
         self.robot_length = 0.29  # 29cm
         self.robot_width = 0.34   # 34cm
-        self.safety_boundary = 0.1  # 10cm extra safety margin
+        self.safety_boundary = 0.05  # Reduced from 0.1 to 5cm
         
         # State tracking
         self.is_avoiding = False
@@ -128,26 +128,36 @@ class ObstacleAvoiderNode(Node):
                 if not self.is_avoiding:
                     self.is_avoiding = True
                     self.avoidance_start_time = self.get_clock().now()
-                    self.get_logger().warn('Obstacle detected within robot footprint - backing up')
-                
-                # Back up
-                cmd = Twist()
-                cmd.linear.x = -self.max_linear_speed * 0.7
-                self.publish_cmd(cmd)
+                    
+                    # Determine escape direction based on obstacle positions
+                    front_clear = not any(np.abs(angles) < np.pi/4 and r < self.safety_distance for r in ranges)
+                    back_clear = not any(np.abs(angles) > 3*np.pi/4 and r < self.safety_distance for r in ranges)
+                    
+                    # Choose escape direction
+                    if front_clear:
+                        self.get_logger().info('Front is clear - moving forward')
+                        cmd = Twist()
+                        cmd.linear.x = self.max_linear_speed * 0.7
+                    elif back_clear:
+                        self.get_logger().info('Back is clear - reversing')
+                        cmd = Twist()
+                        cmd.linear.x = -self.max_linear_speed * 0.7
+                    else:
+                        # If both front and back blocked, try rotating
+                        self.get_logger().info('Both directions blocked - rotating')
+                        cmd = Twist()
+                        cmd.angular.z = self.max_angular_speed
+                    
+                    self.publish_cmd(cmd)
                 
             # Check if we should continue avoidance
             elif self.is_avoiding:
                 time_avoiding = (self.get_clock().now() - self.avoidance_start_time).nanoseconds / 1e9
                 
-                # Exit avoidance if we've backed up enough and no collision imminent
+                # Exit avoidance if we've moved enough and no collision imminent
                 if time_avoiding > self.min_avoidance_time and not collision_imminent:
                     self.get_logger().info('Exiting avoidance mode - area clear')
                     self.is_avoiding = False
-                else:
-                    # Continue backing up if still in avoidance
-                    cmd = Twist()
-                    cmd.linear.x = -self.max_linear_speed * 0.7
-                    self.publish_cmd(cmd)
             
         except Exception as e:
             self.get_logger().error(f'Error in scan callback: {str(e)}')

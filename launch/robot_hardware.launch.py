@@ -57,11 +57,26 @@ def generate_launch_description():
                 'output_encoding': 'rgb8'
             }],
             remappings=[
-                ('image_raw', '/camera/image_raw'),
+                ('image_raw', '/camera/image_raw_unflipped'),  # Change output topic
             ]
         ),
 
-        # Add camera transform - rotate 180° in TF
+        # Add image flip node
+        Node(
+            package='image_proc',
+            executable='image_proc',
+            name='image_flip',
+            parameters=[{
+                'rotate': True,
+                'rotate_value': 180.0  # Rotate 180 degrees
+            }],
+            remappings=[
+                ('image', '/camera/image_raw_unflipped'),
+                ('image_rotated', '/camera/image_raw')
+            ]
+        ),
+
+        # Add camera transform
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',

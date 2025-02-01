@@ -13,8 +13,8 @@ class ObstacleAvoiderNode(Node):
         super().__init__('obstacle_avoider')
         
         # Parameters
-        self.declare_parameter('safety_distance', 0.4)
-        self.declare_parameter('danger_distance', 0.3)
+        self.declare_parameter('safety_distance', 0.45)
+        self.declare_parameter('danger_distance', 0.35)
         self.declare_parameter('max_linear_speed', 0.07)
         self.declare_parameter('max_angular_speed', 1.0)
         
@@ -26,7 +26,7 @@ class ObstacleAvoiderNode(Node):
         # Robot footprint dimensions
         self.robot_length = 0.29  # 29cm
         self.robot_width = 0.34   # 34cm
-        self.safety_boundary = 0.05  # Reduced from 0.1 to 5cm
+        self.safety_boundary = 0.08  # Increased from 0.05 to 8cm
         
         # State tracking
         self.is_avoiding = False

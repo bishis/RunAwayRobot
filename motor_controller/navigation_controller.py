@@ -4,13 +4,14 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist, PoseStamped
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid
-from visualization_msgs.msg import MarkerArray
+from visualization_msgs.msg import MarkerArray, Marker
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
 from action_msgs.msg import GoalStatus
 import numpy as np
 import math
 from .processors.waypoint_generator import WaypointGenerator
+from .processors.obstacle_avoider import ObstacleAvoider
 
 class NavigationController(Node):
     def __init__(self):
@@ -40,6 +41,15 @@ class NavigationController(Node):
             waypoint_size=0.3,
             preferred_distance=1.0,
             goal_tolerance=0.3
+        )
+        
+        # Initialize obstacle avoider
+        self.obstacle_avoider = ObstacleAvoider(
+            node=self,
+            safety_distance=0.4,
+            danger_distance=0.3,
+            max_linear_speed=self.max_linear_speed,
+            max_angular_speed=self.max_angular_speed
         )
         
         # Add current_map storage
@@ -76,10 +86,13 @@ class NavigationController(Node):
         # Create timer for exploration control
         self.create_timer(1.0, self.exploration_loop)
         
+        # Add state for obstacle avoidance
+        self.is_avoiding_obstacle = False
+        self._resume_timer = None
+        
         self.get_logger().info('Navigation controller initialized')
         
         self._current_goal_handle = None  # Add this to store the goal handle
-        self._resume_timer = None  # Add this to track the timer
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -93,6 +106,24 @@ class NavigationController(Node):
     def cmd_vel_callback(self, msg: Twist):
         """Handle incoming velocity commands"""
         try:
+            # Process velocity through obstacle avoider
+            if self.latest_scan:
+                msg, should_pause = self.obstacle_avoider.process_scan(self.latest_scan, msg)
+                
+                if should_pause and self.is_navigating:
+                    # Cancel current navigation goal and waypoint
+                    self.get_logger().info('Pausing navigation for obstacle avoidance')
+                    self.cancel_current_goal()
+                    self.is_navigating = False
+                    
+                    # Cancel waypoint and clear visualization
+                    empty_markers = self.waypoint_generator.cancel_waypoint()
+                    self.marker_pub.publish(empty_markers)
+                    
+                    # Create timer for replanning
+                    if self._resume_timer is None:
+                        self._resume_timer = self.create_timer(3.0, self.resume_navigation)
+
             # Remove obstacle avoidance processing
             # Just handle rotation speeds
             if abs(msg.angular.z) > 0.0:

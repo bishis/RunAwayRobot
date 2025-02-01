@@ -57,6 +57,9 @@ class WaypointGenerator:
         self.max_attempts = 3  # Maximum attempts before accepting a lower score
         self.wall_check_distance = 0.4  # Distance to check for walls
         self.max_wall_retry = 5  # Maximum attempts to find non-wall waypoint
+        
+        # Add waypoint cancellation state
+        self.waypoint_cancelled = False
 
     def update_map(self, map_msg: OccupancyGrid):
         """Update stored map and validate current waypoint"""
@@ -234,8 +237,34 @@ class WaypointGenerator:
         
         return x, y  # Return original if no alternative found
 
+    def cancel_waypoint(self):
+        """Cancel current waypoint and clear visualization"""
+        self.node.get_logger().info('Cancelling current waypoint')
+        self.current_waypoint = None
+        self.waypoint_cancelled = True
+        self.force_new_waypoint = False  # Don't force new waypoint immediately
+        
+        # Return empty marker array to clear visualization
+        empty_markers = MarkerArray()
+        marker = Marker()
+        marker.header.frame_id = 'map'
+        marker.header.stamp = self.node.get_clock().now().to_msg()
+        marker.ns = 'waypoints'
+        marker.id = 0
+        marker.action = Marker.DELETE
+        empty_markers.markers.append(marker)
+        return empty_markers
+
     def generate_waypoint(self) -> PoseStamped:
         """Generate a single new waypoint prioritizing unexplored areas"""
+        # Don't generate new waypoint if cancelled until explicitly requested
+        if self.waypoint_cancelled and not self.force_new_waypoint:
+            return None
+            
+        # Reset cancelled state if forcing new waypoint
+        if self.force_new_waypoint:
+            self.waypoint_cancelled = False
+            
         # Keep current waypoint unless forced to change or reached
         if self.current_waypoint and not self.force_new_waypoint:
             if self.is_waypoint_valid() and not self.has_reached_waypoint():

@@ -57,7 +57,7 @@ def generate_launch_description():
                 'output_encoding': 'rgb8'
             }],
             remappings=[
-                ('image_raw', '/camera/image_raw_unflipped'),  # Change output topic
+                ('image_raw', '/camera/image_raw'),  # Change output topic
             ]
         ),
 

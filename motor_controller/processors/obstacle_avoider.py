@@ -127,18 +127,21 @@ class ObstacleAvoiderNode(Node):
             
             if collision_imminent:
                 # Determine escape direction based on obstacle positions
-                front_clear = not any(np.abs(angles) < np.pi/4 and r < self.safety_distance for r in ranges)
-                back_clear = not any(np.abs(angles) > 3*np.pi/4 and r < self.safety_distance for r in ranges)
+                front_mask = (np.abs(angles) < np.pi/4)
+                back_mask = (np.abs(angles) > 3*np.pi/4)
+                
+                front_blocked = np.any((ranges[front_mask] < self.safety_distance))
+                back_blocked = np.any((ranges[back_mask] < self.safety_distance))
                 
                 # Start new avoidance if not already avoiding
                 if not self.is_avoiding:
                     self.is_avoiding = True
                     self.avoidance_start_time = self.get_clock().now()
                     
-                    if front_clear:
+                    if not front_blocked:
                         self.get_logger().info('Front is clear - moving forward')
                         self.escape_direction = 'forward'
-                    elif back_clear:
+                    elif not back_blocked:
                         self.get_logger().info('Back is clear - reversing')
                         self.escape_direction = 'backward'
                     else:

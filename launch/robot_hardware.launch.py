@@ -78,7 +78,7 @@ def generate_launch_description():
             name='image_compress',
             arguments=['raw', 'compressed'],
             remappings=[
-                ('in', 'image_raw'),
+                ('in', '/camera/image_raw'),
                 ('out/compressed', '/camera/image_raw/compressed'),
             ]
         )

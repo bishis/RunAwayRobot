@@ -119,12 +119,12 @@ class PersonDetector(Node):
     def project_to_map(self, x_pixel, y_pixel, header):
         """Project pixel coordinates to map coordinates"""
         try:
-            # Get transform from camera to map
+            # Get latest transform instead of using image timestamp
             transform = self.tf_buffer.lookup_transform(
                 'map',
-                header.frame_id,
-                header.stamp,
-                timeout=rclpy.duration.Duration(seconds=1.0)
+                'camera_link',  # Use camera_link instead of header.frame_id
+                rclpy.time.Time(),  # Use latest transform
+                timeout=rclpy.duration.Duration(seconds=0.1)
             )
             
             # Calculate depth using human height and pixel height
@@ -138,10 +138,11 @@ class PersonDetector(Node):
             
             # Create pose in camera frame
             pose = PoseStamped()
-            pose.header = header
-            pose.pose.position.x = x
-            pose.pose.position.y = y
-            pose.pose.position.z = z
+            pose.header.frame_id = 'camera_link'
+            pose.header.stamp = self.get_clock().now().to_msg()
+            pose.pose.position.x = z  # Camera coordinates: z is forward
+            pose.pose.position.y = -x  # Camera coordinates: -x is right
+            pose.pose.position.z = -y  # Camera coordinates: -y is down
             pose.pose.orientation.w = 1.0
             
             # Transform to map frame

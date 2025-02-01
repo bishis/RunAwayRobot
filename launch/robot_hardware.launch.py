@@ -66,28 +66,17 @@ def generate_launch_description():
             package='tf2_ros',
             executable='static_transform_publisher',
             name='camera_link_broadcaster',
-            arguments=['0', '0', '0.1', '0', '0', '0', 'base_link', 'camera_link']
+            arguments=['0', '0', '0.1', '3.14159', '0', '0', 'base_link', 'camera_link']
         ),
 
-
-        Node(
-            package='image_rotate',  # Correct package name
-            executable='image_rotate',  # Use the correct executable
-            name='image_rotate',
-            parameters=[{'angle': 3.14159}],  # Rotate by 180 degrees (π radians)
-            remappings=[
-                ('image', '/camera/image_raw'),  # Input topic
-                ('image_rotated', '/camera/image_rotated')  # Output topic
-            ]
-        ),
-    
+        # Add image compression node
         Node(
             package='image_transport',
             executable='republish',
             name='image_compress',
             arguments=['raw', 'compressed'],
             remappings=[
-                ('in', '/camera/image_rotated'),  # Subscribe to rotated image
+                ('in', '/camera/image_raw'),
                 ('out/compressed', '/camera/image_raw/compressed'),
             ]
         ),

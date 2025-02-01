@@ -43,7 +43,7 @@ def generate_launch_description():
             arguments=['0', '0', '0.18', '0', '0', '0', 'base_link', 'laser']
         ),
 
-        # Add Camera Node
+        # Add Camera Node with camera info
         Node(
             package='v4l2_camera',
             executable='v4l2_camera_node',
@@ -54,10 +54,13 @@ def generate_launch_description():
                 'pixel_format': 'YUYV',
                 'frame_rate': 30.0,
                 'camera_frame_id': 'camera_link',
-                'output_encoding': 'rgb8'
+                'output_encoding': 'rgb8',
+                # Add camera calibration parameters
+                'camera_info_url': f'file://{os.path.join(pkg_dir, "config", "camera_info.yaml")}',
+                'set_camera_info': True
             }],
             remappings=[
-                ('image_raw', '/camera/image_raw'),  # Change output topic
+                ('image_raw', '/camera/image_raw'),
             ]
         ),
 
@@ -67,20 +70,6 @@ def generate_launch_description():
             executable='static_transform_publisher',
             name='camera_link_broadcaster',
             arguments=['0', '0', '0.1', '3.14159', '0', '0', 'base_link', 'camera_link']
-        ),
-
-        # Add CameraInfo Publisher
-        Node(
-            package='camera_info_manager',
-            executable='camera_info_manager_node',
-            name='camera_info_manager',
-            parameters=[{
-                'camera_name': 'camera',
-                'camera_info_url': f'file://{os.path.join(pkg_dir, "config", "camera_info.yaml")}'
-            }],
-            remappings=[
-                ('camera_info', '/camera/camera_info')
-            ]
         ),
 
         # Add Image Compression Node
@@ -94,7 +83,6 @@ def generate_launch_description():
                 ('out/compressed', '/camera/image_raw/compressed'),
             ]
         ),
-
 
         # Add robot visualizer
         Node(

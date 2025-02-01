@@ -79,5 +79,13 @@ def generate_launch_description():
                 ('in', '/camera/image_raw'),
                 ('out/compressed', '/camera/image_raw/compressed'),
             ]
-        )
+        ),
+
+        # Add robot visualizer
+        Node(
+            package='motor_controller',
+            executable='robot_visualizer',
+            name='robot_visualizer',
+            output='screen'
+        ),
     ])

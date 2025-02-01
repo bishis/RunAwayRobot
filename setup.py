@@ -31,6 +31,7 @@ setup(
             'nav2_hardware_bridge = motor_controller.nav2_hardware_bridge:main',
             'exploration_controller = motor_controller.exploration_controller:main',
             'person_detector = motor_controller.processors.person_detector:main',
+            'robot_visualizer = motor_controller.processors.robot_visualizer:main',
         ],
     },
 )

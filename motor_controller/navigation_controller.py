@@ -86,6 +86,7 @@ class NavigationController(Node):
         # Add variable to store last successful waypoint
         self.last_successful_waypoint = None
         self.is_avoiding_obstacle = False
+        self.should_show_waypoints = True  # Add flag to control waypoint visibility
         
         self.get_logger().info('Navigation controller initialized')
         
@@ -110,6 +111,7 @@ class NavigationController(Node):
                 if should_pause:
                     if not self.is_avoiding_obstacle:  # Only do this when first detecting obstacle
                         self.is_avoiding_obstacle = True
+                        self.should_show_waypoints = False  # Hide waypoints during avoidance
                         if self.is_navigating:
                             # Store current waypoint before canceling
                             self.last_successful_waypoint = self.current_goal
@@ -117,11 +119,14 @@ class NavigationController(Node):
                             self.get_logger().info('Stopping navigation for obstacle avoidance')
                             self.cancel_current_goal()
                             self.is_navigating = False
-                            # Clear current waypoint to stop exploration
+                            # Clear current waypoint and visualization
                             self.waypoint_generator.current_waypoint = None
                             self.current_goal = None
+                            empty_markers = MarkerArray()
+                            self.marker_pub.publish(empty_markers)
                 elif self.is_avoiding_obstacle:  # Obstacle is now clear
                     self.is_avoiding_obstacle = False
+                    self.should_show_waypoints = True  # Show waypoints again
                     self.get_logger().info('Obstacle clear, resuming navigation')
                     # Create new timer only if one doesn't exist
                     if self._resume_timer is None:
@@ -181,8 +186,12 @@ class NavigationController(Node):
     def exploration_loop(self):
         """Main control loop for autonomous exploration"""
         try:
-            # Only proceed if Nav2 is ready
-            if not self.nav2_ready:
+            # Only proceed if Nav2 is ready and not avoiding obstacles
+            if not self.nav2_ready or self.is_avoiding_obstacle:
+                # Clear waypoint visualization during obstacle avoidance
+                if self.is_avoiding_obstacle:
+                    empty_markers = MarkerArray()
+                    self.marker_pub.publish(empty_markers)
                 return
 
             # Check for timeout on current goal
@@ -195,13 +204,13 @@ class NavigationController(Node):
                     return
 
             # Only generate new waypoint if not navigating
-            if not self.is_navigating:
+            if not self.is_navigating and self.should_show_waypoints:
                 self.get_logger().info('Generating new waypoint...')
                 waypoint = self.waypoint_generator.generate_waypoint()
                 if waypoint:
                     self.get_logger().info('Generated waypoint, sending goal...')
                     self.send_goal(waypoint)
-                    # Publish visualization
+                    # Publish visualization only when not avoiding obstacles
                     markers = self.waypoint_generator.create_visualization_markers(waypoint)
                     self.marker_pub.publish(markers)
                 else:

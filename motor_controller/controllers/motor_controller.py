@@ -55,11 +55,7 @@ class MotorController:
         - Robot Right = Robot's Left side forward, Right side backward
         - Robot Left = Robot's Left side backward, Right side forward
         """
-        # Clamp values to valid range
-        linear = max(min(linear, 1.0), -1.0)
-        angular = max(min(angular, 1.0), -1.0)
         
-
         left_speed = linear + angular
         right_speed = linear - angular
         
@@ -71,7 +67,7 @@ class MotorController:
         
         # Apply minimum threshold - if speed is non-zero but below threshold, set to threshold
         MIN_SPEED = 0.7  # 70% power minimum
-        TURN_MIN_SPEED = 0.7  # Higher minimum speed for turning
+        TURN_MIN_SPEED = 0.75  # Higher minimum speed for turning
         
         # Use higher minimum speed when turning
         current_min_speed = TURN_MIN_SPEED if abs(angular) > 0.1 else MIN_SPEED

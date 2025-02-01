@@ -20,7 +20,7 @@ class NavigationController(Node):
         self.declare_parameter('robot_radius', 0.16)
         self.declare_parameter('safety_margin', 0.3)
         self.declare_parameter('max_linear_speed', 0.07)
-        self.declare_parameter('max_angular_speed', 1.366)  # Actual max rotation speed
+        self.declare_parameter('max_angular_speed', 0.9)  # Actual max rotation speed
         self.declare_parameter('min_rotation_speed', 0.75)
         self.declare_parameter('goal_timeout', 30.0)
         

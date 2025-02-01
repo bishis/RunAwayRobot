@@ -123,7 +123,7 @@ def generate_launch_description():
         name='navigation_controller',
         parameters=[{
             'max_linear_speed': 0.07,      
-            'max_angular_speed': 1.0,     
+            'max_angular_speed': 0.9,     
             'min_rotation_speed': 0.75,
             'goal_timeout': 30.0,
             'robot_radius': 0.16,

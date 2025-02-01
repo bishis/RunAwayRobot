@@ -282,11 +282,16 @@ class NavigationController(Node):
 
     def reset_with_timer(self):
         """Callback for reset timer"""
-        # Cancel and remove the timer
-        self._reset_timer.cancel()
-        self._reset_timer = None
-        # Reset navigation
-        self.reset_navigation_state()
+        try:
+            if hasattr(self, '_reset_timer') and self._reset_timer is not None:
+                self._reset_timer.cancel()
+                self._reset_timer = None
+            # Reset navigation
+            self.reset_navigation_state()
+        except Exception as e:
+            self.get_logger().error(f'Error in reset timer: {str(e)}')
+            # Still try to reset navigation even if timer cleanup fails
+            self.reset_navigation_state()
 
     def reset_navigation_state(self):
         """Reset navigation state and try new waypoint"""

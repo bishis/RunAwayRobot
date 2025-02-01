@@ -43,6 +43,24 @@ class ObstacleAvoiderNode(Node):
         
         self.get_logger().info('Obstacle avoider node started')
 
+    def get_obstacle_direction(self, collision_angles) -> str:
+        """Convert collision angles to cardinal directions relative to robot"""
+        directions = []
+        for angle in collision_angles:
+            # Convert angle to degrees for easier comparison
+            deg = np.degrees(angle) % 360
+            
+            if 315 <= deg or deg < 45:
+                directions.append("FRONT")
+            elif 45 <= deg < 135:
+                directions.append("RIGHT")
+            elif 135 <= deg < 225:
+                directions.append("BACK")
+            elif 225 <= deg < 315:
+                directions.append("LEFT")
+                
+        return ", ".join(sorted(set(directions)))  # Remove duplicates
+
     def check_footprint_collision(self, ranges, angles) -> bool:
         """Check if any obstacles are within robot footprint + safety boundary in all directions"""
         # Convert ranges and angles to x,y coordinates
@@ -54,7 +72,6 @@ class ObstacleAvoiderNode(Node):
         half_width = (self.robot_width/2 + self.safety_boundary)
         
         # Create a rectangular mask for the robot footprint
-        # Check points in all directions within the rectangular boundary
         points_in_footprint = (np.abs(x) <= half_length) & (np.abs(y) <= half_width)
         
         # Add extra checks for corners using distance calculation
@@ -65,20 +82,25 @@ class ObstacleAvoiderNode(Node):
             (-half_length, half_width),   # Back right
             (-half_length, -half_width),  # Back left
         ]:
-            # Calculate distance from each scan point to corner
             distances = np.sqrt((x - corner_x)**2 + (y - corner_y)**2)
             corner_points.append(distances < self.safety_boundary)
         
         # Combine rectangular footprint with corner checks
         collision_mask = points_in_footprint | np.any(corner_points, axis=0)
         
-        # Debug output
+        # Debug output with directions
         if np.any(collision_mask):
             collision_angles = angles[collision_mask]
             collision_ranges = ranges[collision_mask]
-            self.get_logger().debug(
-                f'Collision detected at angles: {np.degrees(collision_angles)}, '
-                f'ranges: {collision_ranges}'
+            directions = self.get_obstacle_direction(collision_angles)
+            
+            min_range = np.min(collision_ranges)
+            min_angle_idx = np.argmin(collision_ranges)
+            min_angle_deg = np.degrees(collision_angles[min_angle_idx])
+            
+            self.get_logger().warn(
+                f'Obstacle detected from: {directions}\n'
+                f'Closest point: {min_range:.2f}m at {min_angle_deg:.1f}°'
             )
         
         return np.any(collision_mask)

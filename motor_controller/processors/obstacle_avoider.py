@@ -40,7 +40,7 @@ class ObstacleAvoiderNode(Node):
         self.scan_sub = self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         
         # Create timer for constant forward motion (for testing)
-        self.create_timer(0.1, self.move_forward)
+        # self.create_timer(0.1, self.move_forward)
         
         self.get_logger().info('Obstacle avoider node started')
 

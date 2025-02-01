@@ -42,6 +42,9 @@ class NavigationController(Node):
             goal_tolerance=0.3
         )
         
+        # Add current_map storage
+        self.current_map = None
+        
         # Publishers and subscribers
         self.wheel_speeds_pub = self.create_publisher(Twist, 'wheel_speeds', 10)
         self.cmd_vel_sub = self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
@@ -83,7 +86,8 @@ class NavigationController(Node):
         self.latest_scan = msg
 
     def map_callback(self, msg: OccupancyGrid):
-        """Update map in waypoint generator"""
+        """Update map in waypoint generator and store locally"""
+        self.current_map = msg  # Store map locally
         self.waypoint_generator.update_map(msg)
 
     def cmd_vel_callback(self, msg: Twist):
@@ -132,10 +136,13 @@ class NavigationController(Node):
                 waypoint = self.waypoint_generator.generate_waypoint()
                 if waypoint:
                     # Additional safety check before sending
-                    if not self.waypoint_generator.is_near_wall(
+                    if self.current_map and not self.waypoint_generator.is_near_wall(
                         waypoint.pose.position.x,
                         waypoint.pose.position.y,
-                        self.current_map.data,
+                        np.array(self.current_map.data).reshape(
+                            self.current_map.info.height,
+                            self.current_map.info.width
+                        ),
                         self.current_map.info.resolution,
                         self.current_map.info.origin.position.x,
                         self.current_map.info.origin.position.y
@@ -144,7 +151,7 @@ class NavigationController(Node):
                         markers = self.waypoint_generator.create_visualization_markers(waypoint)
                         self.marker_pub.publish(markers)
                     else:
-                        self.node.get_logger().warn('Generated waypoint too close to wall, skipping')
+                        self.get_logger().warn('Generated waypoint too close to wall, skipping')
                         self.waypoint_generator.force_waypoint_change()
         
         except Exception as e:

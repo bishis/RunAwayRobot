@@ -57,22 +57,27 @@ def generate_launch_description():
                 'output_encoding': 'rgb8'
             }],
             remappings=[
-                ('image_raw', '/camera/image_raw_unflipped'),  # Change output topic
+                ('image_raw', '/camera/image_raw_unflipped'),
             ]
         ),
 
-        # Add image flip node
+        # Add image rotation node
         Node(
-            package='image_proc',
-            executable='image_proc',
-            name='image_flip',
+            package='image_rotate',
+            executable='image_rotate',
+            name='image_rotator',
             parameters=[{
-                'rotate': True,
-                'rotate_value': 180.0  # Rotate 180 degrees
+                'target_frame_id': '',
+                'source_frame_id': '',
+                'target_x': 0.0,
+                'target_y': 0.0,
+                'target_z': 1.0,
+                'angle_offset': 3.14159,  # 180 degrees in radians
+                'use_camera_info': False
             }],
             remappings=[
                 ('image', '/camera/image_raw_unflipped'),
-                ('image_rotated', '/camera/image_raw')
+                ('rotated/image', '/camera/image_raw')
             ]
         ),
 

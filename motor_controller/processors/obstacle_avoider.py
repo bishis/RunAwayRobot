@@ -44,7 +44,7 @@ class ObstacleAvoiderNode(Node):
         self.get_logger().info('Obstacle avoider node started')
 
     def check_footprint_collision(self, ranges, angles) -> bool:
-        """Check if any obstacles are within robot footprint + safety boundary"""
+        """Check if any obstacles are within robot footprint + safety boundary in all directions"""
         # Convert ranges and angles to x,y coordinates
         x = ranges * np.cos(angles)
         y = ranges * np.sin(angles)
@@ -53,11 +53,35 @@ class ObstacleAvoiderNode(Node):
         half_length = (self.robot_length/2 + self.safety_boundary)
         half_width = (self.robot_width/2 + self.safety_boundary)
         
-        # Check if any points fall within the expanded robot footprint
-        within_length = np.abs(x) < half_length
-        within_width = np.abs(y) < half_width
+        # Create a rectangular mask for the robot footprint
+        # Check points in all directions within the rectangular boundary
+        points_in_footprint = (np.abs(x) <= half_length) & (np.abs(y) <= half_width)
         
-        return np.any(within_length & within_width)
+        # Add extra checks for corners using distance calculation
+        corner_points = []
+        for corner_x, corner_y in [
+            (half_length, half_width),    # Front right
+            (half_length, -half_width),   # Front left
+            (-half_length, half_width),   # Back right
+            (-half_length, -half_width),  # Back left
+        ]:
+            # Calculate distance from each scan point to corner
+            distances = np.sqrt((x - corner_x)**2 + (y - corner_y)**2)
+            corner_points.append(distances < self.safety_boundary)
+        
+        # Combine rectangular footprint with corner checks
+        collision_mask = points_in_footprint | np.any(corner_points, axis=0)
+        
+        # Debug output
+        if np.any(collision_mask):
+            collision_angles = angles[collision_mask]
+            collision_ranges = ranges[collision_mask]
+            self.get_logger().debug(
+                f'Collision detected at angles: {np.degrees(collision_angles)}, '
+                f'ranges: {collision_ranges}'
+            )
+        
+        return np.any(collision_mask)
 
     def move_forward(self):
         """Generate constant forward motion for testing"""

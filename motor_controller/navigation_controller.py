@@ -76,6 +76,14 @@ class NavigationController(Node):
         # Create timer for exploration control
         self.create_timer(1.0, self.exploration_loop)
         
+        # Add timeout parameters
+        self.goal_timeout = 15.0  # Shorter timeout for unreachable goals
+        self.planning_attempts = 0
+        self.max_planning_attempts = 2  # Max attempts before giving up
+        
+        # Add timer to check goal progress
+        self.goal_check_timer = self.create_timer(1.0, self.check_goal_progress)
+        
         self.get_logger().info('Navigation controller initialized')
         
         self._current_goal_handle = None
@@ -155,79 +163,87 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error in exploration loop: {str(e)}')
 
-    def send_goal(self, waypoint: PoseStamped):
-        """Send navigation goal"""
+    def send_goal(self, goal_msg: PoseStamped):
+        """Send navigation goal with proper error handling"""
         try:
-            # Create and send goal
-            goal_msg = NavigateToPose.Goal()
-            goal_msg.pose = waypoint
+            # Cancel any existing goal
+            self.cancel_current_goal()
             
-            # Add debug info
-            self.get_logger().info(
-                f'Sending navigation goal:\n'
-                f'  Position: ({waypoint.pose.position.x:.2f}, {waypoint.pose.position.y:.2f})\n'
-                f'  Frame: {waypoint.header.frame_id}\n'
-                f'  Stamp: {waypoint.header.stamp.sec}.{waypoint.header.stamp.nanosec}'
-            )
+            # Create the goal
+            nav_goal = NavigateToPose.Goal()
+            nav_goal.pose = goal_msg
             
-            # Send goal and register callbacks
+            self.get_logger().info('Sending navigation goal:')
+            self.get_logger().info(f'    Position: ({goal_msg.pose.position.x:.2f}, {goal_msg.pose.position.y:.2f})')
+            self.get_logger().info(f'    Frame: {goal_msg.header.frame_id}')
+            self.get_logger().info(f'    Stamp: {goal_msg.header.stamp.sec}.{goal_msg.header.stamp.nanosec}')
+            
+            # Send the goal with timeout handling
             send_goal_future = self.nav_client.send_goal_async(
-                goal_msg,
+                nav_goal,
                 feedback_callback=self.feedback_callback
             )
-            
-            # Add done callback
             send_goal_future.add_done_callback(self.goal_response_callback)
             
-            self.current_goal = waypoint
+            # Store goal and update state
+            self.current_goal = goal_msg
             self.is_navigating = True
             self.goal_start_time = self.get_clock().now()
             
         except Exception as e:
             self.get_logger().error(f'Error sending navigation goal: {str(e)}')
-            self.handle_goal_failure()
+            self.reset_navigation_state()
 
     def goal_response_callback(self, future):
-        """Handle navigation goal response"""
-        goal_handle = future.result()
-        if not goal_handle.accepted:
-            self.get_logger().warn('Goal rejected')
-            self.handle_goal_failure()
-            return
+        """Handle the goal response with proper error handling"""
+        try:
+            goal_handle = future.result()
+            
+            if not goal_handle.accepted:
+                self.get_logger().warn('Goal rejected')
+                self.reset_navigation_state()
+                return
+            
+            self.get_logger().info('Goal accepted')
+            self._current_goal_handle = goal_handle
+            
+            # Get result future with timeout handling
+            result_future = goal_handle.get_result_async()
+            result_future.add_done_callback(self.get_result_callback)
+            
+        except Exception as e:
+            self.get_logger().error(f'Error in goal response: {str(e)}')
+            self.reset_navigation_state()
 
-        self.get_logger().info('Goal accepted')
-        self._current_goal_handle = goal_handle  # Store the goal handle
-        self._get_result_future = goal_handle.get_result_async()
-        self._get_result_future.add_done_callback(self.goal_result_callback)
-
-    def goal_result_callback(self, future):
-        """Handle navigation goal result"""
+    def get_result_callback(self, future):
+        """Handle navigation result with timeout recovery"""
         try:
             status = future.result().status
-            self.get_logger().info(f'Navigation status: {status}')
-            
-            if status == GoalStatus.STATUS_SUCCEEDED:
+            if status != GoalStatus.STATUS_SUCCEEDED:
+                self.get_logger().warn(f'Navigation failed with status: {status}')
+                self.consecutive_failures += 1
+                self.planning_attempts += 1
+                
+                if self.planning_attempts >= self.max_planning_attempts:
+                    self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
+                    self.planning_attempts = 0
+                    self.waypoint_generator.force_waypoint_change()
+                    
+                if self.consecutive_failures >= self.max_consecutive_failures:
+                    self.get_logger().warn('Too many consecutive failures, waiting before continuing...')
+                    if not hasattr(self, '_reset_timer') or self._reset_timer is None:
+                        self._reset_timer = self.create_timer(5.0, self.reset_with_timer)
+                else:
+                    self.reset_navigation_state()
+            else:
                 self.get_logger().info('Navigation succeeded')
                 self.consecutive_failures = 0
-                self.is_navigating = False
-                # Successfully reached goal, generate new waypoint
-                self.exploration_loop()
-            elif status == GoalStatus.STATUS_CANCELED or status == GoalStatus.STATUS_ABORTED:
-                # Only treat cancellation or abortion as failures
-                self.get_logger().warn(f'Navigation failed with status: {status}, trying new waypoint')
-                self.waypoint_generator.force_waypoint_change()
-                self.handle_goal_failure()
-            else:
-                # For other statuses (like preemption), just reset state and continue
-                self.get_logger().info(f'Navigation preempted or changed, continuing exploration')
-                self.is_navigating = False
-                self.current_goal = None
-                self.goal_start_time = None
-                self.exploration_loop()
+                self.planning_attempts = 0
+                self.reset_navigation_state()
                 
         except Exception as e:
-            self.get_logger().error(f'Error in goal result callback: {str(e)}')
-            self.handle_goal_failure()
+            self.get_logger().error(f'Error getting navigation result: {str(e)}')
+            self.reset_navigation_state()
 
     def handle_goal_failure(self):
         """Handle navigation failures"""
@@ -262,8 +278,10 @@ class NavigationController(Node):
         self.is_navigating = False
         self.current_goal = None
         self.goal_start_time = None
-        # Force waypoint generator to pick new point
-        self.waypoint_generator.current_waypoint = None
+        # Force waypoint generator to pick new point if we've failed too many times
+        if self.planning_attempts >= self.max_planning_attempts:
+            self.planning_attempts = 0
+            self.waypoint_generator.force_waypoint_change()
         # Force exploration loop to generate new waypoint
         self.exploration_loop()
 
@@ -299,6 +317,30 @@ class NavigationController(Node):
             self.get_logger().info('Goal successfully canceled')
         else:
             self.get_logger().warn('Goal cancellation failed')
+
+    def check_goal_progress(self):
+        """Check if current goal is taking too long or stuck"""
+        if not self.is_navigating or not self.goal_start_time:
+            return
+            
+        # Check if we've exceeded the timeout
+        current_time = self.get_clock().now()
+        time_navigating = (current_time - self.goal_start_time).nanoseconds / 1e9
+        
+        if time_navigating > self.goal_timeout:
+            self.get_logger().warn(f'Goal taking too long ({time_navigating:.1f}s), cancelling...')
+            self.cancel_current_goal()
+            self.planning_attempts += 1
+            
+            if self.planning_attempts >= self.max_planning_attempts:
+                self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
+                self.planning_attempts = 0
+                self.waypoint_generator.force_waypoint_change()
+                self.reset_navigation_state()
+            else:
+                self.get_logger().info('Retrying current waypoint')
+                if self.current_goal:
+                    self.send_goal(self.current_goal)
 
 def main(args=None):
     rclpy.init(args=args)

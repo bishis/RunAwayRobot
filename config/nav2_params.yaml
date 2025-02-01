@@ -116,7 +116,7 @@ controller_server:
       # Increase path following precision
       path_distance_bias: 45.0
       goal_distance_bias: 3.0
-      
+
       prefer_forward_cost_function: False  # Don't prefer forward motion
       backward_motion_enabled: True 
       # Better obstacle avoidance
@@ -333,7 +333,7 @@ collision_monitor:
       type: "polygon"
       points: "[[-0.145, -0.175], [-0.145, 0.175], [0.145, 0.175], [0.145, -0.175]]"  # 13cm radius square approximation
       action_type: "stop"  # Options: "stop", "slowdown", "limit"
-      min_points: 3
+      min_points: 2
       visualize: true
       enabled: true
 

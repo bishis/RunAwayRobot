@@ -9,8 +9,8 @@ class ObstacleAvoider:
     """Provides obstacle avoidance behavior for the robot"""
     
     def __init__(self, node: Node,
-                 safety_distance: float = 0.3,
-                 danger_distance: float = 0.2,
+                 safety_distance: float = 0.4,
+                 danger_distance: float = 0.3,
                  max_linear_speed: float = 0.07,
                  max_angular_speed: float = 1.0):
         """
@@ -32,7 +32,7 @@ class ObstacleAvoider:
         # Add state tracking
         self.is_avoiding = False
         self.avoidance_start_time = None
-        self.min_avoidance_time = 2.0  # Minimum time to spend avoiding
+        self.min_avoidance_time = 3.0
         self.escape_direction = None
 
     def get_escape_direction(self, ranges, angles):
@@ -46,12 +46,16 @@ class ObstacleAvoider:
         # Get average space in each direction
         spaces = {
             'front': np.mean(front_ranges) if len(front_ranges) > 0 else 0,
+            'back': np.mean(back_ranges) if len(back_ranges) > 0 else 0,
             'left': np.mean(left_ranges) if len(left_ranges) > 0 else 0,
-            'right': np.mean(right_ranges) if len(right_ranges) > 0 else 0,
-            'back': np.mean(back_ranges) if len(back_ranges) > 0 else 0
+            'right': np.mean(right_ranges) if len(right_ranges) > 0 else 0
         }
         
-        # Find direction with most space
+        # Always try to back up if there's any space at all behind
+        if spaces['back'] > self.danger_distance:
+            return 'back', spaces
+            
+        # If backing up isn't safe, find direction with most space
         best_direction = max(spaces.items(), key=lambda x: x[1])
         return best_direction[0], spaces
 
@@ -74,34 +78,29 @@ class ObstacleAvoider:
         min_distance = np.min(ranges)
         min_angle = angles[np.argmin(ranges)]
         
-        # If in danger zone, take immediate action
-        if min_distance < self.danger_distance:
+        # If in danger zone or safety zone, take action
+        if min_distance < self.safety_distance:
             if not self.is_avoiding:
                 self.is_avoiding = True
                 self.avoidance_start_time = self.node.get_clock().now()
-                # Determine escape direction when starting avoidance
                 self.escape_direction, spaces = self.get_escape_direction(ranges, angles)
                 self.node.get_logger().warn(
                     f'Obstacle detected at {min_distance:.2f}m, angle: {min_angle:.2f}! '
                     f'Escaping {self.escape_direction} (spaces: {spaces})'
                 )
             
-            # Create escape command
+            # Create escape command with more aggressive backing up
             modified_cmd = Twist()
             
-            # Execute escape maneuver based on chosen direction
-            if self.escape_direction == 'front':
-                modified_cmd.linear.x = self.max_linear_speed
-                modified_cmd.angular.z = 0.0
-            elif self.escape_direction == 'back':
-                modified_cmd.linear.x = -self.max_linear_speed
-                modified_cmd.angular.z = 0.0
-            elif self.escape_direction == 'left':
-                modified_cmd.linear.x = 0.0
-                modified_cmd.angular.z = self.max_angular_speed
-            else:  # right
-                modified_cmd.linear.x = 0.0
-                modified_cmd.angular.z = -self.max_angular_speed
+            # Always try to back up first
+            modified_cmd.linear.x = -self.max_linear_speed
+            
+            # Add turning only if really close to obstacle
+            if min_distance < self.danger_distance:
+                if self.escape_direction == 'left':
+                    modified_cmd.angular.z = self.max_angular_speed
+                elif self.escape_direction == 'right':
+                    modified_cmd.angular.z = -self.max_angular_speed
             
             return modified_cmd, True  # Pause navigation while avoiding
             

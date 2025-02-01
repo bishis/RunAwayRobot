@@ -11,6 +11,7 @@ from action_msgs.msg import GoalStatus
 import numpy as np
 import math
 from .processors.waypoint_generator import WaypointGenerator
+from .processors.obstacle_avoider import ObstacleAvoider
 
 class NavigationController(Node):
     def __init__(self):
@@ -40,6 +41,15 @@ class NavigationController(Node):
             waypoint_size=0.3,
             preferred_distance=1.0,
             goal_tolerance=0.3
+        )
+        
+        # Initialize obstacle avoider
+        self.obstacle_avoider = ObstacleAvoider(
+            node=self,
+            safety_distance=0.4,
+            danger_distance=0.3,
+            max_linear_speed=self.max_linear_speed,
+            max_angular_speed=self.max_angular_speed
         )
         
         # Add current_map storage
@@ -93,22 +103,29 @@ class NavigationController(Node):
     def cmd_vel_callback(self, msg: Twist):
         """Handle incoming velocity commands"""
         try:
-            # Remove obstacle avoidance processing
-            # Just handle rotation speeds
-            if abs(msg.angular.z) > 0.0:
-                if abs(msg.angular.z) < self.min_rotation_speed:
-                    msg.angular.z = math.copysign(self.min_rotation_speed, msg.angular.z)
-                    msg.linear.x = 0.0
+            # Process velocity through obstacle avoider
+            if self.latest_scan:
+                modified_cmd, should_pause = self.obstacle_avoider.process_scan(self.latest_scan, msg)
+                
+                if should_pause:
+                    if self.is_navigating:
+                        # Cancel current navigation goal
+                        self.get_logger().info('Stopping navigation for obstacle avoidance')
+                        self.cancel_current_goal()
+                        self.is_navigating = False
+                        # Clear current waypoint to stop exploration
+                        self.waypoint_generator.current_waypoint = None
+                        self.current_goal = None
+                
+                # Use the modified command
+                msg = modified_cmd
             
             # Ensure we're not exceeding max speeds
             msg.linear.x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
             msg.angular.z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
             
             # Publish wheel speeds
-            wheel_speeds = Twist()
-            wheel_speeds.linear.x = msg.linear.x
-            wheel_speeds.angular.z = msg.angular.z
-            self.wheel_speeds_pub.publish(wheel_speeds)
+            self.wheel_speeds_pub.publish(msg)
             
         except Exception as e:
             self.get_logger().error(f'Error in cmd_vel callback: {str(e)}')

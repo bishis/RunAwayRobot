@@ -84,6 +84,8 @@ class NavigationController(Node):
         self.create_timer(1.0, self.exploration_loop)
         
         self.get_logger().info('Navigation controller initialized')
+        
+        self._current_goal_handle = None  # Add this to store the goal handle
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -103,10 +105,10 @@ class NavigationController(Node):
                 if should_pause and self.is_navigating:
                     # Cancel current navigation goal
                     self.get_logger().info('Pausing navigation for obstacle avoidance')
+                    self.cancel_current_goal()  # Cancel the goal properly
                     self.is_navigating = False
-                    # Don't clear current_goal so we can resume to same waypoint
                     
-                    # Request replan after brief delay
+                    # Create timer for replanning with oneshot=True
                     self.create_timer(3.0, self.replan_to_waypoint, oneshot=True)
 
             # Log incoming command
@@ -233,6 +235,7 @@ class NavigationController(Node):
             return
 
         self.get_logger().info('Goal accepted')
+        self._current_goal_handle = goal_handle  # Store the goal handle
         self._get_result_future = goal_handle.get_result_async()
         self._get_result_future.add_done_callback(self.goal_result_callback)
 
@@ -319,6 +322,22 @@ class NavigationController(Node):
             self.send_goal(self.current_goal)
         else:
             self.exploration_loop()
+
+    def cancel_current_goal(self):
+        """Cancel the current navigation goal if one exists"""
+        if self._current_goal_handle is not None:
+            self.get_logger().info('Canceling current navigation goal')
+            cancel_future = self._current_goal_handle.cancel_goal_async()
+            cancel_future.add_done_callback(self.cancel_done_callback)
+            self._current_goal_handle = None
+
+    def cancel_done_callback(self, future):
+        """Handle goal cancellation result"""
+        cancel_response = future.result()
+        if len(cancel_response.goals_canceling) > 0:
+            self.get_logger().info('Goal successfully canceled')
+        else:
+            self.get_logger().warn('Goal cancellation failed')
 
 def main(args=None):
     rclpy.init(args=args)

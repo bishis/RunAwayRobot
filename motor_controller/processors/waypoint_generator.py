@@ -225,8 +225,17 @@ class WaypointGenerator:
         best_point = None
         best_score = -float('inf')
         
-        # Reduce number of attempts
-        for _ in range(20):  # Reduced from 50 to 20 attempts
+        # Use time-bound approach instead of fixed attempts
+        start_time = self.node.get_clock().now()
+        max_search_time = 1.0  # Maximum time to search in seconds
+        
+        while True:
+            # Check if we've exceeded our time limit
+            current_time = self.node.get_clock().now()
+            if (current_time - start_time).nanoseconds / 1e9 > max_search_time:
+                self.node.get_logger().info('Waypoint search time limit reached')
+                break
+
             # Find valid cells (free space)
             valid_y, valid_x = np.where((map_data == 0) & (wall_distance > self.safety_margin))
             

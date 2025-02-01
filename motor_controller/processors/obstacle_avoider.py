@@ -32,8 +32,9 @@ class ObstacleAvoider:
         # Add state tracking
         self.is_avoiding = False
         self.avoidance_start_time = None
-        self.min_avoidance_time = 3.0
+        self.min_avoidance_time = 2.0
         self.escape_direction = None
+        self.last_min_distance = float('inf')
 
     def get_escape_direction(self, ranges, angles):
         """Determine best escape direction based on obstacle positions"""
@@ -78,8 +79,12 @@ class ObstacleAvoider:
         min_distance = np.min(ranges)
         min_angle = angles[np.argmin(ranges)]
         
-        # If in danger zone or safety zone, take action
-        if min_distance < self.safety_distance:
+        # Store last min distance for hysteresis
+        if not self.is_avoiding:
+            self.last_min_distance = min_distance
+
+        # If in danger zone, take action
+        if min_distance < self.danger_distance:
             if not self.is_avoiding:
                 self.is_avoiding = True
                 self.avoidance_start_time = self.node.get_clock().now()
@@ -89,65 +94,26 @@ class ObstacleAvoider:
                     f'Escaping {self.escape_direction} (spaces: {spaces})'
                 )
             
-            # Create escape command with more aggressive backing up
+            # Create escape command
             modified_cmd = Twist()
-            
-            # Always try to back up first
-            modified_cmd.linear.x = -self.max_linear_speed
-            
-            # Add turning only if really close to obstacle
-            if min_distance < self.danger_distance:
-                if self.escape_direction == 'left':
-                    modified_cmd.angular.z = self.max_angular_speed
-                elif self.escape_direction == 'right':
-                    modified_cmd.angular.z = -self.max_angular_speed
-            
-            return modified_cmd, True  # Pause navigation while avoiding
+            modified_cmd.linear.x = -self.max_linear_speed * 0.7
+            return modified_cmd, True
             
         # Check if we should continue avoidance
-        if self.is_avoiding:
+        elif self.is_avoiding:
             time_avoiding = (self.node.get_clock().now() - self.avoidance_start_time).nanoseconds / 1e9
-            if time_avoiding < self.min_avoidance_time:
-                # Continue escape maneuver
-                modified_cmd = Twist()
-                if self.escape_direction == 'front':
-                    modified_cmd.linear.x = self.max_linear_speed
-                elif self.escape_direction == 'back':
-                    modified_cmd.linear.x = -self.max_linear_speed
-                elif self.escape_direction == 'left':
-                    modified_cmd.angular.z = self.max_angular_speed
-                else:  # right
-                    modified_cmd.angular.z = -self.max_angular_speed
-                return modified_cmd, True
-            else:
-                # End avoidance mode
+            
+            # Exit avoidance if we've backed up enough and have space
+            if time_avoiding > self.min_avoidance_time and min_distance > self.safety_distance:
+                self.node.get_logger().info('Exiting avoidance mode - area clear')
                 self.is_avoiding = False
                 self.escape_direction = None
-                self.node.get_logger().info('Ending avoidance maneuver')
-                return cmd_vel, True  # Request replanning after avoidance
-
-        # If within safety distance, modify velocity
-        elif min_distance < self.safety_distance:
-            # Calculate avoidance vector
-            x_components = ranges * np.cos(angles)
-            y_components = ranges * np.sin(angles)
-            repulsive_x = np.sum(-1.0 / (x_components + 0.1))
-            repulsive_y = np.sum(-1.0 / (y_components + 0.1))
+                return cmd_vel, False
             
-            # Calculate avoidance angle
-            avoid_angle = math.atan2(repulsive_y, repulsive_x)
-            
-            # Modify velocity based on proximity
-            proximity_factor = (min_distance - self.danger_distance) / (self.safety_distance - self.danger_distance)
-            
+            # Continue backing up if still in avoidance
             modified_cmd = Twist()
-            modified_cmd.linear.x = cmd_vel.linear.x * proximity_factor
-            modified_cmd.angular.z = cmd_vel.angular.z + (avoid_angle * (1.0 - proximity_factor))
+            modified_cmd.linear.x = -self.max_linear_speed * 0.7
+            return modified_cmd, True
             
-            # Clamp values
-            modified_cmd.linear.x = max(0.0, min(modified_cmd.linear.x, self.max_linear_speed))
-            modified_cmd.angular.z = max(-self.max_angular_speed, min(modified_cmd.angular.z, self.max_angular_speed))
-            
-            return modified_cmd, False  # Don't pause navigation for minor adjustments
-            
+        # Normal operation
         return cmd_vel, False 

@@ -329,7 +329,7 @@ collision_monitor:
     polygons: ["robot_footprint"]
     robot_footprint:
       type: "polygon"
-      points: "[[-0.13, -0.13], [-0.13, 0.13], [0.13, 0.13], [0.13, -0.13]]"  # 13cm radius square approximation
+      points: "[[-0.145, -0.175], [-0.145, 0.175], [0.145, 0.175], [0.145, -0.175]]"  # 13cm radius square approximation
       action_type: "stop"  # Options: "stop", "slowdown", "limit"
       min_points: 3
       visualize: true

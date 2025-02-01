@@ -56,10 +56,14 @@ def generate_launch_description():
                 'camera_frame_id': 'camera_link',
                 'vertical_flip': True,     # Flip vertically since camera is upside down
                 'horizontal_flip': True,   # Also flip horizontally to complete 180° rotation
-                'output_encoding': 'rgb8'
+                'output_encoding': 'rgb8',
+                # Add camera calibration parameters
+                'camera_info_url': 'package://motor_controller/config/camera_info.yaml',
+                'camera_name': 'camera'
             }],
             remappings=[
                 ('image_raw', '/camera/image_raw'),
+                ('camera_info', '/camera/image_raw/camera_info'),  # Add camera info topic
             ]
         ),
 

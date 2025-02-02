@@ -153,24 +153,22 @@ class PersonDetector(Node):
             pose_stamped.header.frame_id = 'camera_link'
             pose_stamped.header.stamp = transform.header.stamp
             
-            # Create and set position
-            position = Point()
-            position.x = z_cam  # forward
-            position.y = -x_cam  # left
-            position.z = 0.0    # ground level
-            pose_stamped.pose.position = position
+            # Create Pose message first
+            pose = Pose()
+            pose.position.x = z_cam  # forward
+            pose.position.y = -x_cam  # left
+            pose.position.z = 0.0    # ground level
+            pose.orientation.x = 0.0
+            pose.orientation.y = 0.0
+            pose.orientation.z = 0.0
+            pose.orientation.w = 1.0
             
-            # Create and set orientation
-            orientation = Quaternion()
-            orientation.x = 0.0
-            orientation.y = 0.0
-            orientation.z = 0.0
-            orientation.w = 1.0
-            pose_stamped.pose.orientation = orientation
+            # Assign the pose to PoseStamped
+            pose_stamped.pose = pose
             
-            # Transform to odom frame
+            # Transform to odom frame using tf2_ros transform
             try:
-                transformed_pose = tf2_geometry_msgs.do_transform_pose(pose_stamped, transform)
+                transformed_pose = self.tf_buffer.transform(pose_stamped, 'odom')
                 
                 self.get_logger().info(f'Transformed pose: x={transformed_pose.pose.position.x:.2f}, '
                                      f'y={transformed_pose.pose.position.y:.2f}, '

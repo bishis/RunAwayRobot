@@ -128,17 +128,8 @@ class PersonDetector(Node):
                     timeout=rclpy.duration.Duration(seconds=0.1)
                 )
             except Exception as e:
-                # Try again with zero time if that failed
-                try:
-                    transform = self.tf_buffer.lookup_transform(
-                        'odom',
-                        'camera_link',
-                        rclpy.time.Time(seconds=0),  # Use zero time
-                        timeout=rclpy.duration.Duration(seconds=0.1)
-                    )
-                except Exception as e:
-                    self.get_logger().info(f'Transform not ready yet: {str(e)}')
-                    return None
+                self.get_logger().info(f'Transform not ready yet: {str(e)}')
+                return None
             
             # Calculate depth using human height and pixel height
             y_top, y_bottom = y_pixel_pair
@@ -147,6 +138,11 @@ class PersonDetector(Node):
             # Add info output
             self.get_logger().info(f'Pixel height: {pixel_height}')
             
+            # Sanity check pixel height
+            if pixel_height <= 0:
+                self.get_logger().warn('Invalid pixel height')
+                return None
+            
             # Adjust depth calculation
             depth = (self.human_height * self.fy) / pixel_height
             depth = min(depth, 5.0)  # Limit max depth to 5 meters
@@ -154,10 +150,6 @@ class PersonDetector(Node):
             self.get_logger().info(f'Calculated depth: {depth}m')
             
             # Calculate 3D point in camera frame
-            # Note: Camera coordinates are:
-            # X - right
-            # Y - down
-            # Z - forward
             x_cam = ((x_pixel - self.cx) * depth) / self.fx  # right/left
             y_cam = ((y_bottom - self.cy) * depth) / self.fy  # up/down
             z_cam = depth  # forward/back
@@ -165,26 +157,32 @@ class PersonDetector(Node):
             self.get_logger().info(f'Camera frame coords: x={x_cam}, y={y_cam}, z={z_cam}')
             
             # Create pose in camera frame
-            pose = PoseStamped()
-            pose.header.frame_id = 'camera_link'
-            pose.header.stamp = transform.header.stamp
+            from geometry_msgs.msg import Pose
+            camera_pose = Pose()
+            camera_pose.position.x = z_cam  # forward
+            camera_pose.position.y = -x_cam  # left
+            camera_pose.position.z = 0.0    # Set Z to ground level
+            camera_pose.orientation.w = 1.0
             
-            # Convert camera coordinates to ROS standard frame
-            pose.pose.position.x = z_cam  # forward
-            pose.pose.position.y = -x_cam  # left
-            pose.pose.position.z = 0.0    # Set Z to ground level
-            
-            # Set orientation to align with ground plane
-            pose.pose.orientation.w = 1.0
+            # Create PoseStamped
+            pose_stamped = PoseStamped()
+            pose_stamped.header.frame_id = 'camera_link'
+            pose_stamped.header.stamp = transform.header.stamp
+            pose_stamped.pose = camera_pose
             
             # Transform to odom frame
-            transformed_pose = tf2_geometry_msgs.do_transform_pose(pose, transform)
-            
-            self.get_logger().info(f'Transformed pose: x={transformed_pose.pose.position.x}, '
-                                 f'y={transformed_pose.pose.position.y}, '
-                                 f'z={transformed_pose.pose.position.z}')
-            
-            return transformed_pose
+            try:
+                transformed_pose = tf2_geometry_msgs.do_transform_pose(pose_stamped, transform)
+                
+                self.get_logger().info(f'Transformed pose: x={transformed_pose.pose.position.x:.2f}, '
+                                     f'y={transformed_pose.pose.position.y:.2f}, '
+                                     f'z={transformed_pose.pose.position.z:.2f}')
+                
+                return transformed_pose
+                
+            except Exception as e:
+                self.get_logger().error(f'Transform failed: {str(e)}')
+                return None
             
         except Exception as e:
             self.get_logger().warn(f'Failed to project to map: {str(e)}')
@@ -229,39 +227,42 @@ class PersonDetector(Node):
                                 msg.header
                             )
                             
-                            if map_pose:
-                                # Create map marker
-                                map_marker = Marker()
-                                map_marker.header.frame_id = 'odom'
-                                map_marker.header.stamp = self.get_clock().now().to_msg()
-                                map_marker.ns = 'map_persons'
-                                map_marker.id = map_marker_id
-                                map_marker_id += 1
-                                map_marker.type = Marker.CYLINDER
-                                map_marker.action = Marker.ADD
-                                
-                                # Set position from map pose
-                                map_marker.pose = map_pose.pose
-                                
-                                # Set marker size (make it more visible)
-                                map_marker.scale.x = 0.4  # 40cm diameter
-                                map_marker.scale.y = 0.4
-                                map_marker.scale.z = 1.7  # Human height
-                                
-                                # Set color (bright red, very visible)
-                                map_marker.color.r = 1.0
-                                map_marker.color.g = 0.0
-                                map_marker.color.b = 0.0
-                                map_marker.color.a = 0.8  # More opaque
-                                
-                                # Set lifetime (longer)
-                                map_marker.lifetime = rclpy.duration.Duration(seconds=2.0).to_msg()
-                                
-                                map_markers.markers.append(map_marker)
-                                self.get_logger().info(f'Created marker at pose: '
-                                                     f'x={map_pose.pose.position.x:.2f}, '
-                                                     f'y={map_pose.pose.position.y:.2f}, '
-                                                     f'z={map_pose.pose.position.z:.2f}')
+                            if map_pose and map_pose.pose:  # Add check for pose attribute
+                                try:
+                                    # Create map marker
+                                    map_marker = Marker()
+                                    map_marker.header.frame_id = 'odom'
+                                    map_marker.header.stamp = self.get_clock().now().to_msg()
+                                    map_marker.ns = 'map_persons'
+                                    map_marker.id = map_marker_id
+                                    map_marker_id += 1
+                                    map_marker.type = Marker.CYLINDER
+                                    map_marker.action = Marker.ADD
+                                    
+                                    # Set position from map pose
+                                    map_marker.pose = map_pose.pose
+                                    
+                                    # Set marker size (make it more visible)
+                                    map_marker.scale.x = 0.4  # 40cm diameter
+                                    map_marker.scale.y = 0.4
+                                    map_marker.scale.z = 1.7  # Human height
+                                    
+                                    # Set color (bright red, very visible)
+                                    map_marker.color.r = 1.0
+                                    map_marker.color.g = 0.0
+                                    map_marker.color.b = 0.0
+                                    map_marker.color.a = 0.8  # More opaque
+                                    
+                                    # Set lifetime (longer)
+                                    map_marker.lifetime = rclpy.duration.Duration(seconds=2.0).to_msg()
+                                    
+                                    map_markers.markers.append(map_marker)
+                                    self.get_logger().info(f'Created marker at pose: '
+                                                         f'x={map_pose.pose.position.x:.2f}, '
+                                                         f'y={map_pose.pose.position.y:.2f}, '
+                                                         f'z={map_pose.pose.position.z:.2f}')
+                                except Exception as e:
+                                    self.get_logger().error(f'Failed to create marker: {str(e)}')
                             
                         except Exception as e:
                             self.get_logger().warn(f'Error processing detection box: {str(e)}')

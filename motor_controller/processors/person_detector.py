@@ -152,13 +152,24 @@ class PersonDetector(Node):
             transformed_pose.header.stamp = pose.header.stamp
             
             # Apply transform manually
-            p = pose.pose.position
-            point_in_map = transform.transform.translation
-            point_in_map.x += p.x
-            point_in_map.y += p.y
-            point_in_map.z += p.z
+            transformed_point = Point()
             
-            transformed_pose.pose.position = point_in_map
+            # Apply rotation and translation
+            transformed_point.x = (transform.transform.rotation.w * transform.transform.rotation.w + 
+                                 transform.transform.rotation.x * transform.transform.rotation.x - 
+                                 transform.transform.rotation.y * transform.transform.rotation.y - 
+                                 transform.transform.rotation.z * transform.transform.rotation.z) * pose.pose.position.x
+            transformed_point.y = 2.0 * (transform.transform.rotation.x * transform.transform.rotation.y - 
+                                       transform.transform.rotation.w * transform.transform.rotation.z) * pose.pose.position.x
+            transformed_point.z = 2.0 * (transform.transform.rotation.x * transform.transform.rotation.z + 
+                                       transform.transform.rotation.w * transform.transform.rotation.y) * pose.pose.position.x
+            
+            # Add translation
+            transformed_point.x += transform.transform.translation.x
+            transformed_point.y += transform.transform.translation.y
+            transformed_point.z += transform.transform.translation.z
+            
+            transformed_pose.pose.position = transformed_point
             transformed_pose.pose.orientation = transform.transform.rotation
             
             return transformed_pose

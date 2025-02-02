@@ -16,6 +16,7 @@ from cv_bridge import CvBridge
 from tf2_ros import Buffer, TransformListener
 import tf2_geometry_msgs
 import math
+import yaml
 
 class PersonDetector(Node):
     def __init__(self):
@@ -104,43 +105,57 @@ class PersonDetector(Node):
             10
         )
         
-        # Update camera parameters from your camera calibration
-        self.fx = 607.5860  # focal length x
-        self.fy = 607.1840  # focal length y
-        self.cx = 320.0     # optical center x (assuming 640x480)
-        self.cy = 240.0     # optical center y
+        # Load actual camera calibration from camera_info.yaml
+        try:
+            with open('/path/to/camera_info.yaml', 'r') as f:
+                camera_info = yaml.safe_load(f)
+                self.fx = camera_info['camera_matrix']['data'][0]
+                self.fy = camera_info['camera_matrix']['data'][4]
+                self.cx = camera_info['camera_matrix']['data'][2]
+                self.cy = camera_info['camera_matrix']['data'][5]
+        except:
+            # Fallback values
+            self.fx = 607.5860
+            self.fy = 607.1840
+            self.cx = 320.0
+            self.cy = 240.0
         
         # Adjust human height for better depth estimation
         self.human_height = 1.7  # meters
+        
+        # Add position history
+        self.position_history = []
+        self.max_history = 5
         
         self.get_logger().info('Person detector initialized successfully')
         
     def project_to_map(self, x_pixel, y_pixel_pair, header):
         """Project pixel coordinates to map coordinates"""
         try:
-            # First get transform from camera to map
-            transform = self.tf_buffer.lookup_transform(
-                'map',
-                'camera_link',
-                rclpy.time.Time(),
-                timeout=rclpy.duration.Duration(seconds=0.1)
-            )
-            
-            # Calculate depth using human height and pixel height
+            # Use multiple measurements for more stable depth
             y_top, y_bottom = y_pixel_pair
             pixel_height = float(y_bottom - y_top)
             
-            self.get_logger().info(f'Pixel height: {pixel_height}')
-            
-            if pixel_height <= 0:
-                self.get_logger().warn('Invalid pixel height')
+            # Filter out unrealistic measurements
+            if pixel_height < 20 or pixel_height > 400:  # Reasonable pixel height range
+                self.get_logger().warn('Unrealistic pixel height')
                 return None
+                
+            # Use pixel width as additional check
+            pixel_width = x2 - x1  # Need to pass this from detection
+            expected_ratio = 0.3  # width/height ratio for standing person
+            measured_ratio = pixel_width / pixel_height
             
-            # Adjust depth calculation based on pixel height
+            if abs(measured_ratio - expected_ratio) > 0.2:
+                self.get_logger().warn('Unusual person proportions, might be inaccurate')
+            
+            # Improved depth calculation
             depth = (self.human_height * self.fy) / pixel_height
-            depth = min(depth, 8.0)  # Increase max depth to 8 meters
             
-            self.get_logger().info(f'Calculated depth: {depth}m')
+            # Apply depth confidence factor based on pixel height
+            confidence = min(pixel_height / 200.0, 1.0)  # Higher confidence for larger detections
+            if confidence < 0.5:
+                self.get_logger().warn('Low confidence depth measurement')
             
             # Calculate 3D point in camera frame
             # Note: Camera coordinates are:
@@ -262,16 +277,17 @@ class PersonDetector(Node):
                                     # Set position from map pose
                                     map_marker.pose = map_pose.pose
                                     
-                                    # Make marker more visible
-                                    map_marker.scale.x = 0.5  # 50cm diameter
-                                    map_marker.scale.y = 0.5
-                                    map_marker.scale.z = 1.7  # Human height
-                                    
-                                    # Bright red color
+                                    # Adjust marker color based on confidence
                                     map_marker.color.r = 1.0
-                                    map_marker.color.g = 0.0
+                                    map_marker.color.g = confidence  # More green = higher confidence
                                     map_marker.color.b = 0.0
-                                    map_marker.color.a = 1.0  # Fully opaque
+                                    map_marker.color.a = max(0.5, confidence)  # More opaque = higher confidence
+                                    
+                                    # Adjust marker size based on confidence
+                                    base_size = 0.5
+                                    map_marker.scale.x = base_size * (0.8 + 0.4 * confidence)
+                                    map_marker.scale.y = base_size * (0.8 + 0.4 * confidence)
+                                    map_marker.scale.z = 1.7  # Human height
                                     
                                     # Longer lifetime
                                     map_marker.lifetime = rclpy.duration.Duration(seconds=5.0).to_msg()
@@ -315,6 +331,27 @@ class PersonDetector(Node):
             
         except Exception as e:
             self.get_logger().error(f'Error in image callback: {str(e)}')
+
+    def filter_position(self, new_pose):
+        """Apply temporal filtering to smooth out position estimates"""
+        if not self.position_history:
+            self.position_history.append(new_pose)
+            return new_pose
+            
+        # Add new position to history
+        self.position_history.append(new_pose)
+        if len(self.position_history) > self.max_history:
+            self.position_history.pop(0)
+            
+        # Calculate weighted average (more weight to recent positions)
+        weights = [0.1, 0.15, 0.2, 0.25, 0.3]  # Must sum to 1.0
+        filtered_x = sum(p.pose.position.x * w for p, w in zip(self.position_history, weights))
+        filtered_y = sum(p.pose.position.y * w for p, w in zip(self.position_history, weights))
+        
+        # Update position with filtered values
+        new_pose.pose.position.x = filtered_x
+        new_pose.pose.position.y = filtered_y
+        return new_pose
 
 def main(args=None):
     rclpy.init(args=args)

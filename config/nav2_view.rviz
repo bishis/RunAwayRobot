@@ -262,11 +262,10 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /map_person_detections
       Value: true
-      Frame: odom
   Enabled: true
   Global Options:
-    Fixed Frame: odom
     Background Color: 48; 48; 48
+    Fixed Frame: map
     Frame Rate: 30
   Name: root
   Tools:

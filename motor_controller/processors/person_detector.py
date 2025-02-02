@@ -127,7 +127,7 @@ class PersonDetector(Node):
                 transform = self.tf_buffer.lookup_transform(
                     'odom',
                     'camera_link',
-                    now - rclpy.duration.Duration(seconds=0.1),  # Look slightly in the past
+                    now - rclpy.duration.Duration(seconds=0.1),
                     timeout=rclpy.duration.Duration(seconds=0.1)
                 )
             except Exception as e:
@@ -137,24 +137,46 @@ class PersonDetector(Node):
             # Calculate depth using human height and pixel height
             y_top, y_bottom = y_pixel_pair
             pixel_height = float(y_bottom - y_top)
+            
+            # Add debug output
+            self.get_logger().info(f'Pixel height: {pixel_height}')
+            
+            # Adjust depth calculation
             depth = (self.human_height * self.fy) / pixel_height
+            depth = min(depth, 5.0)  # Limit max depth to 5 meters
+            
+            self.get_logger().info(f'Calculated depth: {depth}m')
             
             # Calculate 3D point in camera frame
-            x = ((x_pixel - self.cx) * depth) / self.fx
-            y = ((y_bottom - self.cy) * depth) / self.fy
-            z = depth
+            # Note: Camera coordinates are:
+            # X - right
+            # Y - down
+            # Z - forward
+            x_cam = ((x_pixel - self.cx) * depth) / self.fx  # right/left
+            y_cam = ((y_bottom - self.cy) * depth) / self.fy  # up/down
+            z_cam = depth  # forward/back
+            
+            self.get_logger().info(f'Camera frame coords: x={x_cam}, y={y_cam}, z={z_cam}')
             
             # Create pose in camera frame
             pose = PoseStamped()
             pose.header.frame_id = 'camera_link'
-            pose.header.stamp = transform.header.stamp  # Use same timestamp as transform
-            pose.pose.position.x = z  # Camera coordinates: z is forward
-            pose.pose.position.y = -x  # Camera coordinates: -x is right
-            pose.pose.position.z = -y  # Camera coordinates: -y is down
+            pose.header.stamp = transform.header.stamp
+            
+            # Convert camera coordinates to ROS standard frame
+            pose.pose.position.x = z_cam  # forward
+            pose.pose.position.y = -x_cam  # left
+            pose.pose.position.z = 0.0    # Set Z to ground level
+            
+            # Set orientation to align with ground plane
             pose.pose.orientation.w = 1.0
             
-            # Transform to odom frame using the transform we already have
+            # Transform to odom frame
             transformed_pose = tf2_geometry_msgs.do_transform_pose(pose, transform)
+            
+            self.get_logger().info(f'Transformed pose: x={transformed_pose.pose.position.x}, '
+                                 f'y={transformed_pose.pose.position.y}, '
+                                 f'z={transformed_pose.pose.position.z}')
             
             return transformed_pose
             

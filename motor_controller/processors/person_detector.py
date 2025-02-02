@@ -118,12 +118,6 @@ class PersonDetector(Node):
     def project_to_map(self, x_pixel, y_pixel_pair, header):
         """Project pixel coordinates to map coordinates"""
         try:
-            # Wait a short time for transform to become available
-            if not self.tf_buffer.can_transform('odom', 'camera_link', rclpy.time.Time()):
-                self.get_logger().warn('Transform not available, waiting...')
-                self.tf_buffer.can_transform('odom', 'camera_link', rclpy.time.Time(), 
-                                          timeout=rclpy.duration.Duration(seconds=1.0))
-            
             # Get transform
             transform = self.tf_buffer.lookup_transform(
                 'odom',
@@ -155,19 +149,28 @@ class PersonDetector(Node):
             self.get_logger().info(f'Camera frame coords: x={x_cam}, y={y_cam}, z={z_cam}')
             
             # Create pose in camera frame
-            pose = PoseStamped()
-            pose.header.frame_id = 'camera_link'
-            pose.header.stamp = transform.header.stamp
+            pose_stamped = PoseStamped()
+            pose_stamped.header.frame_id = 'camera_link'
+            pose_stamped.header.stamp = transform.header.stamp
             
-            # Set position
-            pose.pose.position = Point(x=z_cam, y=-x_cam, z=0.0)
+            # Create and set position
+            position = Point()
+            position.x = z_cam  # forward
+            position.y = -x_cam  # left
+            position.z = 0.0    # ground level
+            pose_stamped.pose.position = position
             
-            # Set orientation (identity quaternion)
-            pose.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+            # Create and set orientation
+            orientation = Quaternion()
+            orientation.x = 0.0
+            orientation.y = 0.0
+            orientation.z = 0.0
+            orientation.w = 1.0
+            pose_stamped.pose.orientation = orientation
             
             # Transform to odom frame
             try:
-                transformed_pose = tf2_geometry_msgs.do_transform_pose(pose, transform)
+                transformed_pose = tf2_geometry_msgs.do_transform_pose(pose_stamped, transform)
                 
                 self.get_logger().info(f'Transformed pose: x={transformed_pose.pose.position.x:.2f}, '
                                      f'y={transformed_pose.pose.position.y:.2f}, '

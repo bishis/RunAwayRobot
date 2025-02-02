@@ -3,7 +3,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage, Image
 from visualization_msgs.msg import MarkerArray, Marker
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, PoseStamped, Pose, Quaternion
 from vision_msgs.msg import Detection2DArray as DetectionArray
 import cv2
 import numpy as np
@@ -14,7 +14,6 @@ import requests
 import shutil
 from cv_bridge import CvBridge
 from tf2_ros import Buffer, TransformListener
-from geometry_msgs.msg import TransformStamped, PoseStamped
 import tf2_geometry_msgs
 import math
 
@@ -124,7 +123,7 @@ class PersonDetector(Node):
                 transform = self.tf_buffer.lookup_transform(
                     'odom',
                     'camera_link',
-                    rclpy.time.Time(),  # Use latest transform
+                    rclpy.time.Time(),
                     timeout=rclpy.duration.Duration(seconds=0.1)
                 )
             except Exception as e:
@@ -135,44 +134,38 @@ class PersonDetector(Node):
             y_top, y_bottom = y_pixel_pair
             pixel_height = float(y_bottom - y_top)
             
-            # Add info output
             self.get_logger().info(f'Pixel height: {pixel_height}')
             
-            # Sanity check pixel height
             if pixel_height <= 0:
                 self.get_logger().warn('Invalid pixel height')
                 return None
             
-            # Adjust depth calculation
             depth = (self.human_height * self.fy) / pixel_height
             depth = min(depth, 5.0)  # Limit max depth to 5 meters
             
             self.get_logger().info(f'Calculated depth: {depth}m')
             
             # Calculate 3D point in camera frame
-            x_cam = ((x_pixel - self.cx) * depth) / self.fx  # right/left
-            y_cam = ((y_bottom - self.cy) * depth) / self.fy  # up/down
-            z_cam = depth  # forward/back
+            x_cam = ((x_pixel - self.cx) * depth) / self.fx
+            y_cam = ((y_bottom - self.cy) * depth) / self.fy
+            z_cam = depth
             
             self.get_logger().info(f'Camera frame coords: x={x_cam}, y={y_cam}, z={z_cam}')
             
             # Create pose in camera frame
-            from geometry_msgs.msg import Pose
-            camera_pose = Pose()
-            camera_pose.position.x = z_cam  # forward
-            camera_pose.position.y = -x_cam  # left
-            camera_pose.position.z = 0.0    # Set Z to ground level
-            camera_pose.orientation.w = 1.0
+            pose = PoseStamped()
+            pose.header.frame_id = 'camera_link'
+            pose.header.stamp = transform.header.stamp
             
-            # Create PoseStamped
-            pose_stamped = PoseStamped()
-            pose_stamped.header.frame_id = 'camera_link'
-            pose_stamped.header.stamp = transform.header.stamp
-            pose_stamped.pose = camera_pose
+            # Set position
+            pose.pose.position = Point(x=z_cam, y=-x_cam, z=0.0)
+            
+            # Set orientation (identity quaternion)
+            pose.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
             
             # Transform to odom frame
             try:
-                transformed_pose = tf2_geometry_msgs.do_transform_pose(pose_stamped, transform)
+                transformed_pose = tf2_geometry_msgs.do_transform_pose(pose, transform)
                 
                 self.get_logger().info(f'Transformed pose: x={transformed_pose.pose.position.x:.2f}, '
                                      f'y={transformed_pose.pose.position.y:.2f}, '
@@ -242,19 +235,19 @@ class PersonDetector(Node):
                                     # Set position from map pose
                                     map_marker.pose = map_pose.pose
                                     
-                                    # Set marker size (make it more visible)
-                                    map_marker.scale.x = 0.4  # 40cm diameter
-                                    map_marker.scale.y = 0.4
+                                    # Make marker more visible
+                                    map_marker.scale.x = 0.5  # 50cm diameter
+                                    map_marker.scale.y = 0.5
                                     map_marker.scale.z = 1.7  # Human height
                                     
-                                    # Set color (bright red, very visible)
+                                    # Bright red color
                                     map_marker.color.r = 1.0
                                     map_marker.color.g = 0.0
                                     map_marker.color.b = 0.0
-                                    map_marker.color.a = 0.8  # More opaque
+                                    map_marker.color.a = 1.0  # Fully opaque
                                     
-                                    # Set lifetime (longer)
-                                    map_marker.lifetime = rclpy.duration.Duration(seconds=2.0).to_msg()
+                                    # Longer lifetime
+                                    map_marker.lifetime = rclpy.duration.Duration(seconds=5.0).to_msg()
                                     
                                     map_markers.markers.append(map_marker)
                                     self.get_logger().info(f'Created marker at pose: '

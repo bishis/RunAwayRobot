@@ -13,12 +13,12 @@ slam_toolbox:
     transform_timeout: 0.2
     update_timing: true
     publish_period: 0.5
-    map_update_interval: 1.0
+    map_update_interval: 5.0
     max_update_rate: 10.0
 
     # Map management
     resolution: 0.05
-    max_laser_range: 10.0
+    max_laser_range: 12.0
     minimum_time_interval: 0.5
     transform_publish_period: 0.05
 
@@ -27,12 +27,14 @@ slam_toolbox:
     use_scan_matching: true
     use_scan_barycenter: true
     # Increasing these slightly can help reduce rapid, small updates that may accumulate noise:
-    minimum_travel_distance: 0.5
-    minimum_travel_heading: 0.5
+    minimum_travel_distance: 0.2    # increased from 0.1 m
+    minimum_travel_heading: 0.2       # increased from 0.1 rad
     scan_buffer_size: 10
     scan_buffer_maximum_scan_distance: 10.0
-    link_match_minimum_response_fine: 0.8
-    correlation_search_space_dimension: 0.5
+    link_match_minimum_response_fine: 0.1
+    link_scan_maximum_distance: 1.5
+
+
 
     # Loop closure parameters (added for improved consistency in smaller environments)
     do_loop_closing: true
@@ -44,20 +46,3 @@ slam_toolbox:
     coarse_search_angle_offset: 0.349         # ~20° in radians
     coarse_angle_resolution: 0.0349           # ~2° in radians
     loop_match_minimum_response_coarse: 0.3     # example value; adjust as needed
-
-    # More aggressive pose optimization
-    solver_plugin: solver_plugins::CeresSolver
-    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
-    ceres_preconditioner: SCHUR_JACOBI
-    ceres_trust_strategy: LEVENBERG_MARQUARDT
-    ceres_dogleg_type: TRADITIONAL_DOGLEG
-    ceres_loss_function: HuberLoss
-
-    # Update factors
-    update_factor_free: 0.4
-    update_factor_occupied: 0.9
-
-    # Add these parameters to handle noise
-    scan_matcher_p_dist: 0.5  # Increase penalty for long-range differences
-    scan_matcher_p_angle: 0.5  # Balance between rotation and translation matching
-    scan_matcher_p_correlation: 0.1  # Reduce impact of weak correlations

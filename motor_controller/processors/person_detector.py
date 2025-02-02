@@ -119,18 +119,20 @@ class PersonDetector(Node):
     def project_to_map(self, x_pixel, y_pixel_pair, header):
         """Project pixel coordinates to map coordinates"""
         try:
-            # Wait for transform to become available
-            if not self.tf_buffer.can_transform('odom', 'camera_link', rclpy.time.Time()):
-                self.get_logger().warn('Transform not available yet, skipping projection')
+            # Get current time
+            now = self.get_clock().now()
+            
+            # Try to get transform with a small delay to ensure it's available
+            try:
+                transform = self.tf_buffer.lookup_transform(
+                    'odom',
+                    'camera_link',
+                    now - rclpy.duration.Duration(seconds=0.1),  # Look slightly in the past
+                    timeout=rclpy.duration.Duration(seconds=0.1)
+                )
+            except Exception as e:
+                self.get_logger().debug(f'Transform not ready yet: {str(e)}')
                 return None
-
-            # Get latest transform using odom instead of map
-            transform = self.tf_buffer.lookup_transform(
-                'odom',  # Use odom instead of map
-                'camera_link',
-                rclpy.time.Time(),
-                timeout=rclpy.duration.Duration(seconds=0.1)
-            )
             
             # Calculate depth using human height and pixel height
             y_top, y_bottom = y_pixel_pair
@@ -145,19 +147,14 @@ class PersonDetector(Node):
             # Create pose in camera frame
             pose = PoseStamped()
             pose.header.frame_id = 'camera_link'
-            pose.header.stamp = self.get_clock().now().to_msg()
+            pose.header.stamp = transform.header.stamp  # Use same timestamp as transform
             pose.pose.position.x = z  # Camera coordinates: z is forward
             pose.pose.position.y = -x  # Camera coordinates: -x is right
             pose.pose.position.z = -y  # Camera coordinates: -y is down
             pose.pose.orientation.w = 1.0
             
-            # Transform to odom frame
-            transformed_pose = PoseStamped()
-            transformed_pose.header.frame_id = 'odom'
-            transformed_pose.header.stamp = pose.header.stamp
-            
-            # Use tf2_ros transform
-            transformed_pose = self.tf_buffer.transform(pose, 'odom')
+            # Transform to odom frame using the transform we already have
+            transformed_pose = tf2_geometry_msgs.do_transform_pose(pose, transform)
             
             return transformed_pose
             

@@ -13,14 +13,15 @@ from tf2_ros.transform_listener import TransformListener
 from scipy.ndimage import distance_transform_edt
 from std_msgs.msg import ColorRGBA
 
-class WaypointGenerator(Node):
+class WaypointGenerator:
     """
     Generates exploration waypoints for autonomous robot navigation.
     Uses frontier detection and dynamic waypoint generation based on map updates.
     """
     
-    def __init__(self):
-        super().__init__('waypoint_generator')
+    def __init__(self, node: Node):
+        """Initialize with parent node"""
+        self.node = node  # Store node reference
         self.setup_parameters()
         self.setup_transforms()
         self.setup_state()
@@ -59,31 +60,31 @@ class WaypointGenerator(Node):
         
     def setup_publishers(self):
         """Setup all publishers"""
-        self.waypoint_pub = self.create_publisher(
+        self.waypoint_pub = self.node.create_publisher(
             PoseStamped,
             'next_waypoint',
             10
         )
-        self.viz_pub = self.create_publisher(
+        self.viz_pub = self.node.create_publisher(
             MarkerArray,
             'waypoint_visualization',
             10
         )
-        self.frontier_viz_pub = self.create_publisher(
+        self.frontier_viz_pub = self.node.create_publisher(
             MarkerArray,
             'frontier_visualization',
             10
         )
         
         # Create timer for visualization updates
-        self.viz_timer = self.create_timer(
+        self.viz_timer = self.node.create_timer(
             self.viz_update_rate,
             self.publish_visualization
         )
         
     def setup_subscribers(self):
         """Setup all subscribers"""
-        self.map_sub = self.create_subscription(
+        self.map_sub = self.node.create_subscription(
             OccupancyGrid,
             'map',
             self.update_map,
@@ -93,7 +94,7 @@ class WaypointGenerator(Node):
     def setup_transforms(self):
         """Initialize transform listener"""
         self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.tf_listener = TransformListener(self.tf_buffer, self.node)
         
     def setup_state(self):
         """Initialize state variables"""
@@ -366,15 +367,9 @@ class WaypointGenerator(Node):
         self.viz_pub.publish(waypoint_markers)
         self.frontier_viz_pub.publish(frontier_markers)
 
-def main(args=None):
-    rclpy.init(args=args)
-    try:
-        node = WaypointGenerator()
-        rclpy.spin(node)
-    except Exception as e:
-        print(f'Failed to start waypoint generator: {str(e)}')
-    finally:
-        rclpy.shutdown()
+    # Update logging calls
+    def get_logger(self):
+        return self.node.get_logger()
 
-if __name__ == '__main__':
-    main()
+    def get_clock(self):
+        return self.node.get_clock()

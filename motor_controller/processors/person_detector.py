@@ -119,22 +119,27 @@ class PersonDetector(Node):
     def project_to_map(self, x_pixel, y_pixel_pair, header):
         """Project pixel coordinates to map coordinates"""
         try:
-            # Get latest transform instead of using image timestamp
+            # Wait for transform to become available
+            if not self.tf_buffer.can_transform('odom', 'camera_link', rclpy.time.Time()):
+                self.get_logger().warn('Transform not available yet, skipping projection')
+                return None
+
+            # Get latest transform using odom instead of map
             transform = self.tf_buffer.lookup_transform(
-                'map',
-                'camera_link',  # Use camera_link instead of header.frame_id
-                rclpy.time.Time(),  # Use latest transform
+                'odom',  # Use odom instead of map
+                'camera_link',
+                rclpy.time.Time(),
                 timeout=rclpy.duration.Duration(seconds=0.1)
             )
             
             # Calculate depth using human height and pixel height
-            y_top, y_bottom = y_pixel_pair  # Unpack the y coordinates
-            pixel_height = float(y_bottom - y_top)  # Convert to float
+            y_top, y_bottom = y_pixel_pair
+            pixel_height = float(y_bottom - y_top)
             depth = (self.human_height * self.fy) / pixel_height
             
             # Calculate 3D point in camera frame
             x = ((x_pixel - self.cx) * depth) / self.fx
-            y = ((y_bottom - self.cy) * depth) / self.fy  # Use bottom y for ground point
+            y = ((y_bottom - self.cy) * depth) / self.fy
             z = depth
             
             # Create pose in camera frame
@@ -146,31 +151,13 @@ class PersonDetector(Node):
             pose.pose.position.z = -y  # Camera coordinates: -y is down
             pose.pose.orientation.w = 1.0
             
-            # Transform to map frame
+            # Transform to odom frame
             transformed_pose = PoseStamped()
-            transformed_pose.header.frame_id = 'map'
+            transformed_pose.header.frame_id = 'odom'
             transformed_pose.header.stamp = pose.header.stamp
             
-            # Apply transform manually
-            transformed_point = Point()
-            
-            # Apply rotation and translation
-            transformed_point.x = (transform.transform.rotation.w * transform.transform.rotation.w + 
-                                 transform.transform.rotation.x * transform.transform.rotation.x - 
-                                 transform.transform.rotation.y * transform.transform.rotation.y - 
-                                 transform.transform.rotation.z * transform.transform.rotation.z) * pose.pose.position.x
-            transformed_point.y = 2.0 * (transform.transform.rotation.x * transform.transform.rotation.y - 
-                                       transform.transform.rotation.w * transform.transform.rotation.z) * pose.pose.position.x
-            transformed_point.z = 2.0 * (transform.transform.rotation.x * transform.transform.rotation.z + 
-                                       transform.transform.rotation.w * transform.transform.rotation.y) * pose.pose.position.x
-            
-            # Add translation
-            transformed_point.x += transform.transform.translation.x
-            transformed_point.y += transform.transform.translation.y
-            transformed_point.z += transform.transform.translation.z
-            
-            transformed_pose.pose.position = transformed_point
-            transformed_pose.pose.orientation = transform.transform.rotation
+            # Use tf2_ros transform
+            transformed_pose = self.tf_buffer.transform(pose, 'odom')
             
             return transformed_pose
             
@@ -273,7 +260,7 @@ class PersonDetector(Node):
                             if map_pose:
                                 # Create map marker
                                 map_marker = Marker()
-                                map_marker.header.frame_id = 'map'
+                                map_marker.header.frame_id = 'odom'  # Use odom instead of map
                                 map_marker.header.stamp = self.get_clock().now().to_msg()
                                 map_marker.ns = 'map_persons'
                                 map_marker.id = map_marker_id

@@ -94,6 +94,8 @@ def generate_launch_description():
         # SLAM lifecycle manager
         slam_lifecycle_manager_cmd,
         
+        navigation_launch,
+        
     # Add image flipper node
         Node(
             package='motor_controller',
@@ -114,7 +116,6 @@ def generate_launch_description():
         ),
 
         # Navigation with delay
-        navigation_launch,
         # Person Detector
         Node(
             package='motor_controller',

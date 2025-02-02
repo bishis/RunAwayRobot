@@ -129,9 +129,17 @@ class PersonDetector(Node):
         
         self.get_logger().info('Person detector initialized successfully')
         
-    def project_to_map(self, x_pixel, y_pixel_pair, header):
+    def project_to_map(self, x_pixel, y_pixel_pair, header, box_width):
         """Project pixel coordinates to map coordinates"""
         try:
+            # First get transform from camera to map
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'camera_link',
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=0.1)
+            )
+            
             # Use multiple measurements for more stable depth
             y_top, y_bottom = y_pixel_pair
             pixel_height = float(y_bottom - y_top)
@@ -142,7 +150,7 @@ class PersonDetector(Node):
                 return None
                 
             # Use pixel width as additional check
-            pixel_width = x2 - x1  # Need to pass this from detection
+            pixel_width = box_width
             expected_ratio = 0.3  # width/height ratio for standing person
             measured_ratio = pixel_width / pixel_height
             
@@ -151,6 +159,7 @@ class PersonDetector(Node):
             
             # Improved depth calculation
             depth = (self.human_height * self.fy) / pixel_height
+            depth = min(depth, 8.0)  # Limit max depth to 8 meters
             
             # Apply depth confidence factor based on pixel height
             confidence = min(pixel_height / 200.0, 1.0)  # Higher confidence for larger detections
@@ -158,9 +167,6 @@ class PersonDetector(Node):
                 self.get_logger().warn('Low confidence depth measurement')
             
             # Calculate 3D point in camera frame
-            # Note: Camera coordinates are:
-            # Z forward, X right, Y down
-            # Need to convert to ROS standard frame: X forward, Y left, Z up
             center_x = ((x_pixel - self.cx) * depth) / self.fx
             center_y = ((((y_top + y_bottom) / 2) - self.cy) * depth) / self.fy  # Use center point
             
@@ -200,19 +206,22 @@ class PersonDetector(Node):
             try:
                 transformed_pose = self.tf_buffer.transform(pose_stamped, 'map')
                 
+                # Apply temporal filtering
+                transformed_pose = self.filter_position(transformed_pose)
+                
                 self.get_logger().info(f'Transformed pose: x={transformed_pose.pose.position.x:.2f}, '
                                      f'y={transformed_pose.pose.position.y:.2f}, '
                                      f'z={transformed_pose.pose.position.z:.2f}')
                 
-                return transformed_pose
+                return transformed_pose, confidence  # Return both pose and confidence
                 
             except Exception as e:
                 self.get_logger().error(f'Transform failed: {str(e)}')
-                return None
+                return None, 0.0
             
         except Exception as e:
             self.get_logger().warn(f'Failed to project to map: {str(e)}')
-            return None
+            return None, 0.0
             
     def image_callback(self, msg):
         """Process incoming image messages"""
@@ -243,6 +252,7 @@ class PersonDetector(Node):
                         try:
                             # Get box coordinates
                             x1, y1, x2, y2 = box.xyxy[0].numpy()
+                            box_width = x2 - x1  # Calculate width
                             
                             # Draw detection box on visualization image
                             cv2.rectangle(viz_image, 
@@ -256,10 +266,11 @@ class PersonDetector(Node):
                             # Project bottom center of bounding box to map
                             bottom_center_x = (x1 + x2) / 2
                             
-                            map_pose = self.project_to_map(
+                            map_pose, confidence = self.project_to_map(  # Get both pose and confidence
                                 bottom_center_x,
                                 [y1, y2],  # Pass both top and bottom y for height calculation
-                                msg.header
+                                msg.header,
+                                box_width  # Pass box width
                             )
                             
                             if map_pose and map_pose.pose:  # Add check for pose attribute

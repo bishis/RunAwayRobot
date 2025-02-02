@@ -91,7 +91,7 @@ class PersonDetector(Node):
             10
         )
         
-        # Debug counter
+        # info counter
         self.frame_count = 0
         
         # Add TF buffer and listener
@@ -131,14 +131,14 @@ class PersonDetector(Node):
                     timeout=rclpy.duration.Duration(seconds=0.1)
                 )
             except Exception as e:
-                self.get_logger().debug(f'Transform not ready yet: {str(e)}')
+                self.get_logger().info(f'Transform not ready yet: {str(e)}')
                 return None
             
             # Calculate depth using human height and pixel height
             y_top, y_bottom = y_pixel_pair
             pixel_height = float(y_bottom - y_top)
             
-            # Add debug output
+            # Add info output
             self.get_logger().info(f'Pixel height: {pixel_height}')
             
             # Adjust depth calculation
@@ -190,24 +190,15 @@ class PersonDetector(Node):
             # Convert ROS Image message to OpenCV image
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
             
-            # Skip some frames for performance
-            self.frame_count += 1
-            if self.frame_count % 3 != 0:  # Process every 3rd frame
-                return
-                
             # Run detection
             results = self.model(cv_image)
-            
-            # Create visualization image
-            viz_image = cv_image.copy()
-            
-            # Create marker array for visualization
-            markers = MarkerArray()
-            marker_id = 0
             
             # Create map markers
             map_markers = MarkerArray()
             map_marker_id = 0
+            
+            # info detection count
+            person_count = 0
             
             # Process results
             for result in results:
@@ -215,60 +206,16 @@ class PersonDetector(Node):
                 for box in boxes:
                     # Only process person detections (class 0 in COCO)
                     if box.cls == 0:  # Person class
+                        person_count += 1
                         try:
                             # Get box coordinates
                             x1, y1, x2, y2 = box.xyxy[0].numpy()
                             
-                            # Draw rectangle on visualization image
-                            cv2.rectangle(viz_image, 
-                                        (int(x1), int(y1)), 
-                                        (int(x2), int(y2)), 
-                                        (0, 255, 0), 2)
-                            
-                            # Add text label
-                            conf = float(box.conf[0])
-                            cv2.putText(viz_image, 
-                                      f'Person {conf:.2f}', 
-                                      (int(x1), int(y1-10)), 
-                                      cv2.FONT_HERSHEY_SIMPLEX, 
-                                      0.5, (0, 255, 0), 2)
-                            
-                            # Create marker for visualization
-                            marker = Marker()
-                            marker.header = msg.header
-                            marker.ns = "persons"
-                            marker.id = marker_id
-                            marker_id += 1
-                            marker.type = Marker.CUBE
-                            marker.action = Marker.ADD
-                            
-                            # Calculate marker position (center of box)
-                            marker.pose.position.x = (x1 + x2) / 2
-                            marker.pose.position.y = (y1 + y2) / 2
-                            marker.pose.position.z = 0.0
-                            
-                            # Set marker orientation (quaternion)
-                            marker.pose.orientation.x = 0.0
-                            marker.pose.orientation.y = 0.0
-                            marker.pose.orientation.z = 0.0
-                            marker.pose.orientation.w = 1.0
-                            
-                            # Set marker size
-                            marker.scale.x = (x2 - x1) / 2
-                            marker.scale.y = (y2 - y1) / 2
-                            marker.scale.z = 1.8  # Approximate human height
-                            
-                            # Set marker color (green, semi-transparent)
-                            marker.color.r = 0.0
-                            marker.color.g = 1.0
-                            marker.color.b = 0.0
-                            marker.color.a = 0.5
-                            
-                            markers.markers.append(marker)
+                            self.get_logger().info(f'Detected person at box coordinates: '
+                                                 f'x1={x1:.1f}, y1={y1:.1f}, x2={x2:.1f}, y2={y2:.1f}')
                             
                             # Project bottom center of bounding box to map
                             bottom_center_x = (x1 + x2) / 2
-                            bottom_y = y2  # Bottom of bounding box
                             
                             map_pose = self.project_to_map(
                                 bottom_center_x,
@@ -279,7 +226,7 @@ class PersonDetector(Node):
                             if map_pose:
                                 # Create map marker
                                 map_marker = Marker()
-                                map_marker.header.frame_id = 'odom'  # Use odom instead of map
+                                map_marker.header.frame_id = 'odom'
                                 map_marker.header.stamp = self.get_clock().now().to_msg()
                                 map_marker.ns = 'map_persons'
                                 map_marker.id = map_marker_id
@@ -290,42 +237,39 @@ class PersonDetector(Node):
                                 # Set position from map pose
                                 map_marker.pose = map_pose.pose
                                 
-                                # Set marker size
-                                map_marker.scale.x = 0.5  # 50cm diameter
-                                map_marker.scale.y = 0.5
+                                # Set marker size (make it more visible)
+                                map_marker.scale.x = 0.4  # 40cm diameter
+                                map_marker.scale.y = 0.4
                                 map_marker.scale.z = 1.7  # Human height
                                 
-                                # Set color (blue, semi-transparent)
-                                map_marker.color.r = 0.0
+                                # Set color (bright red, very visible)
+                                map_marker.color.r = 1.0
                                 map_marker.color.g = 0.0
-                                map_marker.color.b = 1.0
-                                map_marker.color.a = 0.5
+                                map_marker.color.b = 0.0
+                                map_marker.color.a = 0.8  # More opaque
                                 
-                                # Set lifetime
-                                map_marker.lifetime = rclpy.duration.Duration(seconds=1.0).to_msg()
+                                # Set lifetime (longer)
+                                map_marker.lifetime = rclpy.duration.Duration(seconds=2.0).to_msg()
                                 
                                 map_markers.markers.append(map_marker)
-                                
+                                self.get_logger().info(f'Created marker at pose: '
+                                                     f'x={map_pose.pose.position.x:.2f}, '
+                                                     f'y={map_pose.pose.position.y:.2f}, '
+                                                     f'z={map_pose.pose.position.z:.2f}')
+                            
                         except Exception as e:
                             self.get_logger().warn(f'Error processing detection box: {str(e)}')
                             continue
             
-            # Publish visualization image
-            viz_msg = self.bridge.cv2_to_imgmsg(viz_image, encoding='bgr8')
-            viz_msg.header = msg.header
-            self.viz_pub.publish(viz_msg)
-            
-            # Also publish compressed version for RViz
-            compressed_msg = CompressedImage()
-            compressed_msg.header = msg.header
-            compressed_msg.format = "jpeg"
-            _, compressed_array = cv2.imencode('.jpg', viz_image)
-            compressed_msg.data = compressed_array.tobytes()
-            self.debug_img_pub.publish(compressed_msg)
-            
             # Publish map markers
             if len(map_markers.markers) > 0:
+                self.get_logger().info(f'Publishing {len(map_markers.markers)} markers')
                 self.map_marker_pub.publish(map_markers)
+            else:
+                self.get_logger().info('No markers to publish')
+            
+            if person_count > 0:
+                self.get_logger().info(f'Detected {person_count} people in frame')
             
         except Exception as e:
             self.get_logger().error(f'Error in image callback: {str(e)}')

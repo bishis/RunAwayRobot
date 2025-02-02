@@ -118,17 +118,19 @@ class PersonDetector(Node):
     def project_to_map(self, x_pixel, y_pixel_pair, header):
         """Project pixel coordinates to map coordinates"""
         try:
-            # Try to get latest transform without timestamp constraints
-            try:
-                transform = self.tf_buffer.lookup_transform(
-                    'odom',
-                    'camera_link',
-                    rclpy.time.Time(),
-                    timeout=rclpy.duration.Duration(seconds=0.1)
-                )
-            except Exception as e:
-                self.get_logger().info(f'Transform not ready yet: {str(e)}')
-                return None
+            # Wait a short time for transform to become available
+            if not self.tf_buffer.can_transform('odom', 'camera_link', rclpy.time.Time()):
+                self.get_logger().warn('Transform not available, waiting...')
+                self.tf_buffer.can_transform('odom', 'camera_link', rclpy.time.Time(), 
+                                          timeout=rclpy.duration.Duration(seconds=1.0))
+            
+            # Get transform
+            transform = self.tf_buffer.lookup_transform(
+                'odom',
+                'camera_link',
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=0.1)
+            )
             
             # Calculate depth using human height and pixel height
             y_top, y_bottom = y_pixel_pair
@@ -187,6 +189,9 @@ class PersonDetector(Node):
             # Convert ROS Image message to OpenCV image
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
             
+            # Create visualization image (copy of original)
+            viz_image = cv_image.copy()
+            
             # Run detection
             results = self.model(cv_image)
             
@@ -207,6 +212,12 @@ class PersonDetector(Node):
                         try:
                             # Get box coordinates
                             x1, y1, x2, y2 = box.xyxy[0].numpy()
+                            
+                            # Draw detection box on visualization image
+                            cv2.rectangle(viz_image, 
+                                        (int(x1), int(y1)), 
+                                        (int(x2), int(y2)), 
+                                        (0, 255, 0), 2)
                             
                             self.get_logger().info(f'Detected person at box coordinates: '
                                                  f'x1={x1:.1f}, y1={y1:.1f}, x2={x2:.1f}, y2={y2:.1f}')
@@ -260,6 +271,21 @@ class PersonDetector(Node):
                         except Exception as e:
                             self.get_logger().warn(f'Error processing detection box: {str(e)}')
                             continue
+            
+            # Publish visualization image
+            try:
+                viz_msg = self.bridge.cv2_to_imgmsg(viz_image, encoding='bgr8')
+                viz_msg.header = msg.header
+                self.viz_pub.publish(viz_msg)
+                
+                # Also publish compressed image for easier viewing
+                compressed_msg = CompressedImage()
+                compressed_msg.header = msg.header
+                compressed_msg.format = 'jpeg'
+                compressed_msg.data = np.array(cv2.imencode('.jpg', viz_image)[1]).tobytes()
+                self.debug_img_pub.publish(compressed_msg)
+            except Exception as e:
+                self.get_logger().error(f'Failed to publish visualization: {str(e)}')
             
             # Publish map markers
             if len(map_markers.markers) > 0:

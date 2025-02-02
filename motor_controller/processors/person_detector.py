@@ -104,14 +104,14 @@ class PersonDetector(Node):
             10
         )
         
-        # Camera parameters (from camera_info.yaml)
-        self.fx = 500.0  # focal length x
-        self.fy = 500.0  # focal length y
-        self.cx = 320.0  # optical center x
-        self.cy = 240.0  # optical center y
+        # Update camera parameters from your camera calibration
+        self.fx = 607.5860  # focal length x
+        self.fy = 607.1840  # focal length y
+        self.cx = 320.0     # optical center x (assuming 640x480)
+        self.cy = 240.0     # optical center y
         
-        # Approximate human height (meters)
-        self.human_height = 1.7
+        # Adjust human height for better depth estimation
+        self.human_height = 1.7  # meters
         
         self.get_logger().info('Person detector initialized successfully')
         
@@ -120,7 +120,7 @@ class PersonDetector(Node):
         try:
             # First get transform from camera to map
             transform = self.tf_buffer.lookup_transform(
-                'map',  # Changed from 'odom' to 'map'
+                'map',
                 'camera_link',
                 rclpy.time.Time(),
                 timeout=rclpy.duration.Duration(seconds=0.1)
@@ -136,15 +136,23 @@ class PersonDetector(Node):
                 self.get_logger().warn('Invalid pixel height')
                 return None
             
+            # Adjust depth calculation based on pixel height
             depth = (self.human_height * self.fy) / pixel_height
-            depth = min(depth, 5.0)  # Limit max depth to 5 meters
+            depth = min(depth, 8.0)  # Increase max depth to 8 meters
             
             self.get_logger().info(f'Calculated depth: {depth}m')
             
             # Calculate 3D point in camera frame
-            x_cam = ((x_pixel - self.cx) * depth) / self.fx
-            y_cam = ((y_bottom - self.cy) * depth) / self.fy
-            z_cam = depth
+            # Note: Camera coordinates are:
+            # Z forward, X right, Y down
+            # Need to convert to ROS standard frame: X forward, Y left, Z up
+            center_x = ((x_pixel - self.cx) * depth) / self.fx
+            center_y = ((((y_top + y_bottom) / 2) - self.cy) * depth) / self.fy  # Use center point
+            
+            # Convert to ROS camera frame
+            x_cam = depth        # Camera Z -> ROS X (forward)
+            y_cam = -center_x    # Camera -X -> ROS Y (left)
+            z_cam = -center_y    # Camera -Y -> ROS Z (up)
             
             self.get_logger().info(f'Camera frame coords: x={x_cam}, y={y_cam}, z={z_cam}')
             
@@ -155,20 +163,27 @@ class PersonDetector(Node):
             
             # Create Pose message first
             pose = Pose()
-            pose.position.x = z_cam  # forward
-            pose.position.y = -x_cam  # left
-            pose.position.z = 0.0    # ground level
+            pose.position.x = x_cam
+            pose.position.y = y_cam
+            pose.position.z = 0.0  # Project to ground plane
+            
+            # Calculate orientation to face the camera
+            dx = x_cam
+            dy = y_cam
+            yaw = math.atan2(dy, dx)  # Calculate yaw angle
+            
+            # Convert yaw to quaternion
             pose.orientation.x = 0.0
             pose.orientation.y = 0.0
-            pose.orientation.z = 0.0
-            pose.orientation.w = 1.0
+            pose.orientation.z = math.sin(yaw / 2.0)
+            pose.orientation.w = math.cos(yaw / 2.0)
             
             # Assign the pose to PoseStamped
             pose_stamped.pose = pose
             
             # Transform to map frame
             try:
-                transformed_pose = self.tf_buffer.transform(pose_stamped, 'map')  # Changed from 'odom' to 'map'
+                transformed_pose = self.tf_buffer.transform(pose_stamped, 'map')
                 
                 self.get_logger().info(f'Transformed pose: x={transformed_pose.pose.position.x:.2f}, '
                                      f'y={transformed_pose.pose.position.y:.2f}, '

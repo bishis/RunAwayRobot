@@ -119,20 +119,26 @@ class PersonDetector(Node):
     def project_to_map(self, x_pixel, y_pixel_pair, header):
         """Project pixel coordinates to map coordinates"""
         try:
-            # Get current time
-            now = self.get_clock().now()
-            
-            # Try to get transform with a small delay to ensure it's available
+            # Try to get latest transform without timestamp constraints
             try:
                 transform = self.tf_buffer.lookup_transform(
                     'odom',
                     'camera_link',
-                    now - rclpy.duration.Duration(seconds=0.1),
+                    rclpy.time.Time(),  # Use latest transform
                     timeout=rclpy.duration.Duration(seconds=0.1)
                 )
             except Exception as e:
-                self.get_logger().info(f'Transform not ready yet: {str(e)}')
-                return None
+                # Try again with zero time if that failed
+                try:
+                    transform = self.tf_buffer.lookup_transform(
+                        'odom',
+                        'camera_link',
+                        rclpy.time.Time(seconds=0),  # Use zero time
+                        timeout=rclpy.duration.Duration(seconds=0.1)
+                    )
+                except Exception as e:
+                    self.get_logger().info(f'Transform not ready yet: {str(e)}')
+                    return None
             
             # Calculate depth using human height and pixel height
             y_top, y_bottom = y_pixel_pair

@@ -61,12 +61,13 @@ def generate_launch_description():
             ]
         ),
 
-        # Add camera transform
+        # Add static camera transform publisher
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
             name='camera_link_broadcaster',
-            arguments=['0', '0', '0.1', '0', '0', '0', 'base_link', 'camera_link']
+            arguments=['0', '0', '0.1', '0', '0', '0', 'base_link', 'camera_link'],
+            parameters=[{'use_sim_time': False}]  # Make sure this is false
         ),
 
         # Add image compression node

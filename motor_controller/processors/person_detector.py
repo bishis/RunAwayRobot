@@ -118,9 +118,9 @@ class PersonDetector(Node):
     def project_to_map(self, x_pixel, y_pixel_pair, header):
         """Project pixel coordinates to map coordinates"""
         try:
-            # Get transform
+            # First get transform from camera to map
             transform = self.tf_buffer.lookup_transform(
-                'odom',
+                'map',  # Changed from 'odom' to 'map'
                 'camera_link',
                 rclpy.time.Time(),
                 timeout=rclpy.duration.Duration(seconds=0.1)
@@ -166,9 +166,9 @@ class PersonDetector(Node):
             # Assign the pose to PoseStamped
             pose_stamped.pose = pose
             
-            # Transform to odom frame using tf2_ros transform
+            # Transform to map frame
             try:
-                transformed_pose = self.tf_buffer.transform(pose_stamped, 'odom')
+                transformed_pose = self.tf_buffer.transform(pose_stamped, 'map')  # Changed from 'odom' to 'map'
                 
                 self.get_logger().info(f'Transformed pose: x={transformed_pose.pose.position.x:.2f}, '
                                      f'y={transformed_pose.pose.position.y:.2f}, '
@@ -236,7 +236,7 @@ class PersonDetector(Node):
                                 try:
                                     # Create map marker
                                     map_marker = Marker()
-                                    map_marker.header.frame_id = 'odom'
+                                    map_marker.header.frame_id = 'map'  # Changed from 'odom' to 'map'
                                     map_marker.header.stamp = self.get_clock().now().to_msg()
                                     map_marker.ns = 'map_persons'
                                     map_marker.id = map_marker_id

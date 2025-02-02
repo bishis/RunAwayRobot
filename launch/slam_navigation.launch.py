@@ -95,7 +95,7 @@ def generate_launch_description():
         slam_lifecycle_manager_cmd,
         
         navigation_launch,
-        
+
     # Add image flipper node
         Node(
             package='motor_controller',
@@ -115,7 +115,6 @@ def generate_launch_description():
             arguments=['-d', os.path.join(pkg_dir, 'config', 'nav2_view.rviz')]
         ),
 
-        # Navigation with delay
         # Person Detector
         Node(
             package='motor_controller',

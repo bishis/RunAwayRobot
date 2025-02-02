@@ -61,6 +61,38 @@ class WaypointGenerator:
         # Add waypoint cancellation state
         self.waypoint_cancelled = False
 
+        # Map subscription
+        self.map_sub = self.node.create_subscription(
+            OccupancyGrid,
+            'map',
+            self.map_callback,
+            10
+        )
+        
+        # Current map storage
+        self.map_resolution = None
+        self.map_origin = None
+        
+        # Waypoints storage
+        self.waypoints = []  # This should be revalidated when map updates
+
+    def map_callback(self, msg):
+        """Process incoming map updates"""
+        map_changed = False
+        if self.current_map:
+            # Check if map has significantly changed
+            for old, new in zip(self.current_map.data, msg.data):
+                if abs(old - new) > 10:  # Threshold for significant change
+                    map_changed = True
+                    break
+        
+        self.current_map = msg
+        self.map_resolution = msg.info.resolution
+        self.map_origin = msg.info.origin
+        
+        if map_changed:
+            self.validate_existing_waypoints()
+
     def update_map(self, map_msg: OccupancyGrid):
         """Update stored map and validate current waypoint"""
         self.current_map = map_msg
@@ -88,40 +120,19 @@ class WaypointGenerator:
                 self.force_waypoint_change()
 
     def is_valid_point(self, x: float, y: float) -> bool:
-        """Check if a point is valid (free space and away from obstacles)"""
-        if not self.current_map:
-            return False
-            
+        """Check if a point is valid (not in obstacle)"""
         # Convert world coordinates to map coordinates
-        resolution = self.current_map.info.resolution
-        origin_x = self.current_map.info.origin.position.x
-        origin_y = self.current_map.info.origin.position.y
+        map_x = int((x - self.map_origin.position.x) / self.map_resolution)
+        map_y = int((y - self.map_origin.position.y) / self.map_resolution)
         
-        map_x = int((x - origin_x) / resolution)
-        map_y = int((y - origin_y) / resolution)
-        
-        # Check bounds
-        if (map_x < 0 or map_x >= self.current_map.info.width or
-            map_y < 0 or map_y >= self.current_map.info.height):
+        # Check map bounds
+        if map_x < 0 or map_x >= self.current_map.info.width or \
+           map_y < 0 or map_y >= self.current_map.info.height:
             return False
-            
-        # Get map data as 2D array
-        map_data = np.array(self.current_map.data).reshape(
-            self.current_map.info.height,
-            self.current_map.info.width
-        )
         
-        # Check if point and surrounding area is free space
-        margin = int(self.safety_margin / resolution)
-        for dy in range(-margin, margin + 1):
-            for dx in range(-margin, margin + 1):
-                check_x = map_x + dx
-                check_y = map_y + dy
-                if (0 <= check_x < self.current_map.info.width and 
-                    0 <= check_y < self.current_map.info.height):
-                    if map_data[check_y, check_x] > 0:  # Not free space
-                        return False
-        return True
+        # Check if point is in obstacle
+        index = map_y * self.current_map.info.width + map_x
+        return self.current_map.data[index] < 50  # < 50 means free space
 
     def is_connected_to_robot(self, map_x: int, map_y: int, robot_x: int, robot_y: int, map_data: np.ndarray) -> bool:
         """Check if a point is connected to robot position without crossing walls"""
@@ -470,3 +481,50 @@ class WaypointGenerator:
             markers.markers.append(marker)
         
         return markers
+
+    def validate_existing_waypoints(self):
+        """Revalidate all existing waypoints against current map"""
+        valid_waypoints = []
+        for waypoint in self.waypoints:
+            x = waypoint.pose.position.x
+            y = waypoint.pose.position.y
+            
+            if self.is_valid_point(x, y):
+                valid_waypoints.append(waypoint)
+            else:
+                # Try to find nearest valid point
+                new_point = self.find_nearest_valid_point(x, y)
+                if new_point:
+                    valid_waypoints.append(new_point)
+                self.node.get_logger().warn(f'Waypoint at ({x}, {y}) is now invalid, adjusted or removed')
+        
+        # Update waypoints list
+        self.waypoints = valid_waypoints
+        # Republish updated waypoints
+        self.publish_waypoints()
+
+    def find_nearest_valid_point(self, x, y, search_radius=1.0):
+        """Find nearest valid point to invalid waypoint"""
+        step = self.map_resolution
+        max_steps = int(search_radius / step)
+        
+        # Search in expanding circles
+        for r in range(1, max_steps):
+            for theta in range(0, 360, 10):  # Check every 10 degrees
+                rad = math.radians(theta)
+                test_x = x + r * step * math.cos(rad)
+                test_y = y + r * step * math.sin(rad)
+                
+                if self.is_valid_point(test_x, test_y):
+                    # Create new waypoint at valid location
+                    new_waypoint = PoseStamped()
+                    new_waypoint.header.frame_id = 'map'
+                    new_waypoint.pose.position.x = test_x
+                    new_waypoint.pose.position.y = test_y
+                    new_waypoint.pose.orientation = self.waypoints[0].pose.orientation  # Keep original orientation
+                    return new_waypoint
+        return None
+
+    def publish_waypoints(self):
+        # Implement the logic to republish updated waypoints
+        pass

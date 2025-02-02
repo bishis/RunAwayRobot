@@ -147,9 +147,21 @@ class PersonDetector(Node):
             pose.pose.orientation.w = 1.0
             
             # Transform to map frame
-            map_pose = tf2_geometry_msgs.do_transform_pose(pose, transform)
+            transformed_pose = PoseStamped()
+            transformed_pose.header.frame_id = 'map'
+            transformed_pose.header.stamp = pose.header.stamp
             
-            return map_pose
+            # Apply transform manually
+            p = pose.pose.position
+            point_in_map = transform.transform.translation
+            point_in_map.x += p.x
+            point_in_map.y += p.y
+            point_in_map.z += p.z
+            
+            transformed_pose.pose.position = point_in_map
+            transformed_pose.pose.orientation = transform.transform.rotation
+            
+            return transformed_pose
             
         except Exception as e:
             self.get_logger().warn(f'Failed to project to map: {str(e)}')

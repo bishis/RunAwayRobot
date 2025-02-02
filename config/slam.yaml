@@ -18,7 +18,7 @@ slam_toolbox:
 
     # Map management
     resolution: 0.05
-    max_laser_range: 2.5
+    max_laser_range: 10.0
     minimum_time_interval: 0.5
     transform_publish_period: 0.05
 
@@ -56,3 +56,8 @@ slam_toolbox:
     # Update factors
     update_factor_free: 0.4
     update_factor_occupied: 0.9
+
+    # Add these parameters to handle noise
+    scan_matcher_p_dist: 0.5  # Increase penalty for long-range differences
+    scan_matcher_p_angle: 0.5  # Balance between rotation and translation matching
+    scan_matcher_p_correlation: 0.1  # Reduce impact of weak correlations

@@ -31,7 +31,7 @@ def generate_launch_description():
                        'launch', 'online_async_launch.py')
         ]),
         launch_arguments={
-            'use_sim_time': 'false',
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
             'slam_params_file': os.path.join(pkg_dir, 'config', 'slam.yaml')
         }.items()
     )
@@ -42,9 +42,11 @@ def generate_launch_description():
         executable='lifecycle_manager',
         name='lifecycle_manager_slam',
         output='screen',
-        parameters=[{'use_sim_time': 'false',
-                    'autostart': True,
-                    'node_names': ['slam_toolbox']}]
+        parameters=[{
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
+            'autostart': True,
+            'node_names': ['slam_toolbox']
+        }]
     )
 
     # Third: Launch RF2O Odometry after SLAM is ready
@@ -119,13 +121,13 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        # Set environment variables
-        SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
-        SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
-
-        # Launch arguments
+        # Launch arguments must come first
         declare_use_sim_time_cmd,
         declare_params_file_cmd,
+
+        # Environment variables
+        SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
+        SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
 
         # Launch nodes in order with delays
         slam_toolbox_cmd,

@@ -64,10 +64,10 @@ class PersonDetector(Node):
         # Create CV bridge
         self.bridge = CvBridge()
         
-        # Create subscribers
+        # Create subscribers - use compressed image
         self.image_sub = self.create_subscription(
-            Image,
-            '/camera/image_raw_flipped',  # Changed from image_raw to image_raw_flipped
+            CompressedImage,  # Changed from Image to CompressedImage
+            '/camera/image_raw_flipped/compressed',  # Subscribe to compressed flipped image
             self.image_callback,
             10
         )
@@ -78,13 +78,8 @@ class PersonDetector(Node):
             '/person_detections',
             10
         )
-        self.viz_pub = self.create_publisher(
-            Image,
-            '/person_detections/image',
-            10
-        )
         
-        # For visualization
+        # Only publish compressed debug image
         self.debug_img_pub = self.create_publisher(
             CompressedImage,
             '/person_detections/compressed',
@@ -224,10 +219,11 @@ class PersonDetector(Node):
             return None, 0.0
             
     def image_callback(self, msg):
-        """Process incoming image messages"""
+        """Process incoming compressed image messages"""
         try:
-            # Convert ROS Image message to OpenCV image
-            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            # Decode compressed image
+            np_arr = np.frombuffer(msg.data, np.uint8)
+            cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
             
             # Create visualization image (copy of original)
             viz_image = cv_image.copy()
@@ -315,17 +311,13 @@ class PersonDetector(Node):
                             self.get_logger().warn(f'Error processing detection box: {str(e)}')
                             continue
             
-            # Publish visualization image
+            # Only publish compressed visualization
             try:
-                viz_msg = self.bridge.cv2_to_imgmsg(viz_image, encoding='bgr8')
-                viz_msg.header = msg.header
-                self.viz_pub.publish(viz_msg)
-                
-                # Also publish compressed image for easier viewing
                 compressed_msg = CompressedImage()
                 compressed_msg.header = msg.header
                 compressed_msg.format = 'jpeg'
-                compressed_msg.data = np.array(cv2.imencode('.jpg', viz_image)[1]).tobytes()
+                compressed_msg.data = np.array(cv2.imencode('.jpg', viz_image, 
+                                            [cv2.IMWRITE_JPEG_QUALITY, 80])[1]).tobytes()
                 self.debug_img_pub.publish(compressed_msg)
             except Exception as e:
                 self.get_logger().error(f'Failed to publish visualization: {str(e)}')

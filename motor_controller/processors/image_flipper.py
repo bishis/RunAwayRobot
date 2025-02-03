@@ -1,58 +1,66 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
+from sensor_msgs.msg import CompressedImage
 import cv2
+import numpy as np
 
 class ImageFlipper(Node):
     def __init__(self):
         super().__init__('image_flipper')
         
-        # Create CV bridge
-        self.bridge = CvBridge()
-        
-        # Create publisher and subscriber
-        self.pub = self.create_publisher(
-            Image, 
-            '/camera/image_raw_flipped', 
-            10
-        )
-        
-        self.sub = self.create_subscription(
-            Image,
-            '/camera/image_raw',
+        # Create subscriber for compressed image
+        self.image_sub = self.create_subscription(
+            CompressedImage,
+            '/camera/image_raw/compressed',  # Subscribe to compressed image
             self.image_callback,
             10
         )
         
-        self.get_logger().info('Image flipper node initialized')
+        # Create publisher for flipped compressed image
+        self.image_pub = self.create_publisher(
+            CompressedImage,
+            '/camera/image_raw_flipped/compressed',  # Publish compressed image
+            10
+        )
+        
+        self.get_logger().info('Image flipper initialized')
 
     def image_callback(self, msg):
+        """Process incoming compressed image messages"""
         try:
-            # Convert ROS image to OpenCV image
-            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            # Decode compressed image
+            np_arr = np.frombuffer(msg.data, np.uint8)
+            cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
             
-            # Flip image 180° (flip both horizontally and vertically)
-            flipped = cv2.flip(cv_image, -1)
+            # Flip image horizontally
+            flipped_image = cv2.flip(cv_image, 1)
             
-            # Convert back to ROS image and publish
-            flipped_msg = self.bridge.cv2_to_imgmsg(flipped, encoding="bgr8")
-            flipped_msg.header = msg.header  # Preserve timestamp and frame_id
-            self.pub.publish(flipped_msg)
+            # Create compressed image message
+            compressed_msg = CompressedImage()
+            compressed_msg.header = msg.header
+            compressed_msg.format = 'jpeg'
+            
+            # Encode flipped image as JPEG
+            _, compressed_data = cv2.imencode('.jpg', flipped_image, 
+                                           [cv2.IMWRITE_JPEG_QUALITY, 80])  # Adjust quality as needed
+            compressed_msg.data = np.array(compressed_data).tobytes()
+            
+            # Publish compressed flipped image
+            self.image_pub.publish(compressed_msg)
             
         except Exception as e:
             self.get_logger().error(f'Error processing image: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)
-    node = ImageFlipper()
+    
     try:
+        node = ImageFlipper()
         rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
+    except Exception as e:
+        print(f'Error in image flipper node: {str(e)}')
     finally:
-        node.destroy_node()
         rclpy.shutdown()
 
 if __name__ == '__main__':

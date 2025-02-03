@@ -1,6 +1,6 @@
 import math
 import numpy as np
-from geometry_msgs.msg import Point, PoseStamped, Quaternion
+from geometry_msgs.msg import Point, PoseStamped
 from nav_msgs.msg import OccupancyGrid
 from visualization_msgs.msg import MarkerArray, Marker
 from scipy.ndimage import distance_transform_edt
@@ -10,12 +10,6 @@ from rclpy.node import Node
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
-from nav2_msgs.action import NavigateToPose
-from action_msgs.msg import GoalStatus
-from rclpy.action import ActionClient
-from rclpy.callback_groups import ReentrantCallbackGroup
-import time
-from tf_transformations import quaternion_from_euler
 
 class WaypointGenerator:
     """Generates exploration waypoints from occupancy grid maps"""
@@ -82,47 +76,6 @@ class WaypointGenerator:
         # Waypoints storage
         self.waypoints = []  # This should be revalidated when map updates
 
-        # Add navigation feedback tracking
-        self.callback_group = ReentrantCallbackGroup()
-        self.nav_client = ActionClient(
-            self.node,
-            NavigateToPose,
-            'navigate_to_pose',
-            callback_group=self.callback_group
-        )
-        
-        # Navigation state tracking
-        self.navigation_start_time = None
-        self.navigation_timeout = 60.0
-        self.consecutive_failures = 0
-        self.max_consecutive_failures = 2
-        self.last_goal_status = None
-        self.is_navigating = False
-        
-        # Create action client for navigation
-        self.nav_client = ActionClient(
-            self.node,
-            NavigateToPose,
-            'navigate_to_pose'
-        )
-        
-        # Remove the problematic subscription and handle status through action client
-        self.current_goal_handle = None
-
-        # Add tracking of previous waypoints
-        self.previous_waypoints = []
-        self.max_previous_waypoints = 10
-        self.failed_waypoints = set()
-        self.last_successful_waypoint = None
-        self.min_waypoint_distance = 1.0  # Minimum distance from previous waypoints
-
-        # Add visualization publisher
-        self.viz_pub = self.node.create_publisher(
-            MarkerArray,
-            'waypoint_markers',
-            10
-        )
-
     def map_callback(self, msg):
         """Process incoming map updates"""
         map_changed = False
@@ -139,6 +92,32 @@ class WaypointGenerator:
         
         if map_changed:
             self.validate_existing_waypoints()
+
+    def update_map(self, map_msg: OccupancyGrid):
+        """Update stored map and validate current waypoint"""
+        self.current_map = map_msg
+        
+        # Check if current waypoint is too close to walls
+        if self.current_waypoint and self.current_map:
+            map_data = np.array(self.current_map.data).reshape(
+                self.current_map.info.height,
+                self.current_map.info.width
+            )
+            x = self.current_waypoint.pose.position.x
+            y = self.current_waypoint.pose.position.y
+            
+            if self.is_near_wall(x, y, map_data, 
+                               self.current_map.info.resolution,
+                               self.current_map.info.origin.position.x,
+                               self.current_map.info.origin.position.y):
+                self.node.get_logger().warn('Current waypoint is too close to wall, forcing new waypoint')
+                self.force_waypoint_change()
+                return
+            
+            # Also check if point is still in free space
+            if not self.is_valid_point(x, y):
+                self.node.get_logger().warn('Current waypoint is no longer in free space, forcing new waypoint')
+                self.force_waypoint_change()
 
     def is_valid_point(self, x: float, y: float) -> bool:
         """Check if a point is valid (not in obstacle)"""
@@ -229,8 +208,6 @@ class WaypointGenerator:
         """Force the generator to pick a new waypoint"""
         self.force_new_waypoint = True
         self.current_waypoint = None
-        self.navigation_start_time = None
-        self.is_navigating = False
 
     def is_near_wall(self, x: float, y: float, costmap_data: np.ndarray, resolution: float, origin_x: float, origin_y: float) -> bool:
         """Check if a point is too close to walls in multiple directions"""
@@ -289,78 +266,8 @@ class WaypointGenerator:
         empty_markers.markers.append(marker)
         return empty_markers
 
-    def check_path_feasibility(self, x, y):
-        """Check if a path to the point is feasible"""
-        try:
-            robot_pos = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
-            start_x = robot_pos.transform.translation.x
-            start_y = robot_pos.transform.translation.y
-            
-            # Get map data
-            map_data = np.array(self.current_map.data).reshape(
-                self.current_map.info.height,
-                self.current_map.info.width
-            )
-            
-            # Convert world to map coordinates
-            map_start_x = int((start_x - self.map_origin.position.x) / self.map_resolution)
-            map_start_y = int((start_y - self.map_origin.position.y) / self.map_resolution)
-            map_goal_x = int((x - self.map_origin.position.x) / self.map_resolution)
-            map_goal_y = int((y - self.map_origin.position.y) / self.map_resolution)
-            
-            return self.is_connected_to_robot(map_goal_x, map_goal_y, 
-                                            map_start_x, map_start_y, 
-                                            map_data)
-        except TransformException:
-            self.node.get_logger().warn('Could not get robot position')
-            return False
-
-    def calculate_orientation(self, x, y, map_data):
-        """Calculate best orientation for waypoint"""
-        # Find nearest unknown area
-        unknown_y, unknown_x = np.where(map_data == -1)
-        if len(unknown_x) > 0:
-            # Convert to world coordinates
-            unknown_x = unknown_x * self.map_resolution + self.map_origin.position.x
-            unknown_y = unknown_y * self.map_resolution + self.map_origin.position.y
-            
-            # Find closest unknown point
-            distances = [(ux - x)**2 + (uy - y)**2 for ux, uy in zip(unknown_x, unknown_y)]
-            closest_idx = np.argmin(distances)
-            target_x = unknown_x[closest_idx]
-            target_y = unknown_y[closest_idx]
-            
-            # Calculate angle towards unknown area
-            theta = math.atan2(target_y - y, target_x - x)
-        else:
-            # Default to current robot orientation
-            try:
-                transform = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
-                q = transform.transform.rotation
-                theta = 2 * math.atan2(q.z, q.w)
-            except TransformException:
-                theta = 0.0
-                
-        # Convert to quaternion
-        q = quaternion_from_euler(0, 0, theta)
-        orientation = Quaternion()
-        orientation.x = q[0]
-        orientation.y = q[1]
-        orientation.z = q[2]
-        orientation.w = q[3]
-        return orientation
-
     def generate_waypoint(self) -> PoseStamped:
         """Generate a single new waypoint prioritizing unexplored areas"""
-        # Check for navigation issues
-        if self.consecutive_failures >= self.max_consecutive_failures:
-            self.node.get_logger().warn('Too many consecutive failures, waiting before generating new waypoint')
-            time.sleep(5.0)  # Wait before trying again
-            self.consecutive_failures = 0
-            
-        # Check for timeout
-        self.check_navigation_timeout()
-            
         # Don't generate new waypoint if cancelled until explicitly requested
         if self.waypoint_cancelled and not self.force_new_waypoint:
             return None
@@ -368,8 +275,6 @@ class WaypointGenerator:
         # Reset cancelled state if forcing new waypoint
         if self.force_new_waypoint:
             self.waypoint_cancelled = False
-            self.navigation_start_time = None
-            self.is_navigating = False
             
         # Keep current waypoint unless forced to change or reached
         if self.current_waypoint and not self.force_new_waypoint:
@@ -403,115 +308,147 @@ class WaypointGenerator:
         # Calculate distance to unknown areas
         unknown_distance = distance_transform_edt(~unknown_area) * resolution
         
-        # Calculate scores
-        exploration_score = 1.0 / (unknown_distance + 0.1)  # High score near unknown areas
-        safety_score = np.minimum(wall_distance / self.safety_margin, 1.0)  # High score away from walls
-        
-        # Combine scores
-        total_score = exploration_score * safety_score
-        
-        # Zero out scores for invalid areas
-        total_score[walls] = 0
-        total_score[unknown_area] = 0
-        
-        # Zero out areas near previous waypoints
-        for prev_wp in self.previous_waypoints:
-            px = int((prev_wp.pose.position.x - origin_x) / resolution)
-            py = int((prev_wp.pose.position.y - origin_y) / resolution)
-            radius = int(self.min_waypoint_distance / resolution)
-            y_indices, x_indices = np.ogrid[-radius:radius+1, -radius:radius+1]
-            mask = x_indices*x_indices + y_indices*y_indices <= radius*radius
+        # Get current robot position
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            robot_x = transform.transform.translation.x
+            robot_y = transform.transform.translation.y
             
-            # Ensure indices are within bounds
-            y_start = max(0, py-radius)
-            y_end = min(total_score.shape[0], py+radius+1)
-            x_start = max(0, px-radius)
-            x_end = min(total_score.shape[1], px+radius+1)
-            
-            # Apply mask
-            mask_height = y_end - y_start
-            mask_width = x_end - x_start
-            total_score[y_start:y_end, x_start:x_end][mask[:mask_height, :mask_width]] = 0
-        
-        # Zero out scores near failed waypoints
-        for failed_x, failed_y in self.failed_waypoints:
-            px = int((failed_x - origin_x) / resolution)
-            py = int((failed_y - origin_y) / resolution)
-            radius = int(self.min_waypoint_distance / resolution)
-            y_indices, x_indices = np.ogrid[-radius:radius+1, -radius:radius+1]
-            mask = x_indices*x_indices + y_indices*y_indices <= radius*radius
-            
-            # Ensure indices are within bounds
-            y_start = max(0, py-radius)
-            y_end = min(total_score.shape[0], py+radius+1)
-            x_start = max(0, px-radius)
-            x_end = min(total_score.shape[1], px+radius+1)
-            
-            # Apply mask
-            mask_height = y_end - y_start
-            mask_width = x_end - x_start
-            total_score[y_start:y_end, x_start:x_end][mask[:mask_height, :mask_width]] = 0
-        
-        # Get candidate points (top 10 scores)
-        candidates = []
-        for _ in range(10):
-            if np.max(total_score) > 0:
-                y, x = np.unravel_index(np.argmax(total_score), total_score.shape)
-                world_x = x * resolution + origin_x
-                world_y = y * resolution + origin_y
-                score = total_score[y, x]
-                candidates.append((world_x, world_y, score))
-                # Clear area around this candidate
-                radius = int(self.min_waypoint_distance / resolution)
-                y_indices, x_indices = np.ogrid[-radius:radius+1, -radius:radius+1]
-                mask = x_indices*x_indices + y_indices*y_indices <= radius*radius
-                y_start = max(0, y-radius)
-                y_end = min(total_score.shape[0], y+radius+1)
-                x_start = max(0, x-radius)
-                x_end = min(total_score.shape[1], x+radius+1)
-                mask_height = y_end - y_start
-                mask_width = x_end - x_start
-                total_score[y_start:y_end, x_start:x_end][mask[:mask_height, :mask_width]] = 0
-        
-        # Check path feasibility for candidates
-        feasible_candidates = []
-        for x, y, score in candidates:
-            if self.check_path_feasibility(x, y):
-                feasible_candidates.append((x, y, score))
+            # Convert to grid coordinates
+            robot_grid_x = int((robot_x - origin_x) / resolution)
+            robot_grid_y = int((robot_y - origin_y) / resolution)
+        except TransformException:
+            self.node.get_logger().warn('Could not get robot position')
+            return None
 
-        # Use feasible candidates
-        if feasible_candidates:
-            scores = np.array([c[2] for c in feasible_candidates])
-            probs = scores / np.sum(scores)
-            chosen_idx = np.random.choice(len(feasible_candidates), p=probs)
-            x, y, _ = feasible_candidates[chosen_idx]
+        best_point = None
+        best_score = -float('inf')
+        
+        # Use time-bound approach instead of fixed attempts
+        start_time = self.node.get_clock().now()
+        max_search_time = 1.0  # Maximum time to search in seconds
+        
+        while True:
+            # Check if we've exceeded our time limit
+            current_time = self.node.get_clock().now()
+            if (current_time - start_time).nanoseconds / 1e9 > max_search_time:
+                self.node.get_logger().info('Waypoint search time limit reached')
+                break
+
+            # Find valid cells (free space)
+            valid_y, valid_x = np.where((map_data == 0) & (wall_distance > self.safety_margin))
+            
+            if len(valid_x) == 0:
+                continue
+            
+            # Randomly select one of the valid cells
+            idx = random.randint(0, len(valid_x) - 1)
+            map_x = valid_x[idx]
+            map_y = valid_y[idx]
+            
+            # Check if point is connected to robot position
+            if not self.is_connected_to_robot(map_x, map_y, robot_grid_x, robot_grid_y, map_data):
+                continue
+            
+            # Convert to world coordinates
+            x = origin_x + map_x * resolution
+            y = origin_y + map_y * resolution
+            
+            # Calculate scores with additional stability factors
+            dist_to_robot = math.sqrt((map_x - robot_grid_x)**2 + (map_y - robot_grid_y)**2) * resolution
+            if dist_to_robot < self.min_distance:
+                continue
+            
+            # Score based on:
+            # 1. Distance to unknown areas (prefer closer to unknown)
+            unknown_score = 1.0 / (unknown_distance[map_y, map_x] + 0.1)
+            
+            # 2. Distance from walls (prefer points away from walls)
+            wall_score = min(wall_distance[map_y, map_x], 2.0) / 2.0
+            
+            # 3. Appropriate distance from robot
+            distance_score = 1.0 - abs(dist_to_robot - self.preferred_distance) / self.preferred_distance
+            
+            # 4. Stability score (prefer points similar to current waypoint if it exists)
+            stability_score = 0.0
+            if self.current_waypoint:
+                current_x = self.current_waypoint.pose.position.x
+                current_y = self.current_waypoint.pose.position.y
+                dist_to_current = math.sqrt((x - current_x)**2 + (y - current_y)**2)
+                stability_score = 1.0 / (1.0 + dist_to_current)
+            
+            # Combine scores with weights
+            total_score = (
+                3.0 * unknown_score +    # Prioritize exploring unknown areas
+                2.0 * wall_score +       # Prefer staying away from walls
+                1.0 * distance_score +   # Consider distance from robot
+                2.0 * stability_score    # Add stability preference
+            )
+            
+            # Only accept new waypoint if score is significantly better
+            if self.current_waypoint and total_score < self.last_best_score + self.score_improvement_threshold:
+                self.waypoint_attempts += 1
+                if self.waypoint_attempts < self.max_attempts:
+                    continue
+            
+            if total_score > best_score:
+                best_score = total_score
+                best_point = (x, y)
+        
+        if best_point is None:
+            return None
+        
+        # Once we find a valid waypoint, stick to it
+        if best_point is not None:
+            # Check if waypoint is near walls
+            attempts = 0
+            while (self.is_near_wall(best_point[0], best_point[1], map_data, 
+                   resolution, origin_x, origin_y) and attempts < self.max_wall_retry):
+                self.node.get_logger().warn(f'Waypoint too close to wall, finding alternative (attempt {attempts + 1})')
+                best_point = self.find_alternative_waypoint(
+                    best_point[0], best_point[1],
+                    map_data, resolution, origin_x, origin_y
+                )
+                attempts += 1
+            
+            if attempts >= self.max_wall_retry:
+                self.node.get_logger().warn('Could not find waypoint away from walls')
             
             waypoint = PoseStamped()
             waypoint.header.frame_id = 'map'
             waypoint.header.stamp = self.node.get_clock().now().to_msg()
-            waypoint.pose.position.x = x
-            waypoint.pose.position.y = y
+            waypoint.pose.position.x = best_point[0]
+            waypoint.pose.position.y = best_point[1]
+            waypoint.pose.position.z = 0.0
             
-            # Calculate orientation using improved method
-            map_data = np.array(self.current_map.data).reshape(
-                self.current_map.info.height,
-                self.current_map.info.width
-            )
-            waypoint.pose.orientation = self.calculate_orientation(x, y, map_data)
-            
-            # Update previous waypoints list
-            self.previous_waypoints.append(waypoint)
-            if len(self.previous_waypoints) > self.max_previous_waypoints:
-                self.previous_waypoints.pop(0)
+            # Set orientation towards unexplored area
+            # Find direction of closest unknown area
+            unknown_y, unknown_x = np.where(unknown_area)
+            if len(unknown_x) > 0:
+                # Find closest unknown point
+                dists = [(ux - map_x)**2 + (uy - map_y)**2 for ux, uy in zip(unknown_x, unknown_y)]
+                closest_idx = np.argmin(dists)
+                target_x = origin_x + unknown_x[closest_idx] * resolution
+                target_y = origin_y + unknown_y[closest_idx] * resolution
+                
+                # Calculate angle towards unknown area
+                angle = math.atan2(target_y - best_point[1], target_x - best_point[0])
+                waypoint.pose.orientation.z = math.sin(angle / 2)
+                waypoint.pose.orientation.w = math.cos(angle / 2)
+            else:
+                # If no unknown areas, just use default orientation
+                waypoint.pose.orientation.w = 1.0
             
             self.current_waypoint = waypoint
+            self.last_waypoint_time = self.node.get_clock().now()
+            self.reached_waypoint = False
+            self.node.get_logger().info('New waypoint selected')
             
-            # Publish visualization
-            self.publish_waypoints()
-            
-            return waypoint
-        
-        return None
+        return self.current_waypoint
 
     def create_visualization_markers(self, waypoint: PoseStamped = None) -> MarkerArray:
         """Create visualization markers for waypoints"""
@@ -589,160 +526,5 @@ class WaypointGenerator:
         return None
 
     def publish_waypoints(self):
-        """Publish visualization markers for all waypoints"""
-        markers = MarkerArray()
-        
-        # Add current waypoint
-        if self.current_waypoint:
-            marker = Marker()
-            marker.header.frame_id = 'map'
-            marker.header.stamp = self.node.get_clock().now().to_msg()
-            marker.ns = 'current_waypoint'
-            marker.id = 0
-            marker.type = Marker.CYLINDER
-            marker.action = Marker.ADD
-            marker.pose = self.current_waypoint.pose
-            marker.scale.x = self.waypoint_size
-            marker.scale.y = self.waypoint_size
-            marker.scale.z = 0.1
-            marker.color.r = 0.0
-            marker.color.g = 1.0
-            marker.color.b = 0.0
-            marker.color.a = 0.8
-            markers.markers.append(marker)
-        
-        # Add previous waypoints
-        for i, wp in enumerate(self.previous_waypoints):
-            if wp != self.current_waypoint:
-                marker = Marker()
-                marker.header.frame_id = 'map'
-                marker.header.stamp = self.node.get_clock().now().to_msg()
-                marker.ns = 'previous_waypoints'
-                marker.id = i + 1
-                marker.type = Marker.CYLINDER
-                marker.action = Marker.ADD
-                marker.pose = wp.pose
-                marker.scale.x = self.waypoint_size * 0.5
-                marker.scale.y = self.waypoint_size * 0.5
-                marker.scale.z = 0.05
-                marker.color.r = 0.5
-                marker.color.g = 0.5
-                marker.color.b = 0.5
-                marker.color.a = 0.3
-                markers.markers.append(marker)
-        
-        # Publish markers
-        self.viz_pub.publish(markers)
-
-    def send_goal(self, waypoint: PoseStamped):
-        """Send goal to navigation stack and track its status"""
-        if not self.nav_client.wait_for_server(timeout_sec=1.0):
-            self.node.get_logger().error('Navigation action server not available')
-            return
-
-        goal_msg = NavigateToPose.Goal()
-        goal_msg.pose = waypoint
-
-        self.navigation_start_time = time.time()
-        self.is_navigating = True
-        
-        # Send the goal and get future for goal handle
-        send_goal_future = self.nav_client.send_goal_async(
-            goal_msg,
-            feedback_callback=self.feedback_callback
-        )
-        send_goal_future.add_done_callback(self.goal_response_callback)
-
-    def feedback_callback(self, feedback_msg):
-        """Handle navigation feedback"""
-        feedback = feedback_msg.feedback
-        # Check estimated time remaining
-        if hasattr(feedback, 'estimated_time_remaining'):
-            if feedback.estimated_time_remaining.sec > self.navigation_timeout:
-                self.node.get_logger().warn('Estimated time too long, considering new waypoint')
-                self.force_waypoint_change()
-
-    def goal_response_callback(self, future):
-        """Handle the goal response"""
-        goal_handle = future.result()
-        if not goal_handle.accepted:
-            self.node.get_logger().warn('Goal rejected')
-            self.force_waypoint_change()
-            return
-
-        self.current_goal_handle = goal_handle
-        
-        # Get result future
-        result_future = goal_handle.get_result_async()
-        result_future.add_done_callback(self.goal_result_callback)
-
-    def goal_result_callback(self, future):
-        """Handle the goal result"""
-        status = future.result().status
-        if status == GoalStatus.STATUS_SUCCEEDED:
-            self.consecutive_failures = 0
-            if self.current_waypoint:
-                self.last_successful_waypoint = self.current_waypoint
-            self.force_waypoint_change()
-        elif status == GoalStatus.STATUS_ABORTED:
-            if self.current_waypoint:
-                self.failed_waypoints.add(
-                    (self.current_waypoint.pose.position.x,
-                     self.current_waypoint.pose.position.y)
-                )
-            self.node.get_logger().warn('Navigation failed, forcing new waypoint')
-            self.consecutive_failures += 1
-            self.force_waypoint_change()
-
-    def check_navigation_timeout(self):
-        """Check if current navigation has timed out"""
-        if self.navigation_start_time and self.is_navigating:
-            elapsed_time = time.time() - self.navigation_start_time
-            if elapsed_time > self.navigation_timeout:
-                self.node.get_logger().warn('Navigation timeout, forcing new waypoint')
-                self.force_waypoint_change()
-                return True
-        return False
-
-    def update_map(self, map_msg: OccupancyGrid):
-        """Update stored map and validate current waypoint"""
-        # Process map update similar to map_callback
-        map_changed = False
-        if self.current_map:
-            # Check if map has significantly changed
-            for old, new in zip(self.current_map.data, map_msg.data):
-                if abs(old - new) > 10:  # Threshold for significant change
-                    map_changed = True
-                    break
-        
-        self.current_map = map_msg
-        self.map_resolution = map_msg.info.resolution
-        self.map_origin = map_msg.info.origin
-        
-        # Check if current waypoint is still valid
-        if self.current_waypoint and self.current_map:
-            map_data = np.array(self.current_map.data).reshape(
-                self.current_map.info.height,
-                self.current_map.info.width
-            )
-            x = self.current_waypoint.pose.position.x
-            y = self.current_waypoint.pose.position.y
-            
-            # Check if point is still in free space
-            if not self.is_valid_point(x, y):
-                self.node.get_logger().warn('Current waypoint is no longer in free space, forcing new waypoint')
-                self.force_waypoint_change()
-                return
-            
-            # Check if too close to walls
-            if self.is_near_wall(x, y, map_data, 
-                               self.current_map.info.resolution,
-                               self.current_map.info.origin.position.x,
-                               self.current_map.info.origin.position.y):
-                self.node.get_logger().warn('Current waypoint is too close to wall, forcing new waypoint')
-                self.force_waypoint_change()
-                return
-        
-        # If map changed significantly, validate all waypoints
-        if map_changed:
-            self.validate_existing_waypoints()
+        # Implement the logic to republish updated waypoints
+        pass

@@ -242,8 +242,8 @@ class PersonDetector(Node):
             for result in results:
                 boxes = result.boxes
                 for box in boxes:
-                    # Only process person detections (class 0 in COCO)
-                    if box.cls == 0:  # Person class
+                    # Only process person detections (class 0 in COCO) with high confidence
+                    if box.cls == 0 and box.conf > 0.70:  # Person class with >70% confidence
                         person_count += 1
                         try:
                             # Get box coordinates
@@ -256,24 +256,26 @@ class PersonDetector(Node):
                                         (int(x2), int(y2)), 
                                         (0, 255, 0), 2)
                             
-                            self.get_logger().info(f'Detected person at box coordinates: '
-                                                 f'x1={x1:.1f}, y1={y1:.1f}, x2={x2:.1f}, y2={y2:.1f}')
+                            # Only log high confidence detections
+                            self.get_logger().info(f'High confidence person detection: '
+                                                 f'x1={x1:.1f}, y1={y1:.1f}, x2={x2:.1f}, y2={y2:.1f}, '
+                                                 f'conf={box.conf[0]:.2f}')
                             
                             # Project bottom center of bounding box to map
                             bottom_center_x = (x1 + x2) / 2
                             
-                            map_pose, confidence = self.project_to_map(  # Get both pose and confidence
+                            map_pose, confidence = self.project_to_map(
                                 bottom_center_x,
-                                [y1, y2],  # Pass both top and bottom y for height calculation
+                                [y1, y2],
                                 msg.header,
-                                box_width  # Pass box width
+                                box_width
                             )
                             
-                            if map_pose and map_pose.pose:  # Add check for pose attribute
+                            if map_pose and map_pose.pose and confidence > 0.7:  # Only publish high confidence poses
                                 try:
                                     # Create map marker
                                     map_marker = Marker()
-                                    map_marker.header.frame_id = 'map'  # Changed from 'odom' to 'map'
+                                    map_marker.header.frame_id = 'map'
                                     map_marker.header.stamp = self.get_clock().now().to_msg()
                                     map_marker.ns = 'map_persons'
                                     map_marker.id = map_marker_id
@@ -286,9 +288,9 @@ class PersonDetector(Node):
                                     
                                     # Adjust marker color based on confidence
                                     map_marker.color.r = 1.0
-                                    map_marker.color.g = confidence  # More green = higher confidence
+                                    map_marker.color.g = confidence
                                     map_marker.color.b = 0.0
-                                    map_marker.color.a = max(0.5, confidence)  # More opaque = higher confidence
+                                    map_marker.color.a = max(0.5, confidence)
                                     
                                     # Adjust marker size based on confidence
                                     base_size = 0.5
@@ -296,14 +298,11 @@ class PersonDetector(Node):
                                     map_marker.scale.y = base_size * (0.8 + 0.4 * confidence)
                                     map_marker.scale.z = 1.7  # Human height
                                     
-                                    # Longer lifetime
-                                    map_marker.lifetime = rclpy.duration.Duration(seconds=5.0).to_msg()
+                                    # Shorter lifetime for high confidence
+                                    map_marker.lifetime = rclpy.duration.Duration(seconds=2.0).to_msg()
                                     
                                     map_markers.markers.append(map_marker)
-                                    self.get_logger().info(f'Created marker at pose: '
-                                                         f'x={map_pose.pose.position.x:.2f}, '
-                                                         f'y={map_pose.pose.position.y:.2f}, '
-                                                         f'z={map_pose.pose.position.z:.2f}')
+                                    
                                 except Exception as e:
                                     self.get_logger().error(f'Failed to create marker: {str(e)}')
                             
@@ -311,26 +310,25 @@ class PersonDetector(Node):
                             self.get_logger().warn(f'Error processing detection box: {str(e)}')
                             continue
             
-            # Only publish compressed visualization
-            try:
-                compressed_msg = CompressedImage()
-                compressed_msg.header = msg.header
-                compressed_msg.format = 'jpeg'
-                compressed_msg.data = np.array(cv2.imencode('.jpg', viz_image, 
-                                            [cv2.IMWRITE_JPEG_QUALITY, 80])[1]).tobytes()
-                self.debug_img_pub.publish(compressed_msg)
-            except Exception as e:
-                self.get_logger().error(f'Failed to publish visualization: {str(e)}')
+            # Only publish visualization if we have high confidence detections
+            if person_count >= 0:
+                try:
+                    compressed_msg = CompressedImage()
+                    compressed_msg.header = msg.header
+                    compressed_msg.format = 'jpeg'
+                    compressed_msg.data = np.array(cv2.imencode('.jpg', viz_image, 
+                                                [cv2.IMWRITE_JPEG_QUALITY, 80])[1]).tobytes()
+                    self.debug_img_pub.publish(compressed_msg)
+                except Exception as e:
+                    self.get_logger().error(f'Failed to publish visualization: {str(e)}')
             
-            # Publish map markers
+            # Publish map markers only if we have high confidence detections
             if len(map_markers.markers) > 0:
-                self.get_logger().info(f'Publishing {len(map_markers.markers)} markers')
+                self.get_logger().info(f'Publishing {len(map_markers.markers)} high confidence markers')
                 self.map_marker_pub.publish(map_markers)
-            else:
-                self.get_logger().info('No markers to publish')
             
             if person_count > 0:
-                self.get_logger().info(f'Detected {person_count} people in frame')
+                self.get_logger().info(f'Detected {person_count} high confidence people in frame')
             
         except Exception as e:
             self.get_logger().error(f'Error in image callback: {str(e)}')

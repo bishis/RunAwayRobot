@@ -602,3 +602,46 @@ class WaypointGenerator:
             if feedback.estimated_time_remaining.sec > self.navigation_timeout:
                 self.node.get_logger().warn('Estimated time too long, considering new waypoint')
                 self.force_waypoint_change()
+
+    def update_map(self, map_msg: OccupancyGrid):
+        """Update stored map and validate current waypoint"""
+        # Process map update similar to map_callback
+        map_changed = False
+        if self.current_map:
+            # Check if map has significantly changed
+            for old, new in zip(self.current_map.data, map_msg.data):
+                if abs(old - new) > 10:  # Threshold for significant change
+                    map_changed = True
+                    break
+        
+        self.current_map = map_msg
+        self.map_resolution = map_msg.info.resolution
+        self.map_origin = map_msg.info.origin
+        
+        # Check if current waypoint is still valid
+        if self.current_waypoint and self.current_map:
+            map_data = np.array(self.current_map.data).reshape(
+                self.current_map.info.height,
+                self.current_map.info.width
+            )
+            x = self.current_waypoint.pose.position.x
+            y = self.current_waypoint.pose.position.y
+            
+            # Check if point is still in free space
+            if not self.is_valid_point(x, y):
+                self.node.get_logger().warn('Current waypoint is no longer in free space, forcing new waypoint')
+                self.force_waypoint_change()
+                return
+            
+            # Check if too close to walls
+            if self.is_near_wall(x, y, map_data, 
+                               self.current_map.info.resolution,
+                               self.current_map.info.origin.position.x,
+                               self.current_map.info.origin.position.y):
+                self.node.get_logger().warn('Current waypoint is too close to wall, forcing new waypoint')
+                self.force_waypoint_change()
+                return
+        
+        # If map changed significantly, validate all waypoints
+        if map_changed:
+            self.validate_existing_waypoints()

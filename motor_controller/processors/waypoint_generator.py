@@ -106,6 +106,13 @@ class WaypointGenerator:
             10
         )
 
+        # Add tracking of previous waypoints
+        self.previous_waypoints = []
+        self.max_previous_waypoints = 10
+        self.failed_waypoints = set()
+        self.last_successful_waypoint = None
+        self.min_waypoint_distance = 1.0  # Minimum distance from previous waypoints
+
     def map_callback(self, msg):
         """Process incoming map updates"""
         map_changed = False
@@ -325,147 +332,84 @@ class WaypointGenerator:
         # Calculate distance to unknown areas
         unknown_distance = distance_transform_edt(~unknown_area) * resolution
         
-        # Get current robot position
-        try:
-            transform = self.tf_buffer.lookup_transform(
-                'map',
-                'base_link',
-                rclpy.time.Time()
-            )
-            robot_x = transform.transform.translation.x
-            robot_y = transform.transform.translation.y
-            
-            # Convert to grid coordinates
-            robot_grid_x = int((robot_x - origin_x) / resolution)
-            robot_grid_y = int((robot_y - origin_y) / resolution)
-        except TransformException:
-            self.node.get_logger().warn('Could not get robot position')
-            return None
-
-        best_point = None
-        best_score = -float('inf')
+        # Calculate scores
+        exploration_score = 1.0 / (unknown_distance + 0.1)  # High score near unknown areas
+        safety_score = np.minimum(wall_distance / self.safety_margin, 1.0)  # High score away from walls
         
-        # Use time-bound approach instead of fixed attempts
-        start_time = self.node.get_clock().now()
-        max_search_time = 1.0  # Maximum time to search in seconds
+        # Combine scores
+        total_score = exploration_score * safety_score
         
-        while True:
-            # Check if we've exceeded our time limit
-            current_time = self.node.get_clock().now()
-            if (current_time - start_time).nanoseconds / 1e9 > max_search_time:
-                self.node.get_logger().info('Waypoint search time limit reached')
-                break
-
-            # Find valid cells (free space)
-            valid_y, valid_x = np.where((map_data == 0) & (wall_distance > self.safety_margin))
-            
-            if len(valid_x) == 0:
-                continue
-            
-            # Randomly select one of the valid cells
-            idx = random.randint(0, len(valid_x) - 1)
-            map_x = valid_x[idx]
-            map_y = valid_y[idx]
-            
-            # Check if point is connected to robot position
-            if not self.is_connected_to_robot(map_x, map_y, robot_grid_x, robot_grid_y, map_data):
-                continue
-            
-            # Convert to world coordinates
-            x = origin_x + map_x * resolution
-            y = origin_y + map_y * resolution
-            
-            # Calculate scores with additional stability factors
-            dist_to_robot = math.sqrt((map_x - robot_grid_x)**2 + (map_y - robot_grid_y)**2) * resolution
-            if dist_to_robot < self.min_distance:
-                continue
-            
-            # Score based on:
-            # 1. Distance to unknown areas (prefer closer to unknown)
-            unknown_score = 1.0 / (unknown_distance[map_y, map_x] + 0.1)
-            
-            # 2. Distance from walls (prefer points away from walls)
-            wall_score = min(wall_distance[map_y, map_x], 2.0) / 2.0
-            
-            # 3. Appropriate distance from robot
-            distance_score = 1.0 - abs(dist_to_robot - self.preferred_distance) / self.preferred_distance
-            
-            # 4. Stability score (prefer points similar to current waypoint if it exists)
-            stability_score = 0.0
-            if self.current_waypoint:
-                current_x = self.current_waypoint.pose.position.x
-                current_y = self.current_waypoint.pose.position.y
-                dist_to_current = math.sqrt((x - current_x)**2 + (y - current_y)**2)
-                stability_score = 1.0 / (1.0 + dist_to_current)
-            
-            # Combine scores with weights
-            total_score = (
-                3.0 * unknown_score +    # Prioritize exploring unknown areas
-                2.0 * wall_score +       # Prefer staying away from walls
-                1.0 * distance_score +   # Consider distance from robot
-                2.0 * stability_score    # Add stability preference
-            )
-            
-            # Only accept new waypoint if score is significantly better
-            if self.current_waypoint and total_score < self.last_best_score + self.score_improvement_threshold:
-                self.waypoint_attempts += 1
-                if self.waypoint_attempts < self.max_attempts:
-                    continue
-            
-            if total_score > best_score:
-                best_score = total_score
-                best_point = (x, y)
+        # Zero out scores for invalid areas
+        total_score[walls] = 0
+        total_score[unknown_area] = 0
         
-        if best_point is None:
-            return None
-        
-        # Once we find a valid waypoint, stick to it
-        if best_point is not None:
-            # Check if waypoint is near walls
-            attempts = 0
-            while (self.is_near_wall(best_point[0], best_point[1], map_data, 
-                   resolution, origin_x, origin_y) and attempts < self.max_wall_retry):
-                self.node.get_logger().warn(f'Waypoint too close to wall, finding alternative (attempt {attempts + 1})')
-                best_point = self.find_alternative_waypoint(
-                    best_point[0], best_point[1],
-                    map_data, resolution, origin_x, origin_y
-                )
-                attempts += 1
+        # Zero out areas near previous waypoints
+        for prev_wp in self.previous_waypoints:
+            px = int((prev_wp.pose.position.x - origin_x) / resolution)
+            py = int((prev_wp.pose.position.y - origin_y) / resolution)
+            radius = int(self.min_waypoint_distance / resolution)
+            y_indices, x_indices = np.ogrid[-radius:radius+1, -radius:radius+1]
+            mask = x_indices*x_indices + y_indices*y_indices <= radius*radius
             
-            if attempts >= self.max_wall_retry:
-                self.node.get_logger().warn('Could not find waypoint away from walls')
+            # Ensure indices are within bounds
+            y_start = max(0, py-radius)
+            y_end = min(total_score.shape[0], py+radius+1)
+            x_start = max(0, px-radius)
+            x_end = min(total_score.shape[1], px+radius+1)
+            
+            # Apply mask
+            mask_height = y_end - y_start
+            mask_width = x_end - x_start
+            total_score[y_start:y_end, x_start:x_end][mask[:mask_height, :mask_width]] = 0
+        
+        # Get candidate points (top 10 scores)
+        candidates = []
+        for _ in range(10):
+            if np.max(total_score) > 0:
+                y, x = np.unravel_index(np.argmax(total_score), total_score.shape)
+                world_x = x * resolution + origin_x
+                world_y = y * resolution + origin_y
+                score = total_score[y, x]
+                candidates.append((world_x, world_y, score))
+                # Clear area around this candidate
+                radius = int(self.min_waypoint_distance / resolution)
+                y_indices, x_indices = np.ogrid[-radius:radius+1, -radius:radius+1]
+                mask = x_indices*x_indices + y_indices*y_indices <= radius*radius
+                y_start = max(0, y-radius)
+                y_end = min(total_score.shape[0], y+radius+1)
+                x_start = max(0, x-radius)
+                x_end = min(total_score.shape[1], x+radius+1)
+                mask_height = y_end - y_start
+                mask_width = x_end - x_start
+                total_score[y_start:y_end, x_start:x_end][mask[:mask_height, :mask_width]] = 0
+        
+        # Randomly select from top candidates with probability proportional to score
+        if candidates:
+            scores = np.array([c[2] for c in candidates])
+            probs = scores / np.sum(scores)
+            chosen_idx = np.random.choice(len(candidates), p=probs)
+            x, y, _ = candidates[chosen_idx]
             
             waypoint = PoseStamped()
             waypoint.header.frame_id = 'map'
             waypoint.header.stamp = self.node.get_clock().now().to_msg()
-            waypoint.pose.position.x = best_point[0]
-            waypoint.pose.position.y = best_point[1]
-            waypoint.pose.position.z = 0.0
+            waypoint.pose.position.x = x
+            waypoint.pose.position.y = y
             
             # Set orientation towards unexplored area
-            # Find direction of closest unknown area
-            unknown_y, unknown_x = np.where(unknown_area)
-            if len(unknown_x) > 0:
-                # Find closest unknown point
-                dists = [(ux - map_x)**2 + (uy - map_y)**2 for ux, uy in zip(unknown_x, unknown_y)]
-                closest_idx = np.argmin(dists)
-                target_x = origin_x + unknown_x[closest_idx] * resolution
-                target_y = origin_y + unknown_y[closest_idx] * resolution
-                
-                # Calculate angle towards unknown area
-                angle = math.atan2(target_y - best_point[1], target_x - best_point[0])
-                waypoint.pose.orientation.z = math.sin(angle / 2)
-                waypoint.pose.orientation.w = math.cos(angle / 2)
-            else:
-                # If no unknown areas, just use default orientation
-                waypoint.pose.orientation.w = 1.0
+            theta = math.atan2(y, x)  # Simple orientation towards point
+            waypoint.pose.orientation.z = math.sin(theta/2)
+            waypoint.pose.orientation.w = math.cos(theta/2)
+            
+            # Update previous waypoints list
+            self.previous_waypoints.append(waypoint)
+            if len(self.previous_waypoints) > self.max_previous_waypoints:
+                self.previous_waypoints.pop(0)
             
             self.current_waypoint = waypoint
-            self.last_waypoint_time = self.node.get_clock().now()
-            self.reached_waypoint = False
-            self.node.get_logger().info('New waypoint selected')
-            
-        return self.current_waypoint
+            return waypoint
+        
+        return None
 
     def create_visualization_markers(self, waypoint: PoseStamped = None) -> MarkerArray:
         """Create visualization markers for waypoints"""
@@ -548,19 +492,20 @@ class WaypointGenerator:
 
     def navigation_status_callback(self, msg):
         """Handle navigation status updates"""
-        # GoalStatus constants:
-        # SUCCEEDED = 4
-        # ABORTED = 5 (Failed)
-        # CANCELED = 6
-        # EXECUTING = 2 (Controlling)
-        # ACCEPTED = 1 (Planning)
-        
         if msg.status == GoalStatus.ABORTED:  # Failed
+            if self.current_waypoint:
+                # Add failed waypoint to set
+                self.failed_waypoints.add(
+                    (self.current_waypoint.pose.position.x,
+                     self.current_waypoint.pose.position.y)
+                )
             self.node.get_logger().warn('Navigation failed, forcing new waypoint')
             self.consecutive_failures += 1
             self.force_waypoint_change()
         elif msg.status == GoalStatus.SUCCEEDED:
             self.consecutive_failures = 0
+            if self.current_waypoint:
+                self.last_successful_waypoint = self.current_waypoint
             self.force_waypoint_change()
         elif msg.status == GoalStatus.ACCEPTED:  # Planning
             if not self.navigation_start_time:

@@ -99,13 +99,15 @@ class WaypointGenerator:
         self.last_goal_status = None
         self.is_navigating = False
         
-        # Subscribe to navigation status instead of state
-        self.nav_status_sub = self.node.create_subscription(
-            GoalStatus,
-            '/navigate_to_pose/_action/status',
-            self.navigation_status_callback,
-            10
+        # Create action client for navigation
+        self.nav_client = ActionClient(
+            self.node,
+            NavigateToPose,
+            'navigate_to_pose'
         )
+        
+        # Remove the problematic subscription and handle status through action client
+        self.current_goal_handle = None
 
         # Add tracking of previous waypoints
         self.previous_waypoints = []
@@ -632,36 +634,6 @@ class WaypointGenerator:
         # Publish markers
         self.viz_pub.publish(markers)
 
-    def navigation_status_callback(self, msg):
-        """Handle navigation status updates"""
-        if msg.status == GoalStatus.ABORTED:  # Failed
-            if self.current_waypoint:
-                self.failed_waypoints.add(
-                    (self.current_waypoint.pose.position.x,
-                     self.current_waypoint.pose.position.y)
-                )
-            self.node.get_logger().warn('Navigation failed, forcing new waypoint')
-            self.consecutive_failures += 1
-            self.force_waypoint_change()
-        elif msg.status == GoalStatus.SUCCEEDED:
-            self.consecutive_failures = 0
-            if self.current_waypoint:
-                self.last_successful_waypoint = self.current_waypoint
-            self.force_waypoint_change()
-        elif msg.status == GoalStatus.ACCEPTED:  # Planning
-            if not self.navigation_start_time:
-                self.navigation_start_time = time.time()
-
-    def check_navigation_timeout(self):
-        """Check if current navigation has timed out"""
-        if self.navigation_start_time and self.is_navigating:
-            elapsed_time = time.time() - self.navigation_start_time
-            if elapsed_time > self.navigation_timeout:
-                self.node.get_logger().warn('Navigation timeout, forcing new waypoint')
-                self.force_waypoint_change()
-                return True
-        return False
-
     def send_goal(self, waypoint: PoseStamped):
         """Send goal to navigation stack and track its status"""
         if not self.nav_client.wait_for_server(timeout_sec=1.0):
@@ -674,11 +646,12 @@ class WaypointGenerator:
         self.navigation_start_time = time.time()
         self.is_navigating = True
         
-        # Send the goal
-        self.nav_client.send_goal_async(
+        # Send the goal and get future for goal handle
+        send_goal_future = self.nav_client.send_goal_async(
             goal_msg,
             feedback_callback=self.feedback_callback
         )
+        send_goal_future.add_done_callback(self.goal_response_callback)
 
     def feedback_callback(self, feedback_msg):
         """Handle navigation feedback"""
@@ -688,6 +661,48 @@ class WaypointGenerator:
             if feedback.estimated_time_remaining.sec > self.navigation_timeout:
                 self.node.get_logger().warn('Estimated time too long, considering new waypoint')
                 self.force_waypoint_change()
+
+    def goal_response_callback(self, future):
+        """Handle the goal response"""
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.node.get_logger().warn('Goal rejected')
+            self.force_waypoint_change()
+            return
+
+        self.current_goal_handle = goal_handle
+        
+        # Get result future
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(self.goal_result_callback)
+
+    def goal_result_callback(self, future):
+        """Handle the goal result"""
+        status = future.result().status
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            self.consecutive_failures = 0
+            if self.current_waypoint:
+                self.last_successful_waypoint = self.current_waypoint
+            self.force_waypoint_change()
+        elif status == GoalStatus.STATUS_ABORTED:
+            if self.current_waypoint:
+                self.failed_waypoints.add(
+                    (self.current_waypoint.pose.position.x,
+                     self.current_waypoint.pose.position.y)
+                )
+            self.node.get_logger().warn('Navigation failed, forcing new waypoint')
+            self.consecutive_failures += 1
+            self.force_waypoint_change()
+
+    def check_navigation_timeout(self):
+        """Check if current navigation has timed out"""
+        if self.navigation_start_time and self.is_navigating:
+            elapsed_time = time.time() - self.navigation_start_time
+            if elapsed_time > self.navigation_timeout:
+                self.node.get_logger().warn('Navigation timeout, forcing new waypoint')
+                self.force_waypoint_change()
+                return True
+        return False
 
     def update_map(self, map_msg: OccupancyGrid):
         """Update stored map and validate current waypoint"""

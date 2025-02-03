@@ -66,8 +66,8 @@ class PersonDetector(Node):
         
         # Create subscribers - use compressed image
         self.image_sub = self.create_subscription(
-            CompressedImage,  # Changed from Image to CompressedImage
-            '/camera/image_raw_flipped/compressed',  # Subscribe to compressed flipped image
+            CompressedImage,
+            '/camera/image_raw_flipped/compressed',  # Make sure this matches image_flipper's output topic
             self.image_callback,
             10
         )
@@ -243,7 +243,7 @@ class PersonDetector(Node):
                 boxes = result.boxes
                 for box in boxes:
                     # Only process person detections (class 0 in COCO) with high confidence
-                    if box.cls == 0 and box.conf > 0.70:  # Person class with >70% confidence
+                    if box.cls == 0 and box.conf > 0.60:  # Person class with >70% confidence
                         person_count += 1
                         try:
                             # Get box coordinates

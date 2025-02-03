@@ -33,8 +33,8 @@ class ImageFlipper(Node):
             np_arr = np.frombuffer(msg.data, np.uint8)
             cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
             
-            # Flip image horizontally
-            flipped_image = cv2.flip(cv_image, 1)
+            # Flip image 180° (both horizontally and vertically)
+            flipped_image = cv2.flip(cv_image, -1)
             
             # Create compressed image message
             compressed_msg = CompressedImage()
@@ -43,7 +43,7 @@ class ImageFlipper(Node):
             
             # Encode flipped image as JPEG
             _, compressed_data = cv2.imencode('.jpg', flipped_image, 
-                                           [cv2.IMWRITE_JPEG_QUALITY, 80])  # Adjust quality as needed
+                                           [cv2.IMWRITE_JPEG_QUALITY, 80])
             compressed_msg.data = np.array(compressed_data).tobytes()
             
             # Publish compressed flipped image

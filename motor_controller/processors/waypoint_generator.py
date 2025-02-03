@@ -12,7 +12,7 @@ from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 from nav2_msgs.action import NavigateToPose
 from action_msgs.msg import GoalStatus
-from nav2_msgs.msg import NavigationState
+from nav2_msgs.msg import NavigationStatus
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 import time
@@ -93,17 +93,17 @@ class WaypointGenerator:
         
         # Navigation state tracking
         self.navigation_start_time = None
-        self.navigation_timeout = 60.0  # 60 seconds timeout
+        self.navigation_timeout = 60.0
         self.consecutive_failures = 0
         self.max_consecutive_failures = 2
         self.last_goal_status = None
         self.is_navigating = False
         
-        # Add navigation state subscription
-        self.nav_state_sub = self.node.create_subscription(
-            NavigationState,
-            '/navigation_state',
-            self.navigation_state_callback,
+        # Subscribe to navigation status instead of state
+        self.nav_status_sub = self.node.create_subscription(
+            NavigationStatus,
+            '/navigation/status',  # Updated topic name
+            self.navigation_status_callback,
             10
         )
 
@@ -547,16 +547,23 @@ class WaypointGenerator:
         # Implement the logic to republish updated waypoints
         pass
 
-    def navigation_state_callback(self, msg):
-        """Handle navigation state updates"""
-        if msg.state == NavigationState.FAILED:
+    def navigation_status_callback(self, msg):
+        """Handle navigation status updates"""
+        # NavigationStatus constants:
+        # 1: PLANNING
+        # 2: CONTROLLING
+        # 3: SUCCEEDED
+        # 4: FAILED
+        # 5: CANCELED
+        
+        if msg.status == 4:  # FAILED
             self.node.get_logger().warn('Navigation failed, forcing new waypoint')
             self.consecutive_failures += 1
             self.force_waypoint_change()
-        elif msg.state == NavigationState.SUCCEEDED:
+        elif msg.status == 3:  # SUCCEEDED
             self.consecutive_failures = 0
             self.force_waypoint_change()
-        elif msg.state == NavigationState.PLANNING:
+        elif msg.status == 1:  # PLANNING
             if not self.navigation_start_time:
                 self.navigation_start_time = time.time()
 

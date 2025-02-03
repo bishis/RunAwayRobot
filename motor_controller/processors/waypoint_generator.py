@@ -16,7 +16,6 @@ from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 import time
 from tf_transformations import quaternion_from_euler
-from nav2_msgs.msg import NavigationState
 
 class WaypointGenerator:
     """Generates exploration waypoints from occupancy grid maps"""
@@ -637,7 +636,6 @@ class WaypointGenerator:
         """Handle navigation status updates"""
         if msg.status == GoalStatus.ABORTED:  # Failed
             if self.current_waypoint:
-                # Add failed waypoint to set
                 self.failed_waypoints.add(
                     (self.current_waypoint.pose.position.x,
                      self.current_waypoint.pose.position.y)

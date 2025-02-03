@@ -1,6 +1,6 @@
 import math
 import numpy as np
-from geometry_msgs.msg import Point, PoseStamped
+from geometry_msgs.msg import Point, PoseStamped, Quaternion
 from nav_msgs.msg import OccupancyGrid
 from visualization_msgs.msg import MarkerArray, Marker
 from scipy.ndimage import distance_transform_edt
@@ -15,6 +15,8 @@ from action_msgs.msg import GoalStatus
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 import time
+from tf_transformations import quaternion_from_euler
+from nav2_msgs.msg import NavigationState
 
 class WaypointGenerator:
     """Generates exploration waypoints from occupancy grid maps"""
@@ -101,7 +103,7 @@ class WaypointGenerator:
         # Subscribe to navigation status instead of state
         self.nav_status_sub = self.node.create_subscription(
             GoalStatus,
-            '/navigation/status',  # Updated topic name
+            '/navigate_to_pose/_action/status',
             self.navigation_status_callback,
             10
         )
@@ -112,6 +114,13 @@ class WaypointGenerator:
         self.failed_waypoints = set()
         self.last_successful_waypoint = None
         self.min_waypoint_distance = 1.0  # Minimum distance from previous waypoints
+
+        # Add visualization publisher
+        self.viz_pub = self.node.create_publisher(
+            MarkerArray,
+            'waypoint_markers',
+            10
+        )
 
     def map_callback(self, msg):
         """Process incoming map updates"""
@@ -279,6 +288,67 @@ class WaypointGenerator:
         empty_markers.markers.append(marker)
         return empty_markers
 
+    def check_path_feasibility(self, x, y):
+        """Check if a path to the point is feasible"""
+        try:
+            robot_pos = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
+            start_x = robot_pos.transform.translation.x
+            start_y = robot_pos.transform.translation.y
+            
+            # Get map data
+            map_data = np.array(self.current_map.data).reshape(
+                self.current_map.info.height,
+                self.current_map.info.width
+            )
+            
+            # Convert world to map coordinates
+            map_start_x = int((start_x - self.map_origin.position.x) / self.map_resolution)
+            map_start_y = int((start_y - self.map_origin.position.y) / self.map_resolution)
+            map_goal_x = int((x - self.map_origin.position.x) / self.map_resolution)
+            map_goal_y = int((y - self.map_origin.position.y) / self.map_resolution)
+            
+            return self.is_connected_to_robot(map_goal_x, map_goal_y, 
+                                            map_start_x, map_start_y, 
+                                            map_data)
+        except TransformException:
+            self.node.get_logger().warn('Could not get robot position')
+            return False
+
+    def calculate_orientation(self, x, y, map_data):
+        """Calculate best orientation for waypoint"""
+        # Find nearest unknown area
+        unknown_y, unknown_x = np.where(map_data == -1)
+        if len(unknown_x) > 0:
+            # Convert to world coordinates
+            unknown_x = unknown_x * self.map_resolution + self.map_origin.position.x
+            unknown_y = unknown_y * self.map_resolution + self.map_origin.position.y
+            
+            # Find closest unknown point
+            distances = [(ux - x)**2 + (uy - y)**2 for ux, uy in zip(unknown_x, unknown_y)]
+            closest_idx = np.argmin(distances)
+            target_x = unknown_x[closest_idx]
+            target_y = unknown_y[closest_idx]
+            
+            # Calculate angle towards unknown area
+            theta = math.atan2(target_y - y, target_x - x)
+        else:
+            # Default to current robot orientation
+            try:
+                transform = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
+                q = transform.transform.rotation
+                theta = 2 * math.atan2(q.z, q.w)
+            except TransformException:
+                theta = 0.0
+                
+        # Convert to quaternion
+        q = quaternion_from_euler(0, 0, theta)
+        orientation = Quaternion()
+        orientation.x = q[0]
+        orientation.y = q[1]
+        orientation.z = q[2]
+        orientation.w = q[3]
+        return orientation
+
     def generate_waypoint(self) -> PoseStamped:
         """Generate a single new waypoint prioritizing unexplored areas"""
         # Check for navigation issues
@@ -362,6 +432,25 @@ class WaypointGenerator:
             mask_width = x_end - x_start
             total_score[y_start:y_end, x_start:x_end][mask[:mask_height, :mask_width]] = 0
         
+        # Zero out scores near failed waypoints
+        for failed_x, failed_y in self.failed_waypoints:
+            px = int((failed_x - origin_x) / resolution)
+            py = int((failed_y - origin_y) / resolution)
+            radius = int(self.min_waypoint_distance / resolution)
+            y_indices, x_indices = np.ogrid[-radius:radius+1, -radius:radius+1]
+            mask = x_indices*x_indices + y_indices*y_indices <= radius*radius
+            
+            # Ensure indices are within bounds
+            y_start = max(0, py-radius)
+            y_end = min(total_score.shape[0], py+radius+1)
+            x_start = max(0, px-radius)
+            x_end = min(total_score.shape[1], px+radius+1)
+            
+            # Apply mask
+            mask_height = y_end - y_start
+            mask_width = x_end - x_start
+            total_score[y_start:y_end, x_start:x_end][mask[:mask_height, :mask_width]] = 0
+        
         # Get candidate points (top 10 scores)
         candidates = []
         for _ in range(10):
@@ -383,12 +472,18 @@ class WaypointGenerator:
                 mask_width = x_end - x_start
                 total_score[y_start:y_end, x_start:x_end][mask[:mask_height, :mask_width]] = 0
         
-        # Randomly select from top candidates with probability proportional to score
-        if candidates:
-            scores = np.array([c[2] for c in candidates])
+        # Check path feasibility for candidates
+        feasible_candidates = []
+        for x, y, score in candidates:
+            if self.check_path_feasibility(x, y):
+                feasible_candidates.append((x, y, score))
+
+        # Use feasible candidates
+        if feasible_candidates:
+            scores = np.array([c[2] for c in feasible_candidates])
             probs = scores / np.sum(scores)
-            chosen_idx = np.random.choice(len(candidates), p=probs)
-            x, y, _ = candidates[chosen_idx]
+            chosen_idx = np.random.choice(len(feasible_candidates), p=probs)
+            x, y, _ = feasible_candidates[chosen_idx]
             
             waypoint = PoseStamped()
             waypoint.header.frame_id = 'map'
@@ -396,10 +491,12 @@ class WaypointGenerator:
             waypoint.pose.position.x = x
             waypoint.pose.position.y = y
             
-            # Set orientation towards unexplored area
-            theta = math.atan2(y, x)  # Simple orientation towards point
-            waypoint.pose.orientation.z = math.sin(theta/2)
-            waypoint.pose.orientation.w = math.cos(theta/2)
+            # Calculate orientation using improved method
+            map_data = np.array(self.current_map.data).reshape(
+                self.current_map.info.height,
+                self.current_map.info.width
+            )
+            waypoint.pose.orientation = self.calculate_orientation(x, y, map_data)
             
             # Update previous waypoints list
             self.previous_waypoints.append(waypoint)
@@ -407,6 +504,10 @@ class WaypointGenerator:
                 self.previous_waypoints.pop(0)
             
             self.current_waypoint = waypoint
+            
+            # Publish visualization
+            self.publish_waypoints()
+            
             return waypoint
         
         return None
@@ -487,8 +588,50 @@ class WaypointGenerator:
         return None
 
     def publish_waypoints(self):
-        # Implement the logic to republish updated waypoints
-        pass
+        """Publish visualization markers for all waypoints"""
+        markers = MarkerArray()
+        
+        # Add current waypoint
+        if self.current_waypoint:
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.header.stamp = self.node.get_clock().now().to_msg()
+            marker.ns = 'current_waypoint'
+            marker.id = 0
+            marker.type = Marker.CYLINDER
+            marker.action = Marker.ADD
+            marker.pose = self.current_waypoint.pose
+            marker.scale.x = self.waypoint_size
+            marker.scale.y = self.waypoint_size
+            marker.scale.z = 0.1
+            marker.color.r = 0.0
+            marker.color.g = 1.0
+            marker.color.b = 0.0
+            marker.color.a = 0.8
+            markers.markers.append(marker)
+        
+        # Add previous waypoints
+        for i, wp in enumerate(self.previous_waypoints):
+            if wp != self.current_waypoint:
+                marker = Marker()
+                marker.header.frame_id = 'map'
+                marker.header.stamp = self.node.get_clock().now().to_msg()
+                marker.ns = 'previous_waypoints'
+                marker.id = i + 1
+                marker.type = Marker.CYLINDER
+                marker.action = Marker.ADD
+                marker.pose = wp.pose
+                marker.scale.x = self.waypoint_size * 0.5
+                marker.scale.y = self.waypoint_size * 0.5
+                marker.scale.z = 0.05
+                marker.color.r = 0.5
+                marker.color.g = 0.5
+                marker.color.b = 0.5
+                marker.color.a = 0.3
+                markers.markers.append(marker)
+        
+        # Publish markers
+        self.viz_pub.publish(markers)
 
     def navigation_status_callback(self, msg):
         """Handle navigation status updates"""

@@ -49,15 +49,17 @@ def generate_launch_description():
             executable='v4l2_camera_node',
             name='camera',
             parameters=[{
-                'video_device': '/dev/video0',
                 'image_size': [640, 480],
-                'pixel_format': 'YUYV',
-                'frame_rate': 30.0,
                 'camera_frame_id': 'camera_link',
-                'output_encoding': 'rgb8'
+                'video_device': '/dev/video0',
+                'pixel_format': 'YUYV',
+                'output_encoding': 'rgb8',
+                'publish_raw': False,
+                'publish_compressed': True,
+                'compress_quality': 80,
             }],
             remappings=[
-                ('image_raw', '/camera/image_raw'),  # Change output topic
+                ('image_raw/compressed', 'camera/image_raw/compressed'),
             ]
         ),
 

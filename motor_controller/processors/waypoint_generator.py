@@ -12,7 +12,6 @@ from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 from nav2_msgs.action import NavigateToPose
 from action_msgs.msg import GoalStatus
-from nav2_msgs.msg import NavigationStatus
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 import time
@@ -101,7 +100,7 @@ class WaypointGenerator:
         
         # Subscribe to navigation status instead of state
         self.nav_status_sub = self.node.create_subscription(
-            NavigationStatus,
+            GoalStatus,
             '/navigation/status',  # Updated topic name
             self.navigation_status_callback,
             10
@@ -549,21 +548,21 @@ class WaypointGenerator:
 
     def navigation_status_callback(self, msg):
         """Handle navigation status updates"""
-        # NavigationStatus constants:
-        # 1: PLANNING
-        # 2: CONTROLLING
-        # 3: SUCCEEDED
-        # 4: FAILED
-        # 5: CANCELED
+        # GoalStatus constants:
+        # SUCCEEDED = 4
+        # ABORTED = 5 (Failed)
+        # CANCELED = 6
+        # EXECUTING = 2 (Controlling)
+        # ACCEPTED = 1 (Planning)
         
-        if msg.status == 4:  # FAILED
+        if msg.status == GoalStatus.ABORTED:  # Failed
             self.node.get_logger().warn('Navigation failed, forcing new waypoint')
             self.consecutive_failures += 1
             self.force_waypoint_change()
-        elif msg.status == 3:  # SUCCEEDED
+        elif msg.status == GoalStatus.SUCCEEDED:
             self.consecutive_failures = 0
             self.force_waypoint_change()
-        elif msg.status == 1:  # PLANNING
+        elif msg.status == GoalStatus.ACCEPTED:  # Planning
             if not self.navigation_start_time:
                 self.navigation_start_time = time.time()
 

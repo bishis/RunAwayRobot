@@ -10,6 +10,12 @@ from rclpy.node import Node
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
+from nav2_msgs.action import NavigateToPose
+from action_msgs.msg import GoalStatus
+from nav2_msgs.msg import NavigationState
+from rclpy.action import ActionClient
+from rclpy.callback_groups import ReentrantCallbackGroup
+import time
 
 class WaypointGenerator:
     """Generates exploration waypoints from occupancy grid maps"""
@@ -76,6 +82,31 @@ class WaypointGenerator:
         # Waypoints storage
         self.waypoints = []  # This should be revalidated when map updates
 
+        # Add navigation feedback tracking
+        self.callback_group = ReentrantCallbackGroup()
+        self.nav_client = ActionClient(
+            self.node,
+            NavigateToPose,
+            'navigate_to_pose',
+            callback_group=self.callback_group
+        )
+        
+        # Navigation state tracking
+        self.navigation_start_time = None
+        self.navigation_timeout = 60.0  # 60 seconds timeout
+        self.consecutive_failures = 0
+        self.max_consecutive_failures = 2
+        self.last_goal_status = None
+        self.is_navigating = False
+        
+        # Add navigation state subscription
+        self.nav_state_sub = self.node.create_subscription(
+            NavigationState,
+            '/navigation_state',
+            self.navigation_state_callback,
+            10
+        )
+
     def map_callback(self, msg):
         """Process incoming map updates"""
         map_changed = False
@@ -92,32 +123,6 @@ class WaypointGenerator:
         
         if map_changed:
             self.validate_existing_waypoints()
-
-    def update_map(self, map_msg: OccupancyGrid):
-        """Update stored map and validate current waypoint"""
-        self.current_map = map_msg
-        
-        # Check if current waypoint is too close to walls
-        if self.current_waypoint and self.current_map:
-            map_data = np.array(self.current_map.data).reshape(
-                self.current_map.info.height,
-                self.current_map.info.width
-            )
-            x = self.current_waypoint.pose.position.x
-            y = self.current_waypoint.pose.position.y
-            
-            if self.is_near_wall(x, y, map_data, 
-                               self.current_map.info.resolution,
-                               self.current_map.info.origin.position.x,
-                               self.current_map.info.origin.position.y):
-                self.node.get_logger().warn('Current waypoint is too close to wall, forcing new waypoint')
-                self.force_waypoint_change()
-                return
-            
-            # Also check if point is still in free space
-            if not self.is_valid_point(x, y):
-                self.node.get_logger().warn('Current waypoint is no longer in free space, forcing new waypoint')
-                self.force_waypoint_change()
 
     def is_valid_point(self, x: float, y: float) -> bool:
         """Check if a point is valid (not in obstacle)"""
@@ -208,6 +213,8 @@ class WaypointGenerator:
         """Force the generator to pick a new waypoint"""
         self.force_new_waypoint = True
         self.current_waypoint = None
+        self.navigation_start_time = None
+        self.is_navigating = False
 
     def is_near_wall(self, x: float, y: float, costmap_data: np.ndarray, resolution: float, origin_x: float, origin_y: float) -> bool:
         """Check if a point is too close to walls in multiple directions"""
@@ -268,6 +275,15 @@ class WaypointGenerator:
 
     def generate_waypoint(self) -> PoseStamped:
         """Generate a single new waypoint prioritizing unexplored areas"""
+        # Check for navigation issues
+        if self.consecutive_failures >= self.max_consecutive_failures:
+            self.node.get_logger().warn('Too many consecutive failures, waiting before generating new waypoint')
+            time.sleep(5.0)  # Wait before trying again
+            self.consecutive_failures = 0
+            
+        # Check for timeout
+        self.check_navigation_timeout()
+            
         # Don't generate new waypoint if cancelled until explicitly requested
         if self.waypoint_cancelled and not self.force_new_waypoint:
             return None
@@ -275,6 +291,8 @@ class WaypointGenerator:
         # Reset cancelled state if forcing new waypoint
         if self.force_new_waypoint:
             self.waypoint_cancelled = False
+            self.navigation_start_time = None
+            self.is_navigating = False
             
         # Keep current waypoint unless forced to change or reached
         if self.current_waypoint and not self.force_new_waypoint:
@@ -528,3 +546,53 @@ class WaypointGenerator:
     def publish_waypoints(self):
         # Implement the logic to republish updated waypoints
         pass
+
+    def navigation_state_callback(self, msg):
+        """Handle navigation state updates"""
+        if msg.state == NavigationState.FAILED:
+            self.node.get_logger().warn('Navigation failed, forcing new waypoint')
+            self.consecutive_failures += 1
+            self.force_waypoint_change()
+        elif msg.state == NavigationState.SUCCEEDED:
+            self.consecutive_failures = 0
+            self.force_waypoint_change()
+        elif msg.state == NavigationState.PLANNING:
+            if not self.navigation_start_time:
+                self.navigation_start_time = time.time()
+
+    def check_navigation_timeout(self):
+        """Check if current navigation has timed out"""
+        if self.navigation_start_time and self.is_navigating:
+            elapsed_time = time.time() - self.navigation_start_time
+            if elapsed_time > self.navigation_timeout:
+                self.node.get_logger().warn('Navigation timeout, forcing new waypoint')
+                self.force_waypoint_change()
+                return True
+        return False
+
+    def send_goal(self, waypoint: PoseStamped):
+        """Send goal to navigation stack and track its status"""
+        if not self.nav_client.wait_for_server(timeout_sec=1.0):
+            self.node.get_logger().error('Navigation action server not available')
+            return
+
+        goal_msg = NavigateToPose.Goal()
+        goal_msg.pose = waypoint
+
+        self.navigation_start_time = time.time()
+        self.is_navigating = True
+        
+        # Send the goal
+        self.nav_client.send_goal_async(
+            goal_msg,
+            feedback_callback=self.feedback_callback
+        )
+
+    def feedback_callback(self, feedback_msg):
+        """Handle navigation feedback"""
+        feedback = feedback_msg.feedback
+        # Check estimated time remaining
+        if hasattr(feedback, 'estimated_time_remaining'):
+            if feedback.estimated_time_remaining.sec > self.navigation_timeout:
+                self.node.get_logger().warn('Estimated time too long, considering new waypoint')
+                self.force_waypoint_change()

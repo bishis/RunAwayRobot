@@ -264,7 +264,7 @@ class WaypointGenerator:
         empty_markers.markers.append(marker)
         return empty_markers
 
-    def get_next_waypoint(self):
+    def generate_waypoint(self):
         """Get next waypoint, either existing or new"""
         current_time = self.node.get_clock().now()
         

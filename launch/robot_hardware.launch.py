@@ -54,7 +54,7 @@ def generate_launch_description():
                 'video_device': '/dev/video0',
                 'pixel_format': 'YUYV',
                 'output_encoding': 'rgb8',
-                'publish_raw': False,
+                'publish_raw': True,
                 'publish_compressed': True,
                 'compress_quality': 80,
             }],

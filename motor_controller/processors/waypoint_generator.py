@@ -76,6 +76,10 @@ class WaypointGenerator:
         # Waypoints storage
         self.waypoints = []  # This should be revalidated when map updates
 
+        # Add minimum time between waypoint changes
+        self.min_waypoint_time = 5.0  # seconds
+        self.last_waypoint_change = None
+
     def map_callback(self, msg):
         """Process incoming map updates"""
         map_changed = False
@@ -209,28 +213,22 @@ class WaypointGenerator:
         self.force_new_waypoint = True
         self.current_waypoint = None
 
-    def is_near_wall(self, x: float, y: float, costmap_data: np.ndarray, resolution: float, origin_x: float, origin_y: float) -> bool:
-        """Check if a point is too close to walls in multiple directions"""
-        # Convert to map coordinates
+    def is_near_wall(self, x: float, y: float, map_data: np.ndarray, 
+                    resolution: float, origin_x: float, origin_y: float) -> bool:
+        """Check if a point is too close to walls with hysteresis"""
         map_x = int((x - origin_x) / resolution)
         map_y = int((y - origin_y) / resolution)
         
-        # Check points in a circle around the position
-        check_radius = int(self.wall_check_distance / resolution)
-        angles = np.linspace(0, 2*np.pi, 16)  # Check 16 directions
+        # Use different thresholds for existing vs new waypoints
+        threshold = self.safety_margin
+        if self.current_waypoint and \
+           x == self.current_waypoint.pose.position.x and \
+           y == self.current_waypoint.pose.position.y:
+            threshold *= 0.8  # More permissive for existing waypoint
         
-        for angle in angles:
-            # Get point at check_radius distance in this direction
-            check_x = int(map_x + check_radius * np.cos(angle))
-            check_y = int(map_y + check_radius * np.sin(angle))
-            
-            # Ensure within bounds
-            if (0 <= check_x < costmap_data.shape[1] and 
-                0 <= check_y < costmap_data.shape[0]):
-                # Check if there's a wall (cost > 50 typically indicates obstacle)
-                if costmap_data[check_y, check_x] > 50:
-                    return True
-        return False
+        # Check distance to nearest wall
+        wall_distance = distance_transform_edt(map_data < 50) * resolution
+        return wall_distance[map_y, map_x] < threshold
 
     def find_alternative_waypoint(self, x: float, y: float, costmap_data: np.ndarray, 
                                 resolution: float, origin_x: float, origin_y: float) -> tuple[float, float]:
@@ -266,16 +264,19 @@ class WaypointGenerator:
         empty_markers.markers.append(marker)
         return empty_markers
 
-    def generate_waypoint(self) -> PoseStamped:
-        """Generate a single new waypoint prioritizing unexplored areas"""
-        # Don't generate new waypoint if cancelled until explicitly requested
-        if self.waypoint_cancelled and not self.force_new_waypoint:
-            return None
-            
-        # Reset cancelled state if forcing new waypoint
-        if self.force_new_waypoint:
-            self.waypoint_cancelled = False
-            
+    def get_next_waypoint(self):
+        """Get next waypoint, either existing or new"""
+        current_time = self.node.get_clock().now()
+        
+        # Check if minimum time has elapsed since last change
+        if self.last_waypoint_change and not self.force_new_waypoint:
+            time_since_change = (current_time - self.last_waypoint_change).nanoseconds / 1e9
+            if time_since_change < self.min_waypoint_time:
+                return self.current_waypoint
+        
+        # Reset waypoint cancelled flag
+        self.waypoint_cancelled = False
+        
         # Keep current waypoint unless forced to change or reached
         if self.current_waypoint and not self.force_new_waypoint:
             if self.is_waypoint_valid() and not self.has_reached_waypoint():
@@ -448,6 +449,8 @@ class WaypointGenerator:
             self.reached_waypoint = False
             self.node.get_logger().info('New waypoint selected')
             
+        # Update last change time when we do change waypoint
+        self.last_waypoint_change = current_time
         return self.current_waypoint
 
     def create_visualization_markers(self, waypoint: PoseStamped = None) -> MarkerArray:

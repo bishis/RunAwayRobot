@@ -5,21 +5,6 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     return LaunchDescription([
-        # Camera node
-        Node(
-            package='v4l2_camera',
-            executable='v4l2_camera_node',
-            name='camera',
-            parameters=[{
-                'image_size': [640, 480],
-                'camera_frame_id': 'camera_link',
-                'video_device': '/dev/video0',
-                'pixel_format': 'YUYV',
-                'publish_raw': True,
-                'camera_info_url': 'package://motor_controller/config/camera_info.yaml',
-            }],
-        ),
-
         # LiDAR node
         Node(
             package='rplidar_ros',
@@ -39,7 +24,7 @@ def generate_launch_description():
             executable='dvlc_calibration_node',
             name='dvlc_calibration',
             parameters=[{
-                'camera_topic': '/camera/image_raw',
+                'camera_topic': '/camera/image_raw_flipped',
                 'camera_info_topic': '/camera/camera_info',
                 'lidar_topic': '/scan',
                 'camera_frame': 'camera_link',

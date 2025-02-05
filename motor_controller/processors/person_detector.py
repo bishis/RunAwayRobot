@@ -152,27 +152,29 @@ class PersonDetector(Node):
             y_top, y_bottom = y_pixel_pair
             pixel_height = float(y_bottom - y_top)
             
-            # Filter out unrealistic measurements
-            if pixel_height < 20 or pixel_height > 400:  # Reasonable pixel height range
-                self.get_logger().warn('Unrealistic pixel height')
+            # Adjust pixel height thresholds for upside-down camera
+            # and more realistic ranges for standing people
+            if pixel_height < 50 or pixel_height > 600:  # Changed from 20-400 to 50-600
+                self.get_logger().debug(f'Filtered out detection with pixel height: {pixel_height}')  # Changed to debug
                 return None
                 
             # Use pixel width as additional check
             pixel_width = box_width
-            expected_ratio = 0.3  # width/height ratio for standing person
+            expected_ratio = 0.4  # Adjusted width/height ratio for standing person
             measured_ratio = pixel_width / pixel_height
             
-            if abs(measured_ratio - expected_ratio) > 0.2:
-                self.get_logger().warn('Unusual person proportions, might be inaccurate')
+            if abs(measured_ratio - expected_ratio) > 0.3:  # Increased tolerance
+                self.get_logger().debug('Unusual person proportions, might be inaccurate')
             
-            # Improved depth calculation
-            depth = (self.human_height * self.fy) / pixel_height
-            depth = min(depth, 8.0)  # Limit max depth to 8 meters
+            # Improved depth calculation with adjusted focal length for inverted camera
+            depth = (self.human_height * abs(self.fy)) / pixel_height  # Added abs() for negative fy
+            depth = min(depth, 6.0)  # Reduced max depth from 8m to 6m for better accuracy
             
-            # Apply depth confidence factor based on pixel height
-            confidence = min(pixel_height / 200.0, 1.0)  # Higher confidence for larger detections
-            if confidence < 0.5:
-                self.get_logger().warn('Low confidence depth measurement')
+            # Adjust confidence calculation
+            confidence = min((pixel_height / 300.0) * (1.0 - (depth / 6.0)), 1.0)  # Consider both size and depth
+            if confidence < 0.3:  # Reduced threshold
+                self.get_logger().debug('Low confidence depth measurement')
+                return None
             
             # Calculate 3D point in camera frame
             center_x = ((x_pixel - self.cx) * depth) / self.fx

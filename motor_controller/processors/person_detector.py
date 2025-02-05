@@ -17,6 +17,7 @@ from tf2_ros import Buffer, TransformListener
 import tf2_geometry_msgs
 import math
 import yaml
+from .sort import Sort
 
 class PersonDetector(Node):
     def __init__(self):
@@ -122,6 +123,18 @@ class PersonDetector(Node):
         self.position_history = []
         self.max_history = 5
         
+        # Initialize SORT tracker
+        self.tracker = Sort(max_age=5,  # Maximum frames to keep track of person
+                          min_hits=2,   # Minimum detections before tracking
+                          iou_threshold=0.3)
+        
+        # Add tracked persons publisher
+        self.tracked_persons_pub = self.create_publisher(
+            MarkerArray,
+            '/tracked_persons',
+            10
+        )
+        
         self.get_logger().info('Person detector initialized successfully')
         
     def project_to_map(self, x_pixel, y_pixel_pair, header, box_width):
@@ -225,93 +238,76 @@ class PersonDetector(Node):
             np_arr = np.frombuffer(msg.data, np.uint8)
             cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
             
-            # Create visualization image (copy of original)
-            viz_image = cv_image.copy()
-            
             # Run detection
             results = self.model(cv_image)
             
-            # Create map markers
-            map_markers = MarkerArray()
-            map_marker_id = 0
+            # Process detections
+            detections = []  # Format: [x1,y1,x2,y2,conf]
             
-            # info detection count
-            person_count = 0
-            
-            # Process results
             for result in results:
                 boxes = result.boxes
                 for box in boxes:
-                    # Only process person detections (class 0 in COCO) with high confidence
-                    if box.cls == 0 and box.conf > 0.60:  # Person class with >70% confidence
-                        person_count += 1
-                        try:
-                            # Get box coordinates
-                            x1, y1, x2, y2 = box.xyxy[0].numpy()
-                            box_width = x2 - x1  # Calculate width
-                            
-                            # Draw detection box on visualization image
-                            cv2.rectangle(viz_image, 
-                                        (int(x1), int(y1)), 
-                                        (int(x2), int(y2)), 
-                                        (0, 255, 0), 2)
-                            
-                            # Only log high confidence detections
-                            self.get_logger().info(f'High confidence person detection: '
-                                                 f'x1={x1:.1f}, y1={y1:.1f}, x2={x2:.1f}, y2={y2:.1f}, '
-                                                 f'conf={box.conf[0]:.2f}')
-                            
-                            # Project bottom center of bounding box to map
-                            bottom_center_x = (x1 + x2) / 2
-                            
-                            map_pose, confidence = self.project_to_map(
-                                bottom_center_x,
-                                [y1, y2],
-                                msg.header,
-                                box_width
-                            )
-                            
-                            if map_pose and map_pose.pose and confidence > 0.7:  # Only publish high confidence poses
-                                try:
-                                    # Create map marker
-                                    map_marker = Marker()
-                                    map_marker.header.frame_id = 'map'
-                                    map_marker.header.stamp = self.get_clock().now().to_msg()
-                                    map_marker.ns = 'map_persons'
-                                    map_marker.id = map_marker_id
-                                    map_marker_id += 1
-                                    map_marker.type = Marker.CYLINDER
-                                    map_marker.action = Marker.ADD
-                                    
-                                    # Set position from map pose
-                                    map_marker.pose = map_pose.pose
-                                    
-                                    # Adjust marker color based on confidence
-                                    map_marker.color.r = 1.0
-                                    map_marker.color.g = confidence
-                                    map_marker.color.b = 0.0
-                                    map_marker.color.a = max(0.5, confidence)
-                                    
-                                    # Adjust marker size based on confidence
-                                    base_size = 0.5
-                                    map_marker.scale.x = base_size * (0.8 + 0.4 * confidence)
-                                    map_marker.scale.y = base_size * (0.8 + 0.4 * confidence)
-                                    map_marker.scale.z = 1.7  # Human height
-                                    
-                                    # Shorter lifetime for high confidence
-                                    map_marker.lifetime = rclpy.duration.Duration(seconds=2.0).to_msg()
-                                    
-                                    map_markers.markers.append(map_marker)
-                                    
-                                except Exception as e:
-                                    self.get_logger().error(f'Failed to create marker: {str(e)}')
-                            
-                        except Exception as e:
-                            self.get_logger().warn(f'Error processing detection box: {str(e)}')
-                            continue
+                    # Only process person detections with high confidence
+                    if box.cls == 0 and box.conf > 0.60:
+                        x1, y1, x2, y2 = box.xyxy[0].numpy()
+                        conf = box.conf[0].item()
+                        detections.append([x1, y1, x2, y2, conf])
             
-            # Only publish visualization if we have high confidence detections
-            if person_count >= 0:
+            # Update trackers
+            if detections:
+                tracked_objects = self.tracker.update(np.array(detections))
+            else:
+                tracked_objects = np.empty((0, 5))
+            
+            # Create visualization
+            viz_image = cv_image.copy()
+            
+            # Create markers array for tracked persons
+            tracked_markers = MarkerArray()
+            marker_id = 0
+            
+            # Process tracked objects
+            for track in tracked_objects:
+                x1, y1, x2, y2, track_id = track
+                
+                # Draw tracking box with ID
+                cv2.rectangle(viz_image, 
+                            (int(x1), int(y1)), 
+                            (int(x2), int(y2)), 
+                            (0, 255, 0), 2)
+                cv2.putText(viz_image, 
+                          f'ID: {int(track_id)}',
+                          (int(x1), int(y1)-10),
+                          cv2.FONT_HERSHEY_SIMPLEX,
+                          0.5,
+                          (0, 255, 0),
+                          2)
+                
+                # Project to map and create marker
+                bottom_center_x = (x1 + x2) / 2
+                map_pose, confidence = self.project_to_map(
+                    bottom_center_x,
+                    [y1, y2],
+                    msg.header,
+                    x2 - x1
+                )
+                
+                if map_pose and confidence > 0.7:
+                    marker = self.create_person_marker(
+                        map_pose,
+                        int(track_id),
+                        marker_id,
+                        confidence
+                    )
+                    tracked_markers.markers.append(marker)
+                    marker_id += 1
+            
+            # Publish tracked persons markers
+            if tracked_markers.markers:
+                self.tracked_persons_pub.publish(tracked_markers)
+            
+            # Publish visualization
+            if len(tracked_objects) > 0:
                 try:
                     compressed_msg = CompressedImage()
                     compressed_msg.header = msg.header
@@ -321,14 +317,6 @@ class PersonDetector(Node):
                     self.debug_img_pub.publish(compressed_msg)
                 except Exception as e:
                     self.get_logger().error(f'Failed to publish visualization: {str(e)}')
-            
-            # Publish map markers only if we have high confidence detections
-            if len(map_markers.markers) > 0:
-                self.get_logger().info(f'Publishing {len(map_markers.markers)} high confidence markers')
-                self.map_marker_pub.publish(map_markers)
-            
-            if person_count > 0:
-                self.get_logger().info(f'Detected {person_count} high confidence people in frame')
             
         except Exception as e:
             self.get_logger().error(f'Error in image callback: {str(e)}')
@@ -353,6 +341,32 @@ class PersonDetector(Node):
         new_pose.pose.position.x = filtered_x
         new_pose.pose.position.y = filtered_y
         return new_pose
+
+    def create_person_marker(self, pose, track_id, marker_id, confidence):
+        marker = Marker()
+        marker.header.frame_id = 'map'
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = 'tracked_persons'
+        marker.id = marker_id
+        marker.type = Marker.CYLINDER
+        marker.action = Marker.ADD
+        
+        marker.pose = pose.pose
+        
+        # Adjust marker color based on track ID
+        marker.color.r = (track_id * 123) % 255 / 255.0
+        marker.color.g = (track_id * 147) % 255 / 255.0
+        marker.color.b = (track_id * 213) % 255 / 255.0
+        marker.color.a = max(0.5, confidence)
+        
+        # Set marker size
+        marker.scale.x = 0.5
+        marker.scale.y = 0.5
+        marker.scale.z = 1.7  # Human height
+        
+        marker.lifetime = rclpy.duration.Duration(seconds=0.5).to_msg()
+        
+        return marker
 
 def main(args=None):
     rclpy.init(args=args)

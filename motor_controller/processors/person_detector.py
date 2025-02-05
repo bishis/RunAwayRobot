@@ -178,6 +178,10 @@ class PersonDetector(Node):
     def project_to_map(self, x_pixel, y_pixel_pair, header, box_width):
         """Project pixel coordinates to map coordinates using LIDAR data"""
         try:
+            # Unpack y_pixel_pair first
+            y_top, y_bottom = y_pixel_pair
+            pixel_height = float(y_bottom - y_top)
+            
             # Calculate camera angle from pixel position
             camera_angle = math.atan2((x_pixel - self.cx), self.fx)
             
@@ -189,11 +193,9 @@ class PersonDetector(Node):
                 depth = lidar_distance
             else:
                 # Fallback to visual estimation
-                y_top, y_bottom = y_pixel_pair
-                pixel_height = float(y_bottom - y_top)
                 depth = (self.human_height * abs(self.fy)) / pixel_height
-                
-            # Rest of the projection code remains same
+            
+            # Get transform from camera to map
             transform = self.tf_buffer.lookup_transform(
                 'map',
                 'camera_link',
@@ -240,8 +242,6 @@ class PersonDetector(Node):
             # Transform to map frame
             try:
                 transformed_pose = self.tf_buffer.transform(pose_stamped, 'map')
-                
-                # Apply temporal filtering
                 transformed_pose = self.filter_position(transformed_pose)
                 
                 self.get_logger().info(f'Transformed pose: x={transformed_pose.pose.position.x:.2f}, '
@@ -252,9 +252,9 @@ class PersonDetector(Node):
                 if lidar_distance is not None:
                     confidence = 1.2  # Increase confidence when LIDAR data is available
                 else:
-                    confidence = min((pixel_height / 300.0) * (1.0 - (depth / 6.0)), 1.0)  # Consider both size and depth
+                    confidence = min((pixel_height / 300.0) * (1.0 - (depth / 6.0)), 1.0)
                 
-                return transformed_pose, confidence  # Return both pose and confidence
+                return transformed_pose, confidence
                 
             except Exception as e:
                 self.get_logger().error(f'Transform failed: {str(e)}')

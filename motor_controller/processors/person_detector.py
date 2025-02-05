@@ -162,23 +162,32 @@ class PersonDetector(Node):
                 return None
                 
             # Convert camera angle to LIDAR angle
-            # LIDAR angle 0 is forward, positive is CCW
+            # Camera angle needs to be inverted since camera and LIDAR have different conventions
+            lidar_angle = -camera_angle  # Invert because LIDAR and camera have opposite conventions
+            
             scan = self.latest_scan
             angle_min = scan.angle_min
             angle_increment = scan.angle_increment
             
             # Find closest angle index
-            angle_idx = int((camera_angle - angle_min) / angle_increment)
-            if 0 <= angle_idx < len(scan.ranges):
-                distance = scan.ranges[angle_idx]
-                if scan.range_min <= distance <= scan.range_max:
-                    return distance
+            angle_idx = int((lidar_angle - angle_min) / angle_increment)
+            
+            # Check a window of angles to find the closest obstacle
+            window_size = 5  # Check 5 readings on each side
+            min_distance = float('inf')
+            
+            for i in range(max(0, angle_idx - window_size), min(len(scan.ranges), angle_idx + window_size + 1)):
+                distance = scan.ranges[i]
+                if scan.range_min <= distance <= scan.range_max and distance < min_distance:
+                    min_distance = distance
+            
+            if min_distance < float('inf'):
+                return min_distance
             return None
             
     def project_to_map(self, x_pixel, y_pixel_pair, header, box_width):
         """Project pixel coordinates to map coordinates using LIDAR data"""
         try:
-            # Unpack y_pixel_pair first
             y_top, y_bottom = y_pixel_pair
             pixel_height = float(y_bottom - y_top)
             
@@ -189,11 +198,14 @@ class PersonDetector(Node):
             lidar_distance = self.get_lidar_distance(camera_angle)
             
             if lidar_distance is not None:
-                # Use LIDAR distance instead of visual estimation
+                # Use LIDAR distance for depth
                 depth = lidar_distance
+                # Increase confidence when using LIDAR
+                confidence = 1.2
             else:
                 # Fallback to visual estimation
                 depth = (self.human_height * abs(self.fy)) / pixel_height
+                confidence = min((pixel_height / 300.0) * (1.0 - (depth / 6.0)), 1.0)
             
             # Get transform from camera to map
             transform = self.tf_buffer.lookup_transform(
@@ -203,14 +215,14 @@ class PersonDetector(Node):
                 timeout=rclpy.duration.Duration(seconds=0.1)
             )
             
-            # Calculate 3D point using more accurate depth
+            # Calculate 3D point in camera frame
             center_x = ((x_pixel - self.cx) * depth) / self.fx
             center_y = ((((y_top + y_bottom) / 2) - self.cy) * depth) / self.fy
             
             # Convert to ROS camera frame
             x_cam = depth        # Camera Z -> ROS X (forward)
             y_cam = -center_x    # Camera -X -> ROS Y (left)
-            z_cam = -center_y    # Camera -Y -> ROS Z (up)
+            z_cam = 0.0         # Project to ground plane
             
             self.get_logger().info(f'Camera frame coords: x={x_cam}, y={y_cam}, z={z_cam}')
             
@@ -219,24 +231,18 @@ class PersonDetector(Node):
             pose_stamped.header.frame_id = 'camera_link'
             pose_stamped.header.stamp = transform.header.stamp
             
-            # Create Pose message first
             pose = Pose()
             pose.position.x = x_cam
             pose.position.y = y_cam
-            pose.position.z = 0.0  # Project to ground plane
+            pose.position.z = z_cam
             
             # Calculate orientation to face the camera
-            dx = x_cam
-            dy = y_cam
-            yaw = math.atan2(dy, dx)  # Calculate yaw angle
-            
-            # Convert yaw to quaternion
+            yaw = math.atan2(y_cam, x_cam)
             pose.orientation.x = 0.0
             pose.orientation.y = 0.0
             pose.orientation.z = math.sin(yaw / 2.0)
             pose.orientation.w = math.cos(yaw / 2.0)
             
-            # Assign the pose to PoseStamped
             pose_stamped.pose = pose
             
             # Transform to map frame
@@ -247,12 +253,6 @@ class PersonDetector(Node):
                 self.get_logger().info(f'Transformed pose: x={transformed_pose.pose.position.x:.2f}, '
                                      f'y={transformed_pose.pose.position.y:.2f}, '
                                      f'z={transformed_pose.pose.position.z:.2f}')
-                
-                # Adjust confidence based on LIDAR data
-                if lidar_distance is not None:
-                    confidence = 1.2  # Increase confidence when LIDAR data is available
-                else:
-                    confidence = min((pixel_height / 300.0) * (1.0 - (depth / 6.0)), 1.0)
                 
                 return transformed_pose, confidence
                 

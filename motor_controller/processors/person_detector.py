@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import CompressedImage, Image
+from sensor_msgs.msg import CompressedImage, Image, LaserScan
 from visualization_msgs.msg import MarkerArray, Marker
 from geometry_msgs.msg import Point, PoseStamped, Pose, Quaternion
 from vision_msgs.msg import Detection2DArray as DetectionArray
@@ -18,6 +18,7 @@ import tf2_geometry_msgs
 import math
 import yaml
 from .sort import Sort
+import threading
 
 class PersonDetector(Node):
     def __init__(self):
@@ -135,12 +136,64 @@ class PersonDetector(Node):
             10
         )
         
+        # Add LIDAR subscription
+        self.scan_sub = self.create_subscription(
+            LaserScan,
+            '/scan',
+            self.scan_callback,
+            10
+        )
+        
+        # Store latest scan data
+        self.latest_scan = None
+        self.scan_lock = threading.Lock()
+        
         self.get_logger().info('Person detector initialized successfully')
         
+    def scan_callback(self, msg):
+        """Store latest LIDAR scan"""
+        with self.scan_lock:
+            self.latest_scan = msg
+    
+    def get_lidar_distance(self, camera_angle):
+        """Get distance from LIDAR at given angle"""
+        with self.scan_lock:
+            if self.latest_scan is None:
+                return None
+                
+            # Convert camera angle to LIDAR angle
+            # LIDAR angle 0 is forward, positive is CCW
+            scan = self.latest_scan
+            angle_min = scan.angle_min
+            angle_increment = scan.angle_increment
+            
+            # Find closest angle index
+            angle_idx = int((camera_angle - angle_min) / angle_increment)
+            if 0 <= angle_idx < len(scan.ranges):
+                distance = scan.ranges[angle_idx]
+                if scan.range_min <= distance <= scan.range_max:
+                    return distance
+            return None
+            
     def project_to_map(self, x_pixel, y_pixel_pair, header, box_width):
-        """Project pixel coordinates to map coordinates"""
+        """Project pixel coordinates to map coordinates using LIDAR data"""
         try:
-            # First get transform from camera to map
+            # Calculate camera angle from pixel position
+            camera_angle = math.atan2((x_pixel - self.cx), self.fx)
+            
+            # Get LIDAR distance at this angle
+            lidar_distance = self.get_lidar_distance(camera_angle)
+            
+            if lidar_distance is not None:
+                # Use LIDAR distance instead of visual estimation
+                depth = lidar_distance
+            else:
+                # Fallback to visual estimation
+                y_top, y_bottom = y_pixel_pair
+                pixel_height = float(y_bottom - y_top)
+                depth = (self.human_height * abs(self.fy)) / pixel_height
+                
+            # Rest of the projection code remains same
             transform = self.tf_buffer.lookup_transform(
                 'map',
                 'camera_link',
@@ -148,37 +201,9 @@ class PersonDetector(Node):
                 timeout=rclpy.duration.Duration(seconds=0.1)
             )
             
-            # Use multiple measurements for more stable depth
-            y_top, y_bottom = y_pixel_pair
-            pixel_height = float(y_bottom - y_top)
-            
-            # Adjust pixel height thresholds for upside-down camera
-            # and more realistic ranges for standing people
-            if pixel_height < 50 or pixel_height > 600:  # Changed from 20-400 to 50-600
-                self.get_logger().debug(f'Filtered out detection with pixel height: {pixel_height}')  # Changed to debug
-                return None
-                
-            # Use pixel width as additional check
-            pixel_width = box_width
-            expected_ratio = 0.4  # Adjusted width/height ratio for standing person
-            measured_ratio = pixel_width / pixel_height
-            
-            if abs(measured_ratio - expected_ratio) > 0.3:  # Increased tolerance
-                self.get_logger().debug('Unusual person proportions, might be inaccurate')
-            
-            # Improved depth calculation with adjusted focal length for inverted camera
-            depth = (self.human_height * abs(self.fy)) / pixel_height  # Added abs() for negative fy
-            depth = min(depth, 6.0)  # Reduced max depth from 8m to 6m for better accuracy
-            
-            # Adjust confidence calculation
-            confidence = min((pixel_height / 300.0) * (1.0 - (depth / 6.0)), 1.0)  # Consider both size and depth
-            if confidence < 0.3:  # Reduced threshold
-                self.get_logger().debug('Low confidence depth measurement')
-                return None
-            
-            # Calculate 3D point in camera frame
+            # Calculate 3D point using more accurate depth
             center_x = ((x_pixel - self.cx) * depth) / self.fx
-            center_y = ((((y_top + y_bottom) / 2) - self.cy) * depth) / self.fy  # Use center point
+            center_y = ((((y_top + y_bottom) / 2) - self.cy) * depth) / self.fy
             
             # Convert to ROS camera frame
             x_cam = depth        # Camera Z -> ROS X (forward)
@@ -222,6 +247,12 @@ class PersonDetector(Node):
                 self.get_logger().info(f'Transformed pose: x={transformed_pose.pose.position.x:.2f}, '
                                      f'y={transformed_pose.pose.position.y:.2f}, '
                                      f'z={transformed_pose.pose.position.z:.2f}')
+                
+                # Adjust confidence based on LIDAR data
+                if lidar_distance is not None:
+                    confidence = 1.2  # Increase confidence when LIDAR data is available
+                else:
+                    confidence = min((pixel_height / 300.0) * (1.0 - (depth / 6.0)), 1.0)  # Consider both size and depth
                 
                 return transformed_pose, confidence  # Return both pose and confidence
                 

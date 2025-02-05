@@ -283,24 +283,31 @@ class PersonDetector(Node):
                           (0, 255, 0),
                           2)
                 
-                # Project to map and create marker
-                bottom_center_x = (x1 + x2) / 2
-                map_pose, confidence = self.project_to_map(
-                    bottom_center_x,
-                    [y1, y2],
-                    msg.header,
-                    x2 - x1
-                )
-                
-                if map_pose and confidence > 0.7:
-                    marker = self.create_person_marker(
-                        map_pose,
-                        int(track_id),
-                        marker_id,
-                        confidence
+                try:
+                    # Project to map and create marker
+                    bottom_center_x = (x1 + x2) / 2
+                    result = self.project_to_map(
+                        bottom_center_x,
+                        [y1, y2],
+                        msg.header,
+                        x2 - x1
                     )
-                    tracked_markers.markers.append(marker)
-                    marker_id += 1
+                    
+                    # Check if projection was successful
+                    if result is not None:
+                        map_pose, confidence = result
+                        if confidence > 0.7:
+                            marker = self.create_person_marker(
+                                map_pose,
+                                int(track_id),
+                                marker_id,
+                                confidence
+                            )
+                            tracked_markers.markers.append(marker)
+                            marker_id += 1
+                except Exception as e:
+                    self.get_logger().warn(f'Failed to process track {track_id}: {str(e)}')
+                    continue
             
             # Publish tracked persons markers
             if tracked_markers.markers:

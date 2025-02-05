@@ -1,0 +1,20 @@
+dvlc_calibration:
+  # Initial guess for transform (from physical measurements)
+  initial_transform:
+    translation: [0.0, 0.0, 0.18]  # [x, y, z] in meters
+    rotation: [3.14159, 0.0, 0.0]  # [roll, pitch, yaw] in radians (roll=pi for upside down camera)
+
+  # Calibration parameters
+  calibration:
+    edge_detection_threshold: 50
+    min_edge_intensity: 20
+    max_edge_intensity: 200
+    min_points_per_edge: 5
+    max_point_to_line_distance: 0.05
+    min_valid_points_ratio: 0.6
+
+  # Visualization
+  visualization:
+    point_size: 2
+    line_width: 1
+    debug_image_scale: 1.0 

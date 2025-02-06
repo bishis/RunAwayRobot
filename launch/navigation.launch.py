@@ -5,7 +5,6 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from nav2_common.launch import RewrittenYaml
-from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 
 def generate_launch_description():
@@ -129,10 +128,6 @@ def generate_launch_description():
             'goal_timeout': 30.0,
             'robot_radius': 0.16,
             'safety_margin': 0.3,
-            'exploration_enabled': True,
-            'min_tracking_distance': 1.0,
-            'max_rotation_speed': 1.0,
-            'tracking_update_rate': 10.0,
         }],
         remappings=[
             ('cmd_vel', '/cmd_vel'),
@@ -142,7 +137,6 @@ def generate_launch_description():
         ],
         output='screen'
     )
-
 
     # Create the launch description and populate
     ld = LaunchDescription()

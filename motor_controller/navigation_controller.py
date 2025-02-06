@@ -11,7 +11,6 @@ from action_msgs.msg import GoalStatus
 import numpy as np
 import math
 from .processors.waypoint_generator import WaypointGenerator
-from motor_controller.srv import SetExplorationState
 
 class NavigationController(Node):
     def __init__(self):
@@ -88,36 +87,6 @@ class NavigationController(Node):
         self.get_logger().info('Navigation controller initialized')
         
         self._current_goal_handle = None
-        
-        # Add person tracking subscribers and publishers
-        self.person_sub = self.create_subscription(
-            MarkerArray,
-            '/tracked_persons',
-            self.person_callback,
-            10
-        )
-        
-        # Add cmd_vel publisher for rotation control
-        self.cmd_vel_pub = self.create_publisher(
-            Twist,
-            'cmd_vel',
-            10
-        )
-        
-        # Add exploration control service
-        self.exploration_srv = self.create_service(
-            SetExplorationState,
-            'set_exploration_state',
-            self.set_exploration_state_callback
-        )
-        
-        # Track state
-        self.exploration_enabled = True
-        self.tracking_person = False
-        self.current_person_pose = None
-        
-        # Add timer for person tracking
-        self.tracking_timer = self.create_timer(0.1, self.tracking_loop)  # 10Hz tracking updates
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -164,10 +133,7 @@ class NavigationController(Node):
             self.get_logger().warn(f'Error checking Nav2 readiness: {str(e)}')
 
     def exploration_loop(self):
-        """Main exploration loop with person tracking integration"""
-        if not self.exploration_enabled or self.tracking_person:
-            return
-            
+        """Main control loop for autonomous exploration"""
         try:
             if not self.nav2_ready:
                 return
@@ -375,83 +341,6 @@ class NavigationController(Node):
                 self.get_logger().info('Retrying current waypoint')
                 if self.current_goal:
                     self.send_goal(self.current_goal)
-
-    def set_exploration_state_callback(self, request, response):
-        """Handle exploration state change requests"""
-        self.exploration_enabled = request.enable
-        if not self.exploration_enabled:
-            # Cancel current goal if exploring
-            if self._current_goal_handle is not None:
-                self._current_goal_handle.cancel_goal_async()
-                self._current_goal_handle = None
-        
-        response.success = True
-        response.message = 'Exploration ' + ('enabled' if request.enable else 'disabled')
-        return response
-
-    def person_callback(self, msg):
-        """Handle person detection updates"""
-        if msg.markers:
-            # Get closest person
-            closest_person = min(msg.markers, 
-                               key=lambda m: m.pose.position.x**2 + m.pose.position.y**2)
-            
-            # Store person position for tracking
-            self.current_person_pose = closest_person.pose
-            
-            if not self.tracking_person:
-                # Person detected, pause exploration
-                self.tracking_person = True
-                self.exploration_enabled = False
-                
-                # Cancel current navigation goal
-                if self._current_goal_handle is not None:
-                    self._current_goal_handle.cancel_goal_async()
-                    self._current_goal_handle = None
-        else:
-            # No people detected
-            self.current_person_pose = None
-            if self.tracking_person:
-                # Resume exploration
-                self.tracking_person = False
-                self.exploration_enabled = True
-
-    def tracking_loop(self):
-        """Update robot rotation to face tracked person"""
-        if self.tracking_person and self.current_person_pose is not None:
-            try:
-                # Calculate angle to person
-                dx = self.current_person_pose.position.x
-                dy = self.current_person_pose.position.y
-                target_angle = math.atan2(dy, dx)
-                
-                # Get current robot pose
-                robot_pose = self.get_current_pose()
-                if robot_pose is None:
-                    return
-                
-                # Calculate rotation needed
-                current_angle = 2 * math.acos(robot_pose.pose.orientation.w)
-                if robot_pose.pose.orientation.z < 0:
-                    current_angle = -current_angle
-                
-                angle_diff = target_angle - current_angle
-                
-                # Normalize angle difference
-                while angle_diff > math.pi:
-                    angle_diff -= 2 * math.pi
-                while angle_diff < -math.pi:
-                    angle_diff += 2 * math.pi
-                
-                # Create rotation command
-                cmd = Twist()
-                if abs(angle_diff) > 0.1:  # Only rotate if difference is significant
-                    cmd.angular.z = max(min(angle_diff, 1.0), -1.0)  # Limit rotation speed
-                
-                self.cmd_vel_pub.publish(cmd)
-                
-            except Exception as e:
-                self.get_logger().warn(f'Error in tracking loop: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)

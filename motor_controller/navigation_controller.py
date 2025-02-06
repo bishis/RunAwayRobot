@@ -11,8 +11,7 @@ from action_msgs.msg import GoalStatus
 import numpy as np
 import math
 from .processors.waypoint_generator import WaypointGenerator
-from .srv import HumanDetected
-
+from motor_controller.srv import HumanDetected
 class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')

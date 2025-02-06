@@ -11,6 +11,7 @@ from action_msgs.msg import GoalStatus
 import numpy as np
 import math
 from .processors.waypoint_generator import WaypointGenerator
+from ..srv import HumanDetected
 
 class NavigationController(Node):
     def __init__(self):
@@ -87,6 +88,18 @@ class NavigationController(Node):
         self.get_logger().info('Navigation controller initialized')
         
         self._current_goal_handle = None
+        
+        # Add human detection service
+        self.human_service = self.create_service(
+            HumanDetected,
+            'human_detected',
+            self.human_detected_callback
+        )
+        
+        # Add tracking state
+        self.tracking_human = False
+        self.current_track_id = None
+        self.last_human_pose = None
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -133,12 +146,14 @@ class NavigationController(Node):
             self.get_logger().warn(f'Error checking Nav2 readiness: {str(e)}')
 
     def exploration_loop(self):
-        """Main control loop for autonomous exploration"""
+        """Modified exploration loop to handle human tracking"""
         try:
-            if not self.nav2_ready:
-                return
-
-            if not self.is_navigating:
+            if self.tracking_human:
+                # If tracking human, just keep facing them
+                if self.last_human_pose is not None:
+                    self.face_human(self.last_human_pose)
+            else:
+                # Normal exploration behavior
                 waypoint = self.waypoint_generator.generate_waypoint()
                 if waypoint:
                     # Additional safety check before sending
@@ -341,6 +356,59 @@ class NavigationController(Node):
                 self.get_logger().info('Retrying current waypoint')
                 if self.current_goal:
                     self.send_goal(self.current_goal)
+
+    def human_detected_callback(self, request, response):
+        """Handle human detection"""
+        try:
+            # Stop exploration
+            self.tracking_human = True
+            self.current_track_id = request.track_id
+            self.last_human_pose = request.human_pose
+            
+            # Cancel any current navigation goals
+            if self._current_goal_handle is not None:
+                self._current_goal_handle.cancel_goal_async()
+            
+            # Turn to face human
+            self.face_human(request.human_pose)
+            
+            response.success = True
+            return response
+            
+        except Exception as e:
+            self.get_logger().error(f'Error handling human detection: {str(e)}')
+            response.success = False
+            return response
+            
+    def face_human(self, human_pose):
+        """Turn robot to face human"""
+        try:
+            # Calculate angle to human
+            dx = human_pose.pose.position.x - self.current_pose.pose.position.x
+            dy = human_pose.pose.position.y - self.current_pose.pose.position.y
+            target_angle = math.atan2(dy, dx)
+            
+            # Create Twist message to turn
+            cmd = Twist()
+            
+            # Calculate angle difference
+            current_angle = self.get_robot_yaw()
+            angle_diff = target_angle - current_angle
+            
+            # Normalize angle
+            while angle_diff > math.pi:
+                angle_diff -= 2 * math.pi
+            while angle_diff < -math.pi:
+                angle_diff += 2 * math.pi
+                
+            # Set angular velocity based on angle difference
+            cmd.angular.z = max(min(angle_diff, 1.0), -1.0)
+            
+            # Publish command
+            self.wheel_speeds_pub.publish(cmd)
+            
+        except Exception as e:
+            self.get_logger().error(f'Error facing human: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)

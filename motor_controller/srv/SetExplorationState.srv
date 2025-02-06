@@ -1,0 +1,4 @@
+bool enable  # True to enable exploration, False to pause
+---
+bool success  # True if state was changed successfully
+string message  # Status message

@@ -165,6 +165,5 @@ def generate_launch_description():
 
     # Add the navigation controller to the launch description
     ld.add_action(start_navigation_controller_cmd)
-    ld.add_action(start_waypoint_generator_cmd)
 
     return ld 

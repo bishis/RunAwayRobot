@@ -3,8 +3,9 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage, Image, LaserScan
 from visualization_msgs.msg import MarkerArray, Marker
-from geometry_msgs.msg import Point, PoseStamped, Pose, Quaternion
+from geometry_msgs.msg import Point, PoseStamped, Pose, Quaternion, Twist
 from vision_msgs.msg import Detection2DArray as DetectionArray
+from std_msgs.msg import Bool
 import cv2
 import numpy as np
 import torch
@@ -172,6 +173,19 @@ class PersonDetector(Node):
         self.max_history = 3  # Reduce history size for faster updates
         self.position_weights = [0.2, 0.3, 0.5]  # More weight on recent positions
         
+        # Add publishers for human tracking
+        self.tracking_cmd_pub = self.create_publisher(
+            Twist,
+            '/human_tracking_cmd',
+            10
+        )
+        
+        self.tracking_active_pub = self.create_publisher(
+            Bool,
+            '/human_tracking_active',
+            10
+        )
+        
         self.get_logger().info('Person detector initialized successfully')
         
     def scan_callback(self, msg):
@@ -309,6 +323,10 @@ class PersonDetector(Node):
             tracked_markers = MarkerArray()
             viz_image = cv_image.copy() if tracked_objects.size > 0 else None
             
+            # Track closest person
+            closest_person = None
+            min_distance = float('inf')
+            
             for i, track in enumerate(tracked_objects):
                 x1, y1, x2, y2, track_id = track
                 
@@ -324,6 +342,17 @@ class PersonDetector(Node):
                 if result is not None:
                     map_pose, confidence = result
                     if confidence > self.min_tracking_confidence:
+                        # Calculate distance to robot
+                        distance = math.sqrt(
+                            map_pose.pose.position.x ** 2 + 
+                            map_pose.pose.position.y ** 2
+                        )
+                        
+                        # Update closest person
+                        if distance < min_distance:
+                            min_distance = distance
+                            closest_person = (map_pose, track_id, distance)
+                        
                         marker = self.create_person_marker(
                             map_pose,
                             int(track_id),
@@ -345,6 +374,38 @@ class PersonDetector(Node):
                                       0.5,
                                       (0, 255, 0),
                                       2)
+            
+            # Generate tracking commands if we have a person to track
+            if closest_person is not None:
+                pose, track_id, distance = closest_person
+                
+                # Create tracking command
+                cmd = Twist()
+                
+                # Calculate angular velocity to face person
+                angle_to_person = math.atan2(pose.pose.position.y, pose.pose.position.x)
+                cmd.angular.z = angle_to_person * 1.0  # P controller for rotation
+                
+                # Calculate linear velocity based on distance
+                target_distance = 1.0  # Try to maintain 1m distance
+                distance_error = distance - target_distance
+                cmd.linear.x = distance_error * 0.5  # P controller for distance
+                
+                # Limit velocities
+                cmd.linear.x = max(min(cmd.linear.x, 0.2), -0.2)  # Limit to ±0.2 m/s
+                cmd.angular.z = max(min(cmd.angular.z, 1.0), -1.0)  # Limit to ±1.0 rad/s
+                
+                # Publish tracking command and active status
+                self.tracking_cmd_pub.publish(cmd)
+                
+                tracking_active = Bool()
+                tracking_active.data = True
+                self.tracking_active_pub.publish(tracking_active)
+            else:
+                # Publish inactive status when no person detected
+                tracking_active = Bool()
+                tracking_active.data = False
+                self.tracking_active_pub.publish(tracking_active)
             
             # Only publish markers if we have any
             if tracked_markers.markers:

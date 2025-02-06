@@ -11,6 +11,7 @@ from action_msgs.msg import GoalStatus
 import numpy as np
 import math
 from .processors.waypoint_generator import WaypointGenerator
+from std_msgs.msg import Bool
 
 class NavigationController(Node):
     def __init__(self):
@@ -84,6 +85,23 @@ class NavigationController(Node):
         # Add timer to check goal progress
         self.goal_check_timer = self.create_timer(1.0, self.check_goal_progress)
         
+        # Add human tracking subscribers
+        self.tracking_active_sub = self.create_subscription(
+            Bool,
+            '/human_tracking_active',
+            self.tracking_active_callback,
+            10
+        )
+        
+        self.tracking_cmd_sub = self.create_subscription(
+            Twist,
+            '/human_tracking_cmd',
+            self.tracking_cmd_callback,
+            10
+        )
+        
+        self.is_tracking_human = False
+        
         self.get_logger().info('Navigation controller initialized')
         
         self._current_goal_handle = None
@@ -133,7 +151,11 @@ class NavigationController(Node):
             self.get_logger().warn(f'Error checking Nav2 readiness: {str(e)}')
 
     def exploration_loop(self):
-        """Main control loop for autonomous exploration"""
+        """Modified exploration loop to handle human tracking"""
+        if self.is_tracking_human:
+            # Skip waypoint generation while tracking human
+            return
+            
         try:
             if not self.nav2_ready:
                 return
@@ -341,6 +363,22 @@ class NavigationController(Node):
                 self.get_logger().info('Retrying current waypoint')
                 if self.current_goal:
                     self.send_goal(self.current_goal)
+
+    def tracking_active_callback(self, msg):
+        """Handle changes in tracking status"""
+        was_tracking = self.is_tracking_human
+        self.is_tracking_human = msg.data
+        
+        if self.is_tracking_human and not was_tracking:
+            # Cancel current navigation goal when starting to track
+            if self._current_goal_handle is not None:
+                self._current_goal_handle.cancel_goal_async()
+                
+    def tracking_cmd_callback(self, msg):
+        """Handle human tracking commands"""
+        if self.is_tracking_human:
+            # Forward tracking commands to cmd_vel
+            self.wheel_speeds_pub.publish(msg)
 
 def main(args=None):
     rclpy.init(args=args)

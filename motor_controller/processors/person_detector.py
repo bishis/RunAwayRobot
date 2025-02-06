@@ -122,12 +122,14 @@ class PersonDetector(Node):
         
         # Add position history
         self.position_history = []
-        self.max_history = 5
+        self.max_history = 3
         
         # Initialize SORT tracker
-        self.tracker = Sort(max_age=5,  # Maximum frames to keep track of person
-                          min_hits=2,   # Minimum detections before tracking
-                          iou_threshold=0.3)
+        self.tracker = Sort(
+            max_age=3,  # Reduce max age for faster tracking updates
+            min_hits=1,  # Reduce required hits for faster initial tracking
+            iou_threshold=0.25  # Lower IOU threshold for better tracking
+        )
         
         # Add tracked persons publisher
         self.tracked_persons_pub = self.create_publisher(
@@ -148,6 +150,28 @@ class PersonDetector(Node):
         self.latest_scan = None
         self.scan_lock = threading.Lock()
         
+        # Optimize YOLO parameters
+        self.conf_threshold = 0.5  # Lower confidence threshold for faster detection
+        self.model.conf = self.conf_threshold
+        self.model.iou = 0.45
+        self.model.max_det = 5  # Limit maximum detections since we only care about closest people
+        
+        # Optimize SORT parameters
+        self.tracker = Sort(
+            max_age=3,  # Reduce max age for faster tracking updates
+            min_hits=1,  # Reduce required hits for faster initial tracking
+            iou_threshold=0.25  # Lower IOU threshold for better tracking
+        )
+        
+        # Add LIDAR optimization parameters
+        self.lidar_window_size = 3  # Reduce window size for faster processing
+        self.last_lidar_scan = None
+        self.min_tracking_confidence = 0.6  # Minimum confidence to track
+        
+        # Add position filtering parameters
+        self.max_history = 3  # Reduce history size for faster updates
+        self.position_weights = [0.2, 0.3, 0.5]  # More weight on recent positions
+        
         self.get_logger().info('Person detector initialized successfully')
         
     def scan_callback(self, msg):
@@ -156,34 +180,29 @@ class PersonDetector(Node):
             self.latest_scan = msg
     
     def get_lidar_distance(self, camera_angle):
-        """Get distance from LIDAR at given angle"""
+        """Optimized LIDAR distance calculation"""
         with self.scan_lock:
             if self.latest_scan is None:
                 return None
-                
-            # Convert camera angle to LIDAR angle
-            # Camera angle needs to be inverted since camera and LIDAR have different conventions
-            lidar_angle = -camera_angle  # Invert because LIDAR and camera have opposite conventions
             
+            lidar_angle = -camera_angle
             scan = self.latest_scan
-            angle_min = scan.angle_min
-            angle_increment = scan.angle_increment
             
-            # Find closest angle index
-            angle_idx = int((lidar_angle - angle_min) / angle_increment)
+            # Direct index calculation
+            angle_idx = int((lidar_angle - scan.angle_min) / scan.angle_increment)
+            if not (0 <= angle_idx < len(scan.ranges)):
+                return None
             
-            # Check a window of angles to find the closest obstacle
-            window_size = 5  # Check 5 readings on each side
-            min_distance = float('inf')
+            # Quick window check
+            start_idx = max(0, angle_idx - self.lidar_window_size)
+            end_idx = min(len(scan.ranges), angle_idx + self.lidar_window_size + 1)
             
-            for i in range(max(0, angle_idx - window_size), min(len(scan.ranges), angle_idx + window_size + 1)):
-                distance = scan.ranges[i]
-                if scan.range_min <= distance <= scan.range_max and distance < min_distance:
-                    min_distance = distance
+            # Use numpy for faster processing
+            window_ranges = np.array(scan.ranges[start_idx:end_idx])
+            valid_ranges = window_ranges[(window_ranges >= scan.range_min) & 
+                                      (window_ranges <= scan.range_max)]
             
-            if min_distance < float('inf'):
-                return min_distance
-            return None
+            return np.min(valid_ranges) if len(valid_ranges) > 0 else None
             
     def project_to_map(self, x_pixel, y_pixel_pair, header, box_width):
         """Project pixel coordinates to map coordinates using LIDAR data"""
@@ -265,121 +284,105 @@ class PersonDetector(Node):
             return None, 0.0
             
     def image_callback(self, msg):
-        """Process incoming compressed image messages"""
         try:
             # Decode compressed image
             np_arr = np.frombuffer(msg.data, np.uint8)
             cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
             
-            # Run detection
-            results = self.model(cv_image)
+            # Run detection with batching
+            results = self.model(cv_image, verbose=False)  # Disable verbose output
             
-            # Process detections
-            detections = []  # Format: [x1,y1,x2,y2,conf]
-            
+            # Process detections more efficiently
+            detections = []
             for result in results:
-                boxes = result.boxes
-                for box in boxes:
-                    # Only process person detections with high confidence
-                    if box.cls == 0 and box.conf > 0.60:
-                        x1, y1, x2, y2 = box.xyxy[0].numpy()
-                        conf = box.conf[0].item()
-                        detections.append([x1, y1, x2, y2, conf])
+                boxes = result.boxes.data.cpu().numpy()  # Get all boxes at once
+                # Filter person detections (class 0) with confidence
+                person_mask = (boxes[:, 5] == 0) & (boxes[:, 4] >= self.conf_threshold)
+                person_boxes = boxes[person_mask]
+                if len(person_boxes) > 0:
+                    detections.extend(person_boxes[:, :5])  # Only take x1,y1,x2,y2,conf
             
             # Update trackers
-            if detections:
-                tracked_objects = self.tracker.update(np.array(detections))
-            else:
-                tracked_objects = np.empty((0, 5))
+            tracked_objects = self.tracker.update(np.array(detections)) if detections else np.empty((0, 5))
             
-            # Create visualization
-            viz_image = cv_image.copy()
-            
-            # Create markers array for tracked persons
+            # Process tracked objects more efficiently
             tracked_markers = MarkerArray()
-            marker_id = 0
+            viz_image = cv_image.copy() if tracked_objects.size > 0 else None
             
-            # Process tracked objects
-            for track in tracked_objects:
+            for i, track in enumerate(tracked_objects):
                 x1, y1, x2, y2, track_id = track
                 
-                # Draw tracking box with ID
-                cv2.rectangle(viz_image, 
-                            (int(x1), int(y1)), 
-                            (int(x2), int(y2)), 
-                            (0, 255, 0), 2)
-                cv2.putText(viz_image, 
-                          f'ID: {int(track_id)}',
-                          (int(x1), int(y1)-10),
-                          cv2.FONT_HERSHEY_SIMPLEX,
-                          0.5,
-                          (0, 255, 0),
-                          2)
+                # Only process if confidence is high enough
+                bottom_center_x = (x1 + x2) / 2
+                result = self.project_to_map(
+                    bottom_center_x,
+                    [y1, y2],
+                    msg.header,
+                    x2 - x1
+                )
                 
-                try:
-                    # Project to map and create marker
-                    bottom_center_x = (x1 + x2) / 2
-                    result = self.project_to_map(
-                        bottom_center_x,
-                        [y1, y2],
-                        msg.header,
-                        x2 - x1
-                    )
-                    
-                    # Check if projection was successful
-                    if result is not None:
-                        map_pose, confidence = result
-                        if confidence > 0.7:
-                            marker = self.create_person_marker(
-                                map_pose,
-                                int(track_id),
-                                marker_id,
-                                confidence
-                            )
-                            tracked_markers.markers.append(marker)
-                            marker_id += 1
-                except Exception as e:
-                    self.get_logger().warn(f'Failed to process track {track_id}: {str(e)}')
-                    continue
+                if result is not None:
+                    map_pose, confidence = result
+                    if confidence > self.min_tracking_confidence:
+                        marker = self.create_person_marker(
+                            map_pose,
+                            int(track_id),
+                            i,
+                            confidence
+                        )
+                        tracked_markers.markers.append(marker)
+                        
+                        # Only draw visualization if we're actually using it
+                        if viz_image is not None:
+                            cv2.rectangle(viz_image, 
+                                        (int(x1), int(y1)), 
+                                        (int(x2), int(y2)), 
+                                        (0, 255, 0), 2)
+                            cv2.putText(viz_image, 
+                                      f'ID: {int(track_id)}',
+                                      (int(x1), int(y1)-10),
+                                      cv2.FONT_HERSHEY_SIMPLEX,
+                                      0.5,
+                                      (0, 255, 0),
+                                      2)
             
-            # Publish tracked persons markers
+            # Only publish markers if we have any
             if tracked_markers.markers:
                 self.tracked_persons_pub.publish(tracked_markers)
             
-            # Publish visualization
-            if len(tracked_objects) > 0:
-                try:
-                    compressed_msg = CompressedImage()
-                    compressed_msg.header = msg.header
-                    compressed_msg.format = 'jpeg'
-                    compressed_msg.data = np.array(cv2.imencode('.jpg', viz_image, 
-                                                [cv2.IMWRITE_JPEG_QUALITY, 80])[1]).tobytes()
-                    self.debug_img_pub.publish(compressed_msg)
-                except Exception as e:
-                    self.get_logger().error(f'Failed to publish visualization: {str(e)}')
-            
+            # Only publish visualization if we modified the image
+            if viz_image is not None:
+                compressed_msg = CompressedImage()
+                compressed_msg.header = msg.header
+                compressed_msg.format = 'jpeg'
+                compressed_msg.data = np.array(cv2.imencode(
+                    '.jpg', viz_image, 
+                    [cv2.IMWRITE_JPEG_QUALITY, 60]  # Lower quality for faster transmission
+                )[1]).tobytes()
+                self.debug_img_pub.publish(compressed_msg)
+                
         except Exception as e:
             self.get_logger().error(f'Error in image callback: {str(e)}')
 
     def filter_position(self, new_pose):
-        """Apply temporal filtering to smooth out position estimates"""
+        """Optimized position filtering"""
         if not self.position_history:
             self.position_history.append(new_pose)
             return new_pose
             
-        # Add new position to history
         self.position_history.append(new_pose)
         if len(self.position_history) > self.max_history:
             self.position_history.pop(0)
             
-        # Calculate weighted average (more weight to recent positions)
-        weights = [0.1, 0.15, 0.2, 0.25, 0.3]  # Must sum to 1.0
-        filtered_x = sum(p.pose.position.x * w for p, w in zip(self.position_history, weights))
-        filtered_y = sum(p.pose.position.y * w for p, w in zip(self.position_history, weights))
+        # Use numpy for faster calculation
+        positions = np.array([[p.pose.position.x, p.pose.position.y] 
+                            for p in self.position_history])
+        weights = np.array(self.position_weights)
         
-        # Update position with filtered values
-        new_pose.pose.position.x = filtered_x
-        new_pose.pose.position.y = filtered_y
+        filtered_pos = np.average(positions, weights=weights, axis=0)
+        new_pose.pose.position.x = filtered_pos[0]
+        new_pose.pose.position.y = filtered_pos[1]
+        
         return new_pose
 
     def create_person_marker(self, pose, track_id, marker_id, confidence):

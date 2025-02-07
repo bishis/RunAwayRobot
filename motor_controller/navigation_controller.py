@@ -377,8 +377,26 @@ class NavigationController(Node):
     def tracking_cmd_callback(self, msg):
         """Handle human tracking commands"""
         if self.is_tracking_human:
-            # Forward tracking commands to cmd_vel
-            self.cmd_vel_sub.publish(msg)
+            try:
+                # Handle rotation speeds
+                if abs(msg.angular.z) > 0.0:
+                    if abs(msg.angular.z) < self.min_rotation_speed:
+                        msg.angular.z = math.copysign(self.min_rotation_speed, msg.angular.z)
+                        msg.linear.x = 0.0  # Stop forward motion while rotating slowly
+                
+                # Ensure we're not exceeding max speeds
+                msg.linear.x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
+                msg.angular.z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
+                
+                # Create and publish wheel speeds
+                wheel_speeds = Twist()
+                wheel_speeds.linear.x = msg.linear.x
+                wheel_speeds.angular.z = msg.angular.z
+                self.wheel_speeds_pub.publish(wheel_speeds)
+                
+            except Exception as e:
+                self.get_logger().error(f'Error in tracking cmd callback: {str(e)}')
+                self.wheel_speeds_pub.publish(Twist())  # Stop on error
 
 def main(args=None):
     rclpy.init(args=args)

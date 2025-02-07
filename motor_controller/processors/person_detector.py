@@ -20,6 +20,8 @@ import math
 import yaml
 from .sort import Sort
 import threading
+from message_filters import ApproximateTimeSynchronizer, Subscriber
+from sensor_msgs.msg import CameraInfo
 
 class PersonDetector(Node):
     def __init__(self):
@@ -67,13 +69,29 @@ class PersonDetector(Node):
         # Create CV bridge
         self.bridge = CvBridge()
         
-        # Create subscribers - use compressed image
-        self.image_sub = self.create_subscription(
-            CompressedImage,
-            '/camera/image_raw_flipped/compressed',  # Make sure this matches image_flipper's output topic
-            self.image_callback,
-            10
+        # Cache for synchronized data
+        self.latest_scan = None
+        self.latest_image = None
+        self.latest_timestamp = None
+        self.data_lock = threading.Lock()
+        
+        # Maximum age for cached data (in seconds)
+        self.max_data_age = 0.1
+        
+        # Create synchronized subscribers
+        self.image_sub = Subscriber(self, CompressedImage, '/camera/image_raw_flipped/compressed')
+        self.scan_sub = Subscriber(self, LaserScan, '/scan')
+        
+        # Synchronize messages with 0.1 second tolerance
+        self.ts = ApproximateTimeSynchronizer(
+            [self.image_sub, self.scan_sub],
+            queue_size=5,
+            slop=0.1
         )
+        self.ts.registerCallback(self.synchronized_callback)
+        
+        # Create high-frequency processing timer
+        self.create_timer(0.05, self.process_data)  # 20Hz processing
         
         # Create publishers
         self.detection_pub = self.create_publisher(
@@ -139,18 +157,6 @@ class PersonDetector(Node):
             10
         )
         
-        # Add LIDAR subscription
-        self.scan_sub = self.create_subscription(
-            LaserScan,
-            '/scan',
-            self.scan_callback,
-            10
-        )
-        
-        # Store latest scan data
-        self.latest_scan = None
-        self.scan_lock = threading.Lock()
-        
         # Add LIDAR parameters
         self.lidar_window_size = 3  # Window size for LIDAR measurements
         
@@ -192,253 +198,111 @@ class PersonDetector(Node):
         
         self.get_logger().info('Person detector initialized successfully')
         
-    def scan_callback(self, msg):
-        """Store latest LIDAR scan"""
-        with self.scan_lock:
-            self.latest_scan = msg
+    def synchronized_callback(self, image_msg, scan_msg):
+        """Store synchronized data"""
+        with self.data_lock:
+            self.latest_image = image_msg
+            self.latest_scan = scan_msg
+            self.latest_timestamp = self.get_clock().now()
     
-    def get_lidar_distance(self, camera_angle):
-        """Optimized LIDAR distance calculation"""
-        with self.scan_lock:
-            if self.latest_scan is None:
-                return None
-            
-            lidar_angle = -camera_angle
-            scan = self.latest_scan
-            
-            # Direct index calculation
-            angle_idx = int((lidar_angle - scan.angle_min) / scan.angle_increment)
-            if not (0 <= angle_idx < len(scan.ranges)):
-                return None
-            
-            # Quick window check
-            start_idx = max(0, angle_idx - self.lidar_window_size)
-            end_idx = min(len(scan.ranges), angle_idx + self.lidar_window_size + 1)
-            
-            # Use numpy for faster processing
-            window_ranges = np.array(scan.ranges[start_idx:end_idx])
-            valid_ranges = window_ranges[(window_ranges >= scan.range_min) & 
-                                      (window_ranges <= scan.range_max)]
-            
-            return np.min(valid_ranges) if len(valid_ranges) > 0 else None
-            
-    def project_to_map(self, x_pixel, y_pixel_pair, header, box_width):
-        """Project pixel coordinates to map coordinates using LIDAR data"""
-        try:
-            y_top, y_bottom = y_pixel_pair
-            pixel_height = float(y_bottom - y_top)
-            
-            # Calculate camera angle from pixel position
-            camera_angle = math.atan2((x_pixel - self.cx), self.fx)
-            
-            # Get LIDAR distance at this angle
-            lidar_distance = self.get_lidar_distance(camera_angle)
-            
-            if lidar_distance is not None:
-                depth = lidar_distance
-                confidence = 1.2
-            else:
-                # Improved visual estimation
-                depth = (self.human_height * abs(self.fy)) / pixel_height
-                # Adjust confidence based on pixel height and position
-                confidence = min((pixel_height / 200.0) * (1.0 - (depth / 4.0)), 1.0)
-            
-            # Get transform from camera to map
-            transform = self.tf_buffer.lookup_transform(
-                'map',
-                'camera_link',
-                rclpy.time.Time(),
-                timeout=rclpy.duration.Duration(seconds=0.1)
-            )
-            
-            # Calculate 3D point in camera frame
-            center_x = ((x_pixel - self.cx) * depth) / self.fx
-            center_y = ((((y_top + y_bottom) / 2) - self.cy) * depth) / self.fy
-            
-            # Convert to ROS camera frame
-            x_cam = depth        # Camera Z -> ROS X (forward)
-            y_cam = -center_x    # Camera -X -> ROS Y (left)
-            z_cam = 0.0         # Project to ground plane
-            
-            self.get_logger().info(f'Camera frame coords: x={x_cam}, y={y_cam}, z={z_cam}')
-            
-            # Create pose in camera frame
-            pose_stamped = PoseStamped()
-            pose_stamped.header.frame_id = 'camera_link'
-            pose_stamped.header.stamp = transform.header.stamp
-            
-            pose = Pose()
-            pose.position.x = x_cam
-            pose.position.y = y_cam
-            pose.position.z = z_cam
-            
-            # Calculate orientation to face the camera
-            yaw = math.atan2(y_cam, x_cam)
-            pose.orientation.x = 0.0
-            pose.orientation.y = 0.0
-            pose.orientation.z = math.sin(yaw / 2.0)
-            pose.orientation.w = math.cos(yaw / 2.0)
-            
-            pose_stamped.pose = pose
-            
-            # Transform to map frame
+    def process_data(self):
+        """Process latest synchronized data at fixed frequency"""
+        with self.data_lock:
+            # Check if we have recent data
+            if (self.latest_image is None or self.latest_scan is None or 
+                self.latest_timestamp is None):
+                return
+                
+            # Check data age
+            current_time = self.get_clock().now()
+            data_age = (current_time - self.latest_timestamp).nanoseconds / 1e9
+            if data_age > self.max_data_age:
+                return
+                
+            # Process the synchronized data
             try:
-                transformed_pose = self.tf_buffer.transform(pose_stamped, 'map')
-                transformed_pose = self.filter_position(transformed_pose)
+                # Decode image
+                np_arr = np.frombuffer(self.latest_image.data, np.uint8)
+                cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
                 
-                self.get_logger().info(f'Transformed pose: x={transformed_pose.pose.position.x:.2f}, '
-                                     f'y={transformed_pose.pose.position.y:.2f}, '
-                                     f'z={transformed_pose.pose.position.z:.2f}')
+                # Run detection
+                results = self.model(cv_image, verbose=False)
                 
-                return transformed_pose, confidence
+                # Process detections
+                detections = []
+                for result in results:
+                    boxes = result.boxes.data.cpu().numpy()
+                    person_mask = (boxes[:, 5] == 0) & (boxes[:, 4] >= self.conf_threshold)
+                    person_boxes = boxes[person_mask]
+                    if len(person_boxes) > 0:
+                        detections.extend(person_boxes[:, :5])
                 
-            except Exception as e:
-                self.get_logger().error(f'Transform failed: {str(e)}')
-                return None, 0.0
-            
-        except Exception as e:
-            self.get_logger().warn(f'Failed to project to map: {str(e)}')
-            return None, 0.0
-            
-    def image_callback(self, msg):
-        try:
-            # Decode compressed image
-            np_arr = np.frombuffer(msg.data, np.uint8)
-            cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            
-            # Run detection with batching
-            results = self.model(cv_image, verbose=False)  # Disable verbose output
-            
-            # Process detections more efficiently
-            detections = []
-            for result in results:
-                boxes = result.boxes.data.cpu().numpy()  # Get all boxes at once
-                # Filter person detections (class 0) with confidence
-                person_mask = (boxes[:, 5] == 0) & (boxes[:, 4] >= self.conf_threshold)
-                person_boxes = boxes[person_mask]
-                if len(person_boxes) > 0:
-                    detections.extend(person_boxes[:, :5])  # Only take x1,y1,x2,y2,conf
-            
-            # Update trackers
-            tracked_objects = self.tracker.update(np.array(detections)) if detections else np.empty((0, 5))
-            
-            # Process tracked objects more efficiently
-            tracked_markers = MarkerArray()
-            viz_image = cv_image.copy() if tracked_objects.size > 0 else None
-            
-            # Track closest person
-            closest_person = None
-            min_distance = float('inf')
-            
-            for i, track in enumerate(tracked_objects):
-                x1, y1, x2, y2, track_id = track
+                # Update trackers
+                tracked_objects = self.tracker.update(np.array(detections)) if detections else np.empty((0, 5))
                 
-                # Only process if confidence is high enough
-                bottom_center_x = (x1 + x2) / 2
-                result = self.project_to_map(
-                    bottom_center_x,
-                    [y1, y2],
-                    msg.header,
-                    x2 - x1
-                )
-                
-                if result is not None:
-                    map_pose, confidence = result
-                    if confidence > self.min_tracking_confidence:
-                        # Calculate distance to robot
-                        distance = math.sqrt(
-                            map_pose.pose.position.x ** 2 + 
-                            map_pose.pose.position.y ** 2
-                        )
+                # Process tracked objects
+                if len(tracked_objects) > 0:
+                    # Find person closest to center
+                    image_center_x = cv_image.shape[1] / 2
+                    min_center_dist = float('inf')
+                    target_person = None
+                    
+                    for track in tracked_objects:
+                        x1, y1, x2, y2, track_id = track
+                        person_center_x = (x1 + x2) / 2
+                        center_dist = abs(person_center_x - image_center_x)
                         
-                        # Update closest person
-                        if distance < min_distance:
-                            min_distance = distance
-                            closest_person = (map_pose, track_id, distance)
+                        if center_dist < min_center_dist:
+                            min_center_dist = center_dist
+                            target_person = track
+                    
+                    if target_person is not None:
+                        x1, y1, x2, y2, track_id = target_person
+                        person_center_x = (x1 + x2) / 2
                         
-                        marker = self.create_person_marker(
-                            map_pose,
-                            int(track_id),
-                            i,
-                            confidence
-                        )
-                        tracked_markers.markers.append(marker)
+                        # Calculate normalized error (-1 to 1)
+                        center_error = (person_center_x - image_center_x) / image_center_x
                         
-                        # Only draw visualization if we're actually using it
-                        if viz_image is not None:
-                            cv2.rectangle(viz_image, 
-                                        (int(x1), int(y1)), 
-                                        (int(x2), int(y2)), 
-                                        (0, 255, 0), 2)
-                            cv2.putText(viz_image, 
-                                      f'ID: {int(track_id)}',
-                                      (int(x1), int(y1)-10),
-                                      cv2.FONT_HERSHEY_SIMPLEX,
-                                      0.5,
-                                      (0, 255, 0),
-                                      2)
-            
-            # Generate tracking commands if we have a person to track
-            if closest_person is not None:
-                pose, track_id, distance = closest_person
-                
-                # Create tracking command
-                cmd = Twist()
-                
-                # Calculate how far the person is from the center of the image
-                image_center_x = cv_image.shape[1] / 2
-                person_center_x = (x1 + x2) / 2
-                
-                # Calculate normalized error (-1 to 1)
-                center_error = (person_center_x - image_center_x) / image_center_x
-                
-                # Define a deadzone in the middle (30% of frame width)
-                deadzone = 0.5
-                
-                # Only turn if person is outside the deadzone
-                if abs(center_error) > deadzone:
-                    # Smoother turning with reduced gain outside deadzone
-                    turning_gain = 0.5
-                    cmd.angular.z = -center_error * turning_gain
+                        # Create and publish tracking command
+                        cmd = Twist()
+                        
+                        # Only turn if outside deadzone
+                        deadzone = 0.5
+                        if abs(center_error) > deadzone:
+                            turning_gain = 0.5
+                            cmd.angular.z = -center_error * turning_gain
+                            cmd.angular.z = max(min(cmd.angular.z, 0.5), -0.5)
+                        
+                        self.tracking_cmd_pub.publish(cmd)
+                        
+                        # Publish tracking status
+                        tracking_active = Bool()
+                        tracking_active.data = True
+                        self.tracking_active_pub.publish(tracking_active)
+                        
+                        # Visualize detection
+                        cv2.rectangle(cv_image, 
+                                    (int(x1), int(y1)), 
+                                    (int(x2), int(y2)), 
+                                    (0, 255, 0), 2)
+                        
+                        # Publish visualization
+                        compressed_msg = CompressedImage()
+                        compressed_msg.header = self.latest_image.header
+                        compressed_msg.format = 'jpeg'
+                        compressed_msg.data = np.array(cv2.imencode(
+                            '.jpg', cv_image, 
+                            [cv2.IMWRITE_JPEG_QUALITY, 60]
+                        )[1]).tobytes()
+                        self.debug_img_pub.publish(compressed_msg)
                 else:
-                    # Person is in center zone - don't turn
-                    cmd.angular.z = 0.0
-                
-                # Don't move forward/backward at all
-                cmd.linear.x = 0.0
-                
-                # Apply velocity limits with smaller max angular velocity
-                cmd.angular.z = max(min(cmd.angular.z, 0.5), -0.5)
-                
-                # Publish tracking command
-                self.tracking_cmd_pub.publish(cmd)
-                
-                tracking_active = Bool()
-                tracking_active.data = True
-                self.tracking_active_pub.publish(tracking_active)
-            else:
-                # Publish inactive status when no person detected
-                tracking_active = Bool()
-                tracking_active.data = False
-                self.tracking_active_pub.publish(tracking_active)
-            
-            # Only publish markers if we have any
-            if tracked_markers.markers:
-                self.tracked_persons_pub.publish(tracked_markers)
-            
-            # Only publish visualization if we modified the image
-            if viz_image is not None:
-                compressed_msg = CompressedImage()
-                compressed_msg.header = msg.header
-                compressed_msg.format = 'jpeg'
-                compressed_msg.data = np.array(cv2.imencode(
-                    '.jpg', viz_image, 
-                    [cv2.IMWRITE_JPEG_QUALITY, 60]  # Lower quality for faster transmission
-                )[1]).tobytes()
-                self.debug_img_pub.publish(compressed_msg)
-                
-        except Exception as e:
-            self.get_logger().error(f'Error in image callback: {str(e)}')
+                    # No person detected
+                    tracking_active = Bool()
+                    tracking_active.data = False
+                    self.tracking_active_pub.publish(tracking_active)
+                    
+            except Exception as e:
+                self.get_logger().error(f'Error processing data: {str(e)}')
 
     def filter_position(self, new_pose):
         """Optimized position filtering"""

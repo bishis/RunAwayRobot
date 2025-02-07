@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import CompressedImage, Image, LaserScan
+from sensor_msgs.msg import CompressedImage, Image, LaserScan, CameraInfo
 from visualization_msgs.msg import MarkerArray, Marker
-from geometry_msgs.msg import Point, PoseStamped, Pose, Quaternion, Twist
+from geometry_msgs.msg import Point, PoseStamped, Pose, Quaternion, Twist, PointStamped
 from vision_msgs.msg import Detection2DArray as DetectionArray
 from std_msgs.msg import Bool
 import cv2
@@ -15,15 +15,11 @@ import requests
 import shutil
 from cv_bridge import CvBridge
 from tf2_ros import Buffer, TransformListener, TransformException
-import tf2_geometry_msgs
 import math
 import yaml
 from .sort import Sort
 import threading
 from message_filters import ApproximateTimeSynchronizer, Subscriber
-from sensor_msgs.msg import CameraInfo
-from geometry_msgs.msg import PointStamped
-from tf2_geometry_msgs import TransformException
 from rclpy.duration import Duration
 
 class PersonDetector(Node):

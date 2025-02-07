@@ -402,31 +402,35 @@ class PersonDetector(Node):
     def create_person_marker(self, track_id, marker_id, x, y, confidence):
         """Create visualization marker for detected person"""
         marker = Marker()
-        marker.header.frame_id = 'camera_link'  # Change to camera frame
+        marker.header.frame_id = 'map'  # Change to map frame directly
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.ns = 'detected_persons'
         marker.id = marker_id
         marker.type = Marker.CYLINDER
         marker.action = Marker.ADD
         
-        # Transform point from camera to map frame
         try:
-            # Create stamped point
-            point = PointStamped()
-            point.header.frame_id = 'camera_link'
-            point.header.stamp = self.get_clock().now().to_msg()
-            point.point.x = x
-            point.point.y = y
-            point.point.z = 0.0
+            # Convert image coordinates (x,y) to camera coordinates
+            # Assuming x,y are in pixels and y is from top of image
+            # First normalize to image center
+            x_norm = (x - self.cx) / self.fx
+            y_norm = (y - self.cy) / self.fy
             
-            # Transform to map frame
-            transformed_point = self.tf_buffer.transform(point, 'map')
+            # Estimate depth using fixed human height (rough approximation)
+            depth = 2.0  # Fixed depth for visualization
             
-            marker.pose.position = transformed_point.point
+            # Create 3D point in camera frame
+            camera_point = Point()
+            camera_point.x = depth  # Forward
+            camera_point.y = -x_norm * depth  # Left/right
+            camera_point.z = 0.0  # Up/down
+            
+            # Create marker position
+            marker.pose.position = camera_point
             marker.pose.orientation.w = 1.0
             
-        except (TransformException, Exception) as e:
-            self.get_logger().error(f'Failed to transform person marker: {str(e)}')
+        except Exception as e:
+            self.get_logger().error(f'Failed to create person marker: {str(e)}')
             return None
         
         # Set marker size

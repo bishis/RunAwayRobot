@@ -18,28 +18,28 @@ class HumanAvoidanceController:
         self.node = node
         self.waypoint_generator = waypoint_generator
         
-        # Parameters
-        self.min_safe_distance = 0.5  # Meters
-        self.max_backup_speed = 0.1  # m/s
-        self.min_escape_distance = 1.0  # Minimum distance for escape waypoint
+        # Distance thresholds
+        self.min_safe_distance = 1.0  # Start backing up at 1m
+        self.critical_distance = 0.3   # Request escape at 0.3m
+        self.max_backup_speed = 0.15   # m/s
         
-        # Add tracking parameters
-        self.frame_width = 640  # Default camera width
-        self.center_threshold = 0.5  # Keep human within 50% of center
-        self.max_turn_speed = 0.8
-        self.min_turn_speed = 0.3
-        self.turn_p_gain = 0.8  # P controller gain for turning
-        
-        # Add turning parameters from navigation controller
-        self.min_rotation_speed = 0.8  # Minimum rotation speed
-        self.max_rotation_speed = 0.9  # Maximum rotation speed
-        self.max_linear_speed = 0.07   # Maximum linear speed
+        # Turning parameters
+        self.min_rotation_speed = 0.3
+        self.max_rotation_speed = 0.8
+        self.turn_p_gain = 1.2  # Increased for more responsive turning
         
         # Get latest scan data from node
         self.latest_scan = None
         if hasattr(node, 'latest_scan'):
             self.latest_scan = node.latest_scan
             
+        # Add tracking parameters
+        self.frame_width = 640  # Default camera width
+        self.center_threshold = 0.5  # Keep human within 50% of center
+        self.max_turn_speed = 0.8
+        self.min_turn_speed = 0.3
+        self.max_linear_speed = 0.07   # Maximum linear speed
+        
         # Get parameters from node if available
         if hasattr(node, 'min_rotation_speed'):
             self.min_rotation_speed = node.min_rotation_speed
@@ -63,33 +63,35 @@ class HumanAvoidanceController:
         cmd = Twist()
         needs_escape = False
         
-        # Calculate turning command to keep human in frame
+        # Always try to face the human when detected
         if image_x is not None:
-            # Normalize image position to -1 to 1
-            normalized_x = (2 * image_x / self.frame_width) - 1
+            # Calculate normalized error from image center (-1 to 1)
+            image_center = 320  # Assuming 640x480 image
+            normalized_error = (image_x - image_center) / image_center
             
-            # Only turn if human is too far from center
-            if abs(normalized_x) > self.center_threshold:
-                # Calculate turn speed
-                turn_speed = -normalized_x * self.turn_p_gain
-                
-                # Apply minimum rotation speed if turning
-                if abs(turn_speed) > 0.0:
-                    if abs(turn_speed) < self.min_rotation_speed:
-                        turn_speed = math.copysign(self.min_rotation_speed, turn_speed)
-                        cmd.linear.x = 0.0  # Stop forward motion while rotating slowly
-                
-                # Limit maximum rotation speed
-                cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
-                                  -self.max_rotation_speed)
-                
-                self.node.get_logger().info(
-                    f'Tracking human: pos={normalized_x:.2f}, turn={cmd.angular.z:.2f}'
-                )
+            # Calculate turn speed to face human
+            turn_speed = -normalized_error * self.turn_p_gain
+            
+            # Apply minimum rotation speed if turning
+            if abs(turn_speed) > 0.0:
+                if abs(turn_speed) < self.min_rotation_speed:
+                    turn_speed = math.copysign(self.min_rotation_speed, turn_speed)
+                    cmd.linear.x = 0.0  # Stop while turning slowly
+            
+            # Limit maximum rotation speed
+            cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
+                              -self.max_rotation_speed)
+            
+            self.node.get_logger().info(
+                f'Facing human: error={normalized_error:.2f}, turn={cmd.angular.z:.2f}'
+            )
         
-        # Check if we're too close to the human
+        # Check distances and respond accordingly
         if human_distance < self.min_safe_distance:
-            self.node.get_logger().info(f'Human too close ({human_distance:.2f}m), backing up')
+            # Start backing up when closer than safe distance
+            self.node.get_logger().info(
+                f'Human too close ({human_distance:.2f}m), backing up'
+            )
             
             # Calculate backup speed based on how close the human is
             backup_scale = 1.0 - (human_distance / self.min_safe_distance)
@@ -100,20 +102,19 @@ class HumanAvoidanceController:
                 cmd.linear.x = backup_speed
                 self.node.get_logger().info(f'Backing up at {backup_speed:.2f} m/s')
                 
-                # If we're not tracking in image, use angle-based turning
-                if image_x is None:
-                    # Turn away from human while backing up
+                # Keep facing human while backing up
+                if image_x is None and human_angle is not None:
+                    # Use LIDAR angle if image position not available
                     turn_speed = math.copysign(0.5, -human_angle)
-                    
-                    # Apply minimum rotation speed
-                    if abs(turn_speed) < self.min_rotation_speed:
-                        turn_speed = math.copysign(self.min_rotation_speed, turn_speed)
-                    
                     cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
                                       -self.max_rotation_speed)
             else:
-                self.node.get_logger().warn('Cannot back up further, need escape plan')
-                needs_escape = True
+                # If we can't back up and human is very close, request escape
+                if human_distance < self.critical_distance:
+                    self.node.get_logger().warn(
+                        'Cannot back up and human too close, need escape plan'
+                    )
+                    needs_escape = True
         
         # Ensure we're not exceeding max speeds
         cmd.linear.x = max(min(cmd.linear.x, self.max_linear_speed), -self.max_linear_speed)
@@ -129,6 +130,7 @@ class HumanAvoidanceController:
         # Check rear LIDAR readings (assume LIDAR 0 is front, ±π is rear)
         rear_angles = [-math.pi, math.pi]  # Check both sides of rear
         angle_tolerance = math.pi/6  # 30 degree cone behind robot
+        min_backup_distance = 0.3  # Minimum space needed to back up
         
         min_rear_distance = float('inf')
         
@@ -145,8 +147,7 @@ class HumanAvoidanceController:
             if rear_readings:
                 min_rear_distance = min(min_rear_distance, min(rear_readings))
         
-        # Need at least 0.5m to back up
-        return min_rear_distance > 0.5
+        return min_rear_distance > min_backup_distance
         
     def plan_escape(self):
         """Plan escape waypoint furthest from current position"""

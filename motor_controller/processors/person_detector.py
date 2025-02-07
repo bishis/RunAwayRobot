@@ -3,7 +3,9 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage, Image, LaserScan, CameraInfo
 from visualization_msgs.msg import MarkerArray, Marker
-from geometry_msgs.msg import Point, PoseStamped, Pose, Quaternion, Twist, PointStamped
+from geometry_msgs.msg import Point, PoseStamped, Pose, Quaternion, Twist
+from geometry_msgs.msg import PointStamped, TransformStamped
+from tf2_geometry_msgs import do_transform_point
 from vision_msgs.msg import Detection2DArray as DetectionArray
 from std_msgs.msg import Bool
 import cv2
@@ -21,6 +23,7 @@ from .sort import Sort
 import threading
 from message_filters import ApproximateTimeSynchronizer, Subscriber
 from rclpy.duration import Duration
+from rclpy.time import Time
 
 class PersonDetector(Node):
     def __init__(self):
@@ -405,7 +408,7 @@ class PersonDetector(Node):
             return None
             
         marker = Marker()
-        marker.header.frame_id = 'map'  # Change to map frame
+        marker.header.frame_id = 'map'
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.ns = 'detected_persons'
         marker.id = marker_id
@@ -437,20 +440,20 @@ class PersonDetector(Node):
                     camera_point.point.z = 0.0
                     
                     try:
-                        # Transform point from camera_link to map frame
-                        map_point = self.tf_buffer.transform(camera_point, 'map', timeout=Duration(seconds=1.0))
+                        # Get transform from camera to map
+                        transform = self.tf_buffer.lookup_transform(
+                            'map',
+                            'camera_link',
+                            Time(),
+                            timeout=Duration(seconds=1.0)
+                        )
+                        
+                        # Transform point using tf2_geometry_msgs
+                        map_point = do_transform_point(camera_point, transform)
                         
                         # Set marker position in map frame
                         marker.pose.position = map_point.point
-                        
-                        # Get robot orientation in map frame for marker orientation
-                        transform = self.tf_buffer.lookup_transform(
-                            'map',
-                            'base_link',
-                            rclpy.time.Time(),
-                            timeout=Duration(seconds=1.0)
-                        )
-                        marker.pose.orientation = transform.transform.rotation
+                        marker.pose.orientation.w = 1.0  # Default orientation
                         
                         # Log depth for debugging
                         self.get_logger().info(

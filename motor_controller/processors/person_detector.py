@@ -151,6 +151,9 @@ class PersonDetector(Node):
         self.latest_scan = None
         self.scan_lock = threading.Lock()
         
+        # Add LIDAR parameters
+        self.lidar_window_size = 3  # Window size for LIDAR measurements
+        
         # Optimize tracking parameters
         self.conf_threshold = 0.5  # Lower threshold for faster detection
         self.model.conf = self.conf_threshold

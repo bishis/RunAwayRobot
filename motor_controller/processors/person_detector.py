@@ -385,21 +385,24 @@ class PersonDetector(Node):
                 # Create tracking command with improved responsiveness
                 cmd = Twist()
                 
-                # More responsive angular control
-                angle_to_person = math.atan2(pose.pose.position.y, pose.pose.position.x)
-                cmd.angular.z = angle_to_person * self.p_gain_angular
+                # Calculate how far the person is from the center of the image
+                image_center_x = cv_image.shape[1] / 2
+                person_center_x = (x1 + x2) / 2
+                center_error = (person_center_x - image_center_x) / image_center_x  # Normalized error (-1 to 1)
                 
-                # More responsive distance control
-                distance_error = distance - self.target_distance
-                cmd.linear.x = distance_error * self.p_gain_linear
+                # Simple P controller to center person in frame
+                cmd.angular.z = -center_error * 1.0  # Negative because positive angle turns left
                 
-                # Smoother velocity limits
-                if abs(angle_to_person) > 0.5:  # If angle is large
-                    cmd.linear.x *= max(0, 1 - (abs(angle_to_person) - 0.5))  # Slow down
+                # Only move forward/back if person is centered
+                if abs(center_error) < 0.2:  # Person is roughly centered
+                    distance_error = distance - self.target_distance
+                    cmd.linear.x = distance_error * 0.5
+                else:
+                    cmd.linear.x = 0.0  # Don't move while turning to face person
                 
                 # Apply velocity limits
                 cmd.linear.x = max(min(cmd.linear.x, 0.2), -0.2)
-                cmd.angular.z = max(min(cmd.angular.z, 1.0), -1.0)
+                cmd.angular.z = max(min(cmd.angular.z, 0.8), -0.8)
                 
                 # Publish tracking command
                 self.tracking_cmd_pub.publish(cmd)

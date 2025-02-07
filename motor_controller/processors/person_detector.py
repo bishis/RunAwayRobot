@@ -228,10 +228,22 @@ class PersonDetector(Node):
                 # Run detection
                 results = self.model(cv_image, verbose=False)
                 
-                # Process detections
+                # Process detections with logging
                 detections = []
+                detection_array = DetectionArray()
+                detection_array.header = self.latest_image.header
+                
                 for result in results:
                     boxes = result.boxes.data.cpu().numpy()
+                    # Log all detections
+                    for box in boxes:
+                        x1, y1, x2, y2, conf, class_id = box
+                        if class_id == 0:  # person class
+                            self.get_logger().info(
+                                f'Person detected: conf={conf:.2f}, '
+                                f'pos=({(x1+x2)/2:.0f}, {(y1+y2)/2:.0f})'
+                            )
+                    
                     person_mask = (boxes[:, 5] == 0) & (boxes[:, 4] >= self.conf_threshold)
                     person_boxes = boxes[person_mask]
                     if len(person_boxes) > 0:
@@ -239,6 +251,9 @@ class PersonDetector(Node):
                 
                 # Update trackers
                 tracked_objects = self.tracker.update(np.array(detections)) if detections else np.empty((0, 5))
+                
+                # Create marker array for visualization
+                marker_array = MarkerArray()
                 
                 # Process tracked objects
                 if len(tracked_objects) > 0:
@@ -252,9 +267,26 @@ class PersonDetector(Node):
                         person_center_x = (x1 + x2) / 2
                         center_dist = abs(person_center_x - image_center_x)
                         
+                        # Log tracked person
+                        self.get_logger().info(
+                            f'Tracking ID {int(track_id)}: '
+                            f'center_dist={center_dist:.0f}, '
+                            f'pos=({person_center_x:.0f}, {(y1+y2)/2:.0f})'
+                        )
+                        
                         if center_dist < min_center_dist:
                             min_center_dist = center_dist
                             target_person = track
+                            
+                        # Create marker for each tracked person
+                        marker = self.create_person_marker(
+                            track_id=int(track_id),
+                            marker_id=len(marker_array.markers),
+                            x=person_center_x,
+                            y=(y1 + y2) / 2,
+                            confidence=1.0
+                        )
+                        marker_array.markers.append(marker)
                     
                     if target_person is not None:
                         x1, y1, x2, y2, track_id = target_person
@@ -262,6 +294,12 @@ class PersonDetector(Node):
                         
                         # Calculate normalized error (-1 to 1)
                         center_error = (person_center_x - image_center_x) / image_center_x
+                        
+                        # Log target person
+                        self.get_logger().info(
+                            f'Target person ID {int(track_id)}: '
+                            f'error={center_error:.2f}'
+                        )
                         
                         # Create and publish tracking command
                         cmd = Twist()
@@ -272,6 +310,10 @@ class PersonDetector(Node):
                             turning_gain = 0.5
                             cmd.angular.z = -center_error * turning_gain
                             cmd.angular.z = max(min(cmd.angular.z, 0.5), -0.5)
+                            
+                            self.get_logger().info(
+                                f'Turning command: {cmd.angular.z:.2f} rad/s'
+                            )
                         
                         self.tracking_cmd_pub.publish(cmd)
                         
@@ -285,6 +327,13 @@ class PersonDetector(Node):
                                     (int(x1), int(y1)), 
                                     (int(x2), int(y2)), 
                                     (0, 255, 0), 2)
+                        cv2.putText(cv_image,
+                                  f'ID: {int(track_id)} err: {center_error:.2f}',
+                                  (int(x1), int(y1)-10),
+                                  cv2.FONT_HERSHEY_SIMPLEX,
+                                  0.5,
+                                  (0, 255, 0),
+                                  2)
                         
                         # Publish visualization
                         compressed_msg = CompressedImage()
@@ -295,8 +344,14 @@ class PersonDetector(Node):
                             [cv2.IMWRITE_JPEG_QUALITY, 60]
                         )[1]).tobytes()
                         self.debug_img_pub.publish(compressed_msg)
-                else:
+                
+                # Always publish markers and detection array
+                self.map_marker_pub.publish(marker_array)
+                self.detection_pub.publish(detection_array)
+                
+                if len(tracked_objects) == 0:
                     # No person detected
+                    self.get_logger().info('No persons tracked')
                     tracking_active = Bool()
                     tracking_active.data = False
                     self.tracking_active_pub.publish(tracking_active)
@@ -325,7 +380,7 @@ class PersonDetector(Node):
         
         return new_pose
 
-    def create_person_marker(self, pose, track_id, marker_id, confidence):
+    def create_person_marker(self, track_id, marker_id, x, y, confidence):
         marker = Marker()
         marker.header.frame_id = 'map'
         marker.header.stamp = self.get_clock().now().to_msg()
@@ -334,7 +389,10 @@ class PersonDetector(Node):
         marker.type = Marker.CYLINDER
         marker.action = Marker.ADD
         
-        marker.pose = pose.pose
+        marker.pose.position.x = x
+        marker.pose.position.y = y
+        marker.pose.position.z = 0.0
+        marker.pose.orientation.w = 1.0
         
         # Adjust marker color based on track ID
         marker.color.r = (track_id * 123) % 255 / 255.0

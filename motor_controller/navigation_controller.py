@@ -12,6 +12,7 @@ import numpy as np
 import math
 from .processors.waypoint_generator import WaypointGenerator
 from std_msgs.msg import Bool
+from .processors.human_avoidance_controller import HumanAvoidanceController
 
 class NavigationController(Node):
     def __init__(self):
@@ -105,6 +106,9 @@ class NavigationController(Node):
         self.get_logger().info('Navigation controller initialized')
         
         self._current_goal_handle = None
+        
+        # Add human avoidance controller
+        self.human_avoidance = HumanAvoidanceController(self, self.waypoint_generator)
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -375,24 +379,39 @@ class NavigationController(Node):
                 self._current_goal_handle.cancel_goal_async()
                 
     def tracking_cmd_callback(self, msg):
-        """Handle human tracking commands"""
+        """Handle human tracking commands with avoidance"""
         if self.is_tracking_human:
             try:
-                # Handle rotation speeds
-                if abs(msg.angular.z) > 0.0:
-                    if abs(msg.angular.z) < self.min_rotation_speed:
-                        msg.angular.z = math.copysign(self.min_rotation_speed, msg.angular.z)
-                        msg.linear.x = 0.0  # Stop forward motion while rotating slowly
+                # Extract human position from tracking command
+                human_angle = -msg.angular.z  # Invert because cmd is opposite
                 
-                # Ensure we're not exceeding max speeds
-                msg.linear.x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)
-                msg.angular.z = max(min(msg.angular.z, self.max_angular_speed), -self.max_angular_speed)
+                # Estimate distance from linear command (rough approximation)
+                human_distance = 1.0 - abs(msg.linear.x) * 2.0  # Rough conversion
                 
-                # Create and publish wheel speeds
-                wheel_speeds = Twist()
-                wheel_speeds.linear.x = msg.linear.x
-                wheel_speeds.angular.z = msg.angular.z
-                self.wheel_speeds_pub.publish(wheel_speeds)
+                # Calculate normalized image position from angular command
+                # Convert angular command back to approximate image position
+                image_x = ((-human_angle / self.max_angular_speed) + 1) * 320  # Assuming 640x480 image
+                
+                # Get avoidance command
+                cmd, needs_escape = self.human_avoidance.get_avoidance_command(
+                    human_distance, 
+                    human_angle,
+                    image_x
+                )
+                
+                if needs_escape:
+                    # Plan escape waypoint
+                    escape_point = self.human_avoidance.plan_escape()
+                    if escape_point is not None:
+                        self.send_goal(escape_point)
+                        return  # Skip normal command processing
+                
+                # Apply normal speed limits
+                cmd.linear.x = max(min(cmd.linear.x, self.max_linear_speed), -self.max_linear_speed)
+                cmd.angular.z = max(min(cmd.angular.z, self.max_angular_speed), -self.max_angular_speed)
+                
+                # Publish command
+                self.wheel_speeds_pub.publish(cmd)
                 
             except Exception as e:
                 self.get_logger().error(f'Error in tracking cmd callback: {str(e)}')

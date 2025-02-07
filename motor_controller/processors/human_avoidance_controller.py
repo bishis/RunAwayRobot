@@ -25,15 +25,28 @@ class HumanAvoidanceController:
         
         # Add tracking parameters
         self.frame_width = 640  # Default camera width
-        self.center_threshold = 0.3  # Keep human within 30% of center
+        self.center_threshold = 0.5  # Keep human within 50% of center
         self.max_turn_speed = 0.8
         self.min_turn_speed = 0.3
         self.turn_p_gain = 0.8  # P controller gain for turning
+        
+        # Add turning parameters from navigation controller
+        self.min_rotation_speed = 0.8  # Minimum rotation speed
+        self.max_rotation_speed = 0.9  # Maximum rotation speed
+        self.max_linear_speed = 0.07   # Maximum linear speed
         
         # Get latest scan data from node
         self.latest_scan = None
         if hasattr(node, 'latest_scan'):
             self.latest_scan = node.latest_scan
+            
+        # Get parameters from node if available
+        if hasattr(node, 'min_rotation_speed'):
+            self.min_rotation_speed = node.min_rotation_speed
+        if hasattr(node, 'max_angular_speed'):
+            self.max_rotation_speed = node.max_angular_speed
+        if hasattr(node, 'max_linear_speed'):
+            self.max_linear_speed = node.max_linear_speed
             
     def get_avoidance_command(self, human_distance, human_angle, image_x=None):
         """
@@ -57,19 +70,21 @@ class HumanAvoidanceController:
             
             # Only turn if human is too far from center
             if abs(normalized_x) > self.center_threshold:
-                # P controller for turning
+                # Calculate turn speed
                 turn_speed = -normalized_x * self.turn_p_gain
                 
-                # Ensure minimum turn speed when needed
-                if abs(turn_speed) < self.min_turn_speed and turn_speed != 0:
-                    turn_speed = math.copysign(self.min_turn_speed, turn_speed)
+                # Apply minimum rotation speed if turning
+                if abs(turn_speed) > 0.0:
+                    if abs(turn_speed) < self.min_rotation_speed:
+                        turn_speed = math.copysign(self.min_rotation_speed, turn_speed)
+                        cmd.linear.x = 0.0  # Stop forward motion while rotating slowly
                 
-                # Limit maximum turn speed
-                turn_speed = max(min(turn_speed, self.max_turn_speed), -self.max_turn_speed)
-                cmd.angular.z = turn_speed
+                # Limit maximum rotation speed
+                cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
+                                  -self.max_rotation_speed)
                 
                 self.node.get_logger().info(
-                    f'Tracking human: pos={normalized_x:.2f}, turn={turn_speed:.2f}'
+                    f'Tracking human: pos={normalized_x:.2f}, turn={cmd.angular.z:.2f}'
                 )
         
         # Check if we're too close to the human
@@ -88,11 +103,21 @@ class HumanAvoidanceController:
                 # If we're not tracking in image, use angle-based turning
                 if image_x is None:
                     # Turn away from human while backing up
-                    turn_direction = math.copysign(1.0, -human_angle)
-                    cmd.angular.z = turn_direction * 0.5
+                    turn_speed = math.copysign(0.5, -human_angle)
+                    
+                    # Apply minimum rotation speed
+                    if abs(turn_speed) < self.min_rotation_speed:
+                        turn_speed = math.copysign(self.min_rotation_speed, turn_speed)
+                    
+                    cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
+                                      -self.max_rotation_speed)
             else:
                 self.node.get_logger().warn('Cannot back up further, need escape plan')
                 needs_escape = True
+        
+        # Ensure we're not exceeding max speeds
+        cmd.linear.x = max(min(cmd.linear.x, self.max_linear_speed), -self.max_linear_speed)
+        cmd.angular.z = max(min(cmd.angular.z, self.max_rotation_speed), -self.max_rotation_speed)
         
         return cmd, needs_escape
         

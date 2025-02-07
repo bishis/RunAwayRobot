@@ -531,3 +531,66 @@ class WaypointGenerator:
     def publish_waypoints(self):
         # Implement the logic to republish updated waypoints
         pass
+
+    def get_furthest_waypoint(self):
+        """Generate a waypoint at the furthest reachable point from current position"""
+        if self.current_map is None:
+            self.node.get_logger().warn('No map available for escape planning')
+            return None
+            
+        # Convert map to numpy array
+        map_data = np.array(self.current_map.data).reshape(
+            self.current_map.info.height,
+            self.current_map.info.width
+        )
+        
+        # Get map parameters
+        resolution = self.current_map.info.resolution
+        origin_x = self.current_map.info.origin.position.x
+        origin_y = self.current_map.info.origin.position.y
+        
+        # Find all valid points (not occupied or unknown)
+        valid_points = np.where((map_data < 50) & (map_data >= 0))
+        if len(valid_points[0]) == 0:
+            return None
+            
+        # Convert map coordinates to world coordinates
+        world_points = []
+        for y, x in zip(valid_points[0], valid_points[1]):
+            world_x = x * resolution + origin_x
+            world_y = y * resolution + origin_y
+            
+            # Check if point is away from walls
+            if not self.is_near_wall(world_x, world_y, map_data, resolution, origin_x, origin_y):
+                world_points.append((world_x, world_y))
+        
+        if not world_points:
+            return None
+            
+        # Find point furthest from current position
+        max_dist = 0
+        furthest_point = None
+        
+        for wx, wy in world_points:
+            dist = wx*wx + wy*wy  # Distance from origin (squared)
+            if dist > max_dist:
+                max_dist = dist
+                furthest_point = (wx, wy)
+        
+        if furthest_point is None:
+            return None
+            
+        # Create PoseStamped message
+        waypoint = PoseStamped()
+        waypoint.header.frame_id = 'map'
+        waypoint.header.stamp = self.node.get_clock().now().to_msg()
+        waypoint.pose.position.x = furthest_point[0]
+        waypoint.pose.position.y = furthest_point[1]
+        waypoint.pose.orientation.w = 1.0
+        
+        self.node.get_logger().info(
+            f'Generated escape waypoint at ({waypoint.pose.position.x:.2f}, '
+            f'{waypoint.pose.position.y:.2f})'
+        )
+        
+        return waypoint

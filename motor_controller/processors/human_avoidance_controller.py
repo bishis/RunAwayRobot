@@ -19,9 +19,9 @@ class HumanAvoidanceController:
         self.waypoint_generator = waypoint_generator
         
         # Parameters
-        self.min_safe_distance = 1.5  # Meters
-        self.max_backup_speed = 0.15  # m/s
-        self.min_escape_distance = 2.0  # Minimum distance for escape waypoint
+        self.min_safe_distance = 0.5  # Meters
+        self.max_backup_speed = 0.1  # m/s
+        self.min_escape_distance = 1.0  # Minimum distance for escape waypoint
         
         # Add tracking parameters
         self.frame_width = 640  # Default camera width

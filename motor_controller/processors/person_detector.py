@@ -382,27 +382,33 @@ class PersonDetector(Node):
             if closest_person is not None:
                 pose, track_id, distance = closest_person
                 
-                # Create tracking command with improved responsiveness
+                # Create tracking command
                 cmd = Twist()
                 
                 # Calculate how far the person is from the center of the image
                 image_center_x = cv_image.shape[1] / 2
                 person_center_x = (x1 + x2) / 2
-                center_error = (person_center_x - image_center_x) / image_center_x  # Normalized error (-1 to 1)
                 
-                # Simple P controller to center person in frame
-                cmd.angular.z = -center_error * 1.0  # Negative because positive angle turns left
+                # Calculate normalized error (-1 to 1)
+                center_error = (person_center_x - image_center_x) / image_center_x
                 
-                # Only move forward/back if person is centered
-                if abs(center_error) < 0.2:  # Person is roughly centered
-                    distance_error = distance - self.target_distance
-                    cmd.linear.x = distance_error * 0.5
+                # Define a deadzone in the middle (30% of frame width)
+                deadzone = 0.5
+                
+                # Only turn if person is outside the deadzone
+                if abs(center_error) > deadzone:
+                    # Smoother turning with reduced gain outside deadzone
+                    turning_gain = 0.5
+                    cmd.angular.z = -center_error * turning_gain
                 else:
-                    cmd.linear.x = 0.0  # Don't move while turning to face person
+                    # Person is in center zone - don't turn
+                    cmd.angular.z = 0.0
                 
-                # Apply velocity limits
-                cmd.linear.x = max(min(cmd.linear.x, 0.2), -0.2)
-                cmd.angular.z = max(min(cmd.angular.z, 0.8), -0.8)
+                # Don't move forward/backward at all
+                cmd.linear.x = 0.0
+                
+                # Apply velocity limits with smaller max angular velocity
+                cmd.angular.z = max(min(cmd.angular.z, 0.5), -0.5)
                 
                 # Publish tracking command
                 self.tracking_cmd_pub.publish(cmd)

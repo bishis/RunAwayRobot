@@ -405,7 +405,7 @@ class PersonDetector(Node):
             return None
             
         marker = Marker()
-        marker.header.frame_id = 'camera_link'
+        marker.header.frame_id = 'map'  # Change to map frame
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.ns = 'detected_persons'
         marker.id = marker_id
@@ -414,42 +414,56 @@ class PersonDetector(Node):
         
         try:
             # Convert image x coordinate to angle in LIDAR frame
-            # Image center (cx) corresponds to 0 radians in LIDAR
-            angle = math.atan2((x - self.cx), self.fx)  # Use fx for proper angle calculation
+            angle = math.atan2((x - self.cx), self.fx)
             
             # Find corresponding LIDAR measurement
-            # Convert angle to LIDAR array index
-            angle_rad = angle  # Angle in radians
+            angle_rad = angle
             index = int((angle_rad - self.latest_scan.angle_min) / 
                        self.latest_scan.angle_increment)
             
             # Ensure index is within bounds
             if 0 <= index < len(self.latest_scan.ranges):
-                # Get depth from LIDAR
                 depth = self.latest_scan.ranges[index]
                 
-                # Check if depth is valid
                 if (depth >= self.latest_scan.range_min and 
                     depth <= self.latest_scan.range_max):
                     
-                    # Create 3D point in camera frame
-                    camera_point = Point()
-                    camera_point.x = depth * math.cos(angle)  # Forward
-                    camera_point.y = depth * math.sin(angle)  # Left/right
-                    camera_point.z = 0.0  # Ground level
+                    # Create point in camera frame
+                    camera_point = PointStamped()
+                    camera_point.header.frame_id = 'camera_link'
+                    camera_point.header.stamp = self.get_clock().now().to_msg()
+                    camera_point.point.x = depth * math.cos(angle)
+                    camera_point.point.y = depth * math.sin(angle)
+                    camera_point.point.z = 0.0
                     
-                    # Set marker position
-                    marker.pose.position = camera_point
-                    marker.pose.orientation.w = 1.0
-                    
-                    # Log depth for debugging
-                    self.get_logger().info(
-                        f'Person {track_id} at depth={depth:.2f}m, '
-                        f'angle={math.degrees(angle):.1f}°'
-                    )
+                    try:
+                        # Transform point from camera_link to map frame
+                        map_point = self.tf_buffer.transform(camera_point, 'map', timeout=Duration(seconds=1.0))
+                        
+                        # Set marker position in map frame
+                        marker.pose.position = map_point.point
+                        
+                        # Get robot orientation in map frame for marker orientation
+                        transform = self.tf_buffer.lookup_transform(
+                            'map',
+                            'base_link',
+                            rclpy.time.Time(),
+                            timeout=Duration(seconds=1.0)
+                        )
+                        marker.pose.orientation = transform.transform.rotation
+                        
+                        # Log depth for debugging
+                        self.get_logger().info(
+                            f'Person {track_id} at depth={depth:.2f}m, '
+                            f'angle={math.degrees(angle):.1f}°'
+                        )
+                        
+                    except TransformException as e:
+                        self.get_logger().warn(f'Transform failed: {str(e)}')
+                        return None
+                        
                 else:
-                    # Use fallback depth if LIDAR measurement is invalid
-                    self.get_logger().warn('Invalid LIDAR measurement, using fallback')
+                    self.get_logger().warn('Invalid LIDAR measurement')
                     return None
             else:
                 self.get_logger().warn('Angle outside LIDAR range')
@@ -460,9 +474,9 @@ class PersonDetector(Node):
             return None
         
         # Set marker size
-        marker.scale.x = 0.4  # Diameter
-        marker.scale.y = 0.4  # Diameter
-        marker.scale.z = 1.7  # Height
+        marker.scale.x = 0.4
+        marker.scale.y = 0.4
+        marker.scale.z = 1.7
         
         # Set color based on track ID and confidence
         marker.color.r = (track_id * 123) % 255 / 255.0

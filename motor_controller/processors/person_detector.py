@@ -400,9 +400,12 @@ class PersonDetector(Node):
         return new_pose
 
     def create_person_marker(self, track_id, marker_id, x, y, confidence):
-        """Create visualization marker for detected person"""
+        """Create visualization marker for detected person using LIDAR data"""
+        if self.latest_scan is None:
+            return None
+            
         marker = Marker()
-        marker.header.frame_id = 'map'  # Change to map frame directly
+        marker.header.frame_id = 'camera_link'
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.ns = 'detected_persons'
         marker.id = marker_id
@@ -410,24 +413,47 @@ class PersonDetector(Node):
         marker.action = Marker.ADD
         
         try:
-            # Convert image coordinates (x,y) to camera coordinates
-            # Assuming x,y are in pixels and y is from top of image
-            # First normalize to image center
-            x_norm = (x - self.cx) / self.fx
-            y_norm = (y - self.cy) / self.fy
+            # Convert image x coordinate to angle in LIDAR frame
+            # Image center (cx) corresponds to 0 radians in LIDAR
+            angle = math.atan2((x - self.cx), self.fx)  # Use fx for proper angle calculation
             
-            # Estimate depth using fixed human height (rough approximation)
-            depth = 2.0  # Fixed depth for visualization
+            # Find corresponding LIDAR measurement
+            # Convert angle to LIDAR array index
+            angle_rad = angle  # Angle in radians
+            index = int((angle_rad - self.latest_scan.angle_min) / 
+                       self.latest_scan.angle_increment)
             
-            # Create 3D point in camera frame
-            camera_point = Point()
-            camera_point.x = depth  # Forward
-            camera_point.y = -x_norm * depth  # Left/right
-            camera_point.z = 0.0  # Up/down
-            
-            # Create marker position
-            marker.pose.position = camera_point
-            marker.pose.orientation.w = 1.0
+            # Ensure index is within bounds
+            if 0 <= index < len(self.latest_scan.ranges):
+                # Get depth from LIDAR
+                depth = self.latest_scan.ranges[index]
+                
+                # Check if depth is valid
+                if (depth >= self.latest_scan.range_min and 
+                    depth <= self.latest_scan.range_max):
+                    
+                    # Create 3D point in camera frame
+                    camera_point = Point()
+                    camera_point.x = depth * math.cos(angle)  # Forward
+                    camera_point.y = depth * math.sin(angle)  # Left/right
+                    camera_point.z = 0.0  # Ground level
+                    
+                    # Set marker position
+                    marker.pose.position = camera_point
+                    marker.pose.orientation.w = 1.0
+                    
+                    # Log depth for debugging
+                    self.get_logger().info(
+                        f'Person {track_id} at depth={depth:.2f}m, '
+                        f'angle={math.degrees(angle):.1f}°'
+                    )
+                else:
+                    # Use fallback depth if LIDAR measurement is invalid
+                    self.get_logger().warn('Invalid LIDAR measurement, using fallback')
+                    return None
+            else:
+                self.get_logger().warn('Angle outside LIDAR range')
+                return None
             
         except Exception as e:
             self.get_logger().error(f'Failed to create person marker: {str(e)}')

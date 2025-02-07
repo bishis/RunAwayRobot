@@ -22,6 +22,9 @@ from .sort import Sort
 import threading
 from message_filters import ApproximateTimeSynchronizer, Subscriber
 from sensor_msgs.msg import CameraInfo
+from geometry_msgs.msg import PointStamped
+from tf2_geometry_msgs import TransformException
+from rclpy.duration import Duration
 
 class PersonDetector(Node):
     def __init__(self):
@@ -117,7 +120,7 @@ class PersonDetector(Node):
         # Add map visualization publisher
         self.map_marker_pub = self.create_publisher(
             MarkerArray,
-            '/map_person_detections',
+            '/detected_persons',
             10
         )
         
@@ -257,6 +260,26 @@ class PersonDetector(Node):
                 
                 # Process tracked objects
                 if len(tracked_objects) > 0:
+                    for i, track in enumerate(tracked_objects):
+                        x1, y1, x2, y2, track_id = track
+                        person_center_x = (x1 + x2) / 2
+                        person_center_y = (y1 + y2) / 2
+                        
+                        # Create marker for visualization
+                        marker = self.create_person_marker(
+                            track_id=int(track_id),
+                            marker_id=i,
+                            x=person_center_x,
+                            y=person_center_y,
+                            confidence=1.0
+                        )
+                        
+                        if marker is not None:
+                            marker_array.markers.append(marker)
+                
+                    # Always publish markers even if empty
+                    self.map_marker_pub.publish(marker_array)
+                    
                     # Find person closest to center
                     image_center_x = cv_image.shape[1] / 2
                     min_center_dist = float('inf')
@@ -381,31 +404,48 @@ class PersonDetector(Node):
         return new_pose
 
     def create_person_marker(self, track_id, marker_id, x, y, confidence):
+        """Create visualization marker for detected person"""
         marker = Marker()
-        marker.header.frame_id = 'map'
+        marker.header.frame_id = 'camera_link'  # Change to camera frame
         marker.header.stamp = self.get_clock().now().to_msg()
-        marker.ns = 'tracked_persons'
+        marker.ns = 'detected_persons'
         marker.id = marker_id
         marker.type = Marker.CYLINDER
         marker.action = Marker.ADD
         
-        marker.pose.position.x = x
-        marker.pose.position.y = y
-        marker.pose.position.z = 0.0
-        marker.pose.orientation.w = 1.0
+        # Transform point from camera to map frame
+        try:
+            # Create stamped point
+            point = PointStamped()
+            point.header.frame_id = 'camera_link'
+            point.header.stamp = self.get_clock().now().to_msg()
+            point.point.x = x
+            point.point.y = y
+            point.point.z = 0.0
+            
+            # Transform to map frame
+            transformed_point = self.tf_buffer.transform(point, 'map')
+            
+            marker.pose.position = transformed_point.point
+            marker.pose.orientation.w = 1.0
+            
+        except (TransformException, Exception) as e:
+            self.get_logger().error(f'Failed to transform person marker: {str(e)}')
+            return None
         
-        # Adjust marker color based on track ID
+        # Set marker size
+        marker.scale.x = 0.4  # Diameter
+        marker.scale.y = 0.4  # Diameter
+        marker.scale.z = 1.7  # Height
+        
+        # Set color based on track ID and confidence
         marker.color.r = (track_id * 123) % 255 / 255.0
         marker.color.g = (track_id * 147) % 255 / 255.0
         marker.color.b = (track_id * 213) % 255 / 255.0
         marker.color.a = max(0.5, confidence)
         
-        # Set marker size
-        marker.scale.x = 0.5
-        marker.scale.y = 0.5
-        marker.scale.z = 1.7  # Human height
-        
-        marker.lifetime = rclpy.duration.Duration(seconds=0.5).to_msg()
+        # Set marker lifetime
+        marker.lifetime = Duration(seconds=0.5).to_msg()
         
         return marker
 

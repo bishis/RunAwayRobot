@@ -151,27 +151,28 @@ class PersonDetector(Node):
         self.latest_scan = None
         self.scan_lock = threading.Lock()
         
-        # Optimize YOLO parameters
-        self.conf_threshold = 0.5  # Lower confidence threshold for faster detection
+        # Optimize tracking parameters
+        self.conf_threshold = 0.5  # Lower threshold for faster detection
         self.model.conf = self.conf_threshold
-        self.model.iou = 0.45
-        self.model.max_det = 5  # Limit maximum detections since we only care about closest people
+        self.model.iou = 0.35  # Lower IOU for better tracking
+        self.model.max_det = 10  # Increase max detections
         
-        # Optimize SORT parameters
+        # Optimize SORT parameters for faster response
         self.tracker = Sort(
-            max_age=3,  # Reduce max age for faster tracking updates
-            min_hits=1,  # Reduce required hits for faster initial tracking
-            iou_threshold=0.25  # Lower IOU threshold for better tracking
+            max_age=2,  # Reduce max age for faster updates
+            min_hits=1,  # Immediate tracking
+            iou_threshold=0.2  # Lower IOU threshold for better tracking
         )
         
-        # Add LIDAR optimization parameters
-        self.lidar_window_size = 3  # Reduce window size for faster processing
-        self.last_lidar_scan = None
-        self.min_tracking_confidence = 0.6  # Minimum confidence to track
+        # Reduce position filtering for faster response
+        self.max_history = 2  # Shorter history
+        self.position_weights = [0.7, 0.3]  # More weight on current position
         
-        # Add position filtering parameters
-        self.max_history = 3  # Reduce history size for faster updates
-        self.position_weights = [0.2, 0.3, 0.5]  # More weight on recent positions
+        # Adjust tracking parameters
+        self.min_tracking_confidence = 0.4  # Lower confidence threshold
+        self.target_distance = 1.0  # Target following distance
+        self.p_gain_angular = 1.5  # Increase angular gain for faster turning
+        self.p_gain_linear = 0.8   # Increase linear gain for faster approach
         
         # Add publishers for human tracking
         self.tracking_cmd_pub = self.create_publisher(
@@ -231,14 +232,13 @@ class PersonDetector(Node):
             lidar_distance = self.get_lidar_distance(camera_angle)
             
             if lidar_distance is not None:
-                # Use LIDAR distance for depth
                 depth = lidar_distance
-                # Increase confidence when using LIDAR
                 confidence = 1.2
             else:
-                # Fallback to visual estimation
+                # Improved visual estimation
                 depth = (self.human_height * abs(self.fy)) / pixel_height
-                confidence = min((pixel_height / 300.0) * (1.0 - (depth / 6.0)), 1.0)
+                # Adjust confidence based on pixel height and position
+                confidence = min((pixel_height / 200.0) * (1.0 - (depth / 4.0)), 1.0)
             
             # Get transform from camera to map
             transform = self.tf_buffer.lookup_transform(
@@ -379,23 +379,26 @@ class PersonDetector(Node):
             if closest_person is not None:
                 pose, track_id, distance = closest_person
                 
-                # Create tracking command
+                # Create tracking command with improved responsiveness
                 cmd = Twist()
                 
-                # Calculate angular velocity to face person
+                # More responsive angular control
                 angle_to_person = math.atan2(pose.pose.position.y, pose.pose.position.x)
-                cmd.angular.z = angle_to_person * 1.0  # P controller for rotation
+                cmd.angular.z = angle_to_person * self.p_gain_angular
                 
-                # Calculate linear velocity based on distance
-                target_distance = 1.0  # Try to maintain 1m distance
-                distance_error = distance - target_distance
-                cmd.linear.x = distance_error * 0.5  # P controller for distance
+                # More responsive distance control
+                distance_error = distance - self.target_distance
+                cmd.linear.x = distance_error * self.p_gain_linear
                 
-                # Limit velocities
-                cmd.linear.x = max(min(cmd.linear.x, 0.2), -0.2)  # Limit to ±0.2 m/s
-                cmd.angular.z = max(min(cmd.angular.z, 1.0), -1.0)  # Limit to ±1.0 rad/s
+                # Smoother velocity limits
+                if abs(angle_to_person) > 0.5:  # If angle is large
+                    cmd.linear.x *= max(0, 1 - (abs(angle_to_person) - 0.5))  # Slow down
                 
-                # Publish tracking command and active status
+                # Apply velocity limits
+                cmd.linear.x = max(min(cmd.linear.x, 0.2), -0.2)
+                cmd.angular.z = max(min(cmd.angular.z, 1.0), -1.0)
+                
+                # Publish tracking command
                 self.tracking_cmd_pub.publish(cmd)
                 
                 tracking_active = Bool()

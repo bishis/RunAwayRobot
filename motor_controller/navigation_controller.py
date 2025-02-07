@@ -378,7 +378,7 @@ class NavigationController(Node):
         """Handle human tracking commands"""
         if self.is_tracking_human:
             # Forward tracking commands to cmd_vel
-            self.wheel_speeds_pub.publish(msg)
+            self.cmd_vel_sub.publish(msg)
 
 def main(args=None):
     rclpy.init(args=args)

@@ -7,7 +7,7 @@ from geometry_msgs.msg import Point, PoseStamped, Pose, Quaternion, Twist
 from geometry_msgs.msg import PointStamped, TransformStamped
 from tf2_geometry_msgs import do_transform_point
 from vision_msgs.msg import Detection2DArray as DetectionArray
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, ColorRGBA
 import cv2
 import numpy as np
 import torch
@@ -24,7 +24,7 @@ import threading
 from message_filters import ApproximateTimeSynchronizer, Subscriber
 from rclpy.duration import Duration
 from rclpy.time import Time
-from geometry_msgs.msg import Vector3, ColorRGBA
+from geometry_msgs.msg import Vector3
 
 class PersonDetector(Node):
     def __init__(self):
@@ -450,12 +450,13 @@ class PersonDetector(Node):
         marker.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
         marker.scale = Vector3(x=0.4, y=0.4, z=1.7)
         
-        # Initialize color (required field)
-        marker.color = ColorRGBA()
-        marker.color.r = (track_id * 123) % 255 / 255.0
-        marker.color.g = (track_id * 147) % 255 / 255.0
-        marker.color.b = (track_id * 213) % 255 / 255.0
-        marker.color.a = max(0.5, confidence)
+        # Initialize color using std_msgs.msg.ColorRGBA
+        color = ColorRGBA()
+        color.r = float((track_id * 123) % 255) / 255.0
+        color.g = float((track_id * 147) % 255) / 255.0
+        color.b = float((track_id * 213) % 255) / 255.0
+        color.a = float(max(0.5, confidence))
+        marker.color = color
         
         try:
             angle = -math.atan2((x - self.cx), self.fx)

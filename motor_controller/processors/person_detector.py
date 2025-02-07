@@ -24,6 +24,7 @@ import threading
 from message_filters import ApproximateTimeSynchronizer, Subscriber
 from rclpy.duration import Duration
 from rclpy.time import Time
+from geometry_msgs.msg import Vector3, ColorRGBA
 
 class PersonDetector(Node):
     def __init__(self):
@@ -428,7 +429,6 @@ class PersonDetector(Node):
 
     def create_person_marker(self, track_id, marker_id, x, y, confidence):
         """Create visualization marker for detected person using LIDAR data"""
-        # First check if TF is ready
         if not self.tf_ready:
             self.get_logger().warn('Waiting for TF tree to become available...')
             return None
@@ -436,6 +436,7 @@ class PersonDetector(Node):
         if self.latest_scan is None:
             return None
             
+        # Create marker with all required fields
         marker = Marker()
         marker.header.frame_id = 'map'
         marker.header.stamp = self.get_clock().now().to_msg()
@@ -444,24 +445,31 @@ class PersonDetector(Node):
         marker.type = Marker.CYLINDER
         marker.action = Marker.ADD
         
+        # Initialize pose and scale (required fields)
+        marker.pose = Pose()
+        marker.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+        marker.scale = Vector3(x=0.4, y=0.4, z=1.7)
+        
+        # Initialize color (required field)
+        marker.color = ColorRGBA()
+        marker.color.r = (track_id * 123) % 255 / 255.0
+        marker.color.g = (track_id * 147) % 255 / 255.0
+        marker.color.b = (track_id * 213) % 255 / 255.0
+        marker.color.a = max(0.5, confidence)
+        
         try:
-            # Flip the angle calculation since image coordinates are flipped
-            # (x=0 is left in image, but right in LIDAR)
-            angle = -math.atan2((x - self.cx), self.fx)  # Add negative sign here
+            angle = -math.atan2((x - self.cx), self.fx)
             
             # Find corresponding LIDAR measurement
-            angle_rad = angle
-            index = int((angle_rad - self.latest_scan.angle_min) / 
+            index = int((angle - self.latest_scan.angle_min) / 
                        self.latest_scan.angle_increment)
             
-            # Ensure index is within bounds
             if 0 <= index < len(self.latest_scan.ranges):
                 depth = self.latest_scan.ranges[index]
                 
                 if (depth >= self.latest_scan.range_min and 
                     depth <= self.latest_scan.range_max):
                     
-                    # Create point in camera frame
                     camera_point = PointStamped()
                     camera_point.header.frame_id = 'camera_link'
                     camera_point.header.stamp = self.get_clock().now().to_msg()
@@ -470,7 +478,6 @@ class PersonDetector(Node):
                     camera_point.point.z = 0.0
                     
                     try:
-                        # Get transform from camera to map
                         transform = self.tf_buffer.lookup_transform(
                             'map',
                             'camera_link',
@@ -478,14 +485,9 @@ class PersonDetector(Node):
                             timeout=Duration(seconds=1.0)
                         )
                         
-                        # Transform point using tf2_geometry_msgs
                         map_point = do_transform_point(camera_point, transform)
-                        
-                        # Set marker position in map frame
                         marker.pose.position = map_point.point
-                        marker.pose.orientation.w = 1.0  # Default orientation
                         
-                        # Log depth for debugging
                         self.get_logger().info(
                             f'Person {track_id} at depth={depth:.2f}m, '
                             f'angle={math.degrees(angle):.1f}°'
@@ -505,17 +507,6 @@ class PersonDetector(Node):
         except Exception as e:
             self.get_logger().error(f'Failed to create person marker: {str(e)}')
             return None
-        
-        # Set marker size
-        marker.scale.x = 0.4
-        marker.scale.y = 0.4
-        marker.scale.z = 1.7
-        
-        # Set color based on track ID and confidence
-        marker.color.r = (track_id * 123) % 255 / 255.0
-        marker.color.g = (track_id * 147) % 255 / 255.0
-        marker.color.b = (track_id * 213) % 255 / 255.0
-        marker.color.a = max(0.5, confidence)
         
         # Set marker lifetime
         marker.lifetime = Duration(seconds=0.5).to_msg()

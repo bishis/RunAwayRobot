@@ -198,6 +198,10 @@ class PersonDetector(Node):
             10
         )
         
+        # Add TF availability check
+        self.tf_ready = False
+        self.create_timer(1.0, self.check_tf_availability)  # Check every second
+        
         self.get_logger().info('Person detector initialized successfully')
         
     def synchronized_callback(self, image_msg, scan_msg):
@@ -210,9 +214,11 @@ class PersonDetector(Node):
     def process_data(self):
         """Process latest synchronized data at fixed frequency"""
         with self.data_lock:
-            # Check if we have recent data
+            # Check if we have recent data and TF is ready
             if (self.latest_image is None or self.latest_scan is None or 
-                self.latest_timestamp is None):
+                self.latest_timestamp is None or not self.tf_ready):
+                if not self.tf_ready:
+                    self.get_logger().debug('Waiting for TF tree...')
                 return
                 
             # Check data age
@@ -402,8 +408,31 @@ class PersonDetector(Node):
         
         return new_pose
 
+    def check_tf_availability(self):
+        """Check if required TF transforms are available"""
+        try:
+            # Check if we can get transform from camera to map
+            self.tf_buffer.lookup_transform(
+                'map',
+                'camera_link',
+                Time(),
+                timeout=Duration(seconds=0.1)
+            )
+            if not self.tf_ready:
+                self.get_logger().info('TF tree is now available')
+                self.tf_ready = True
+        except TransformException:
+            if self.tf_ready:
+                self.get_logger().warn('TF tree is no longer available')
+            self.tf_ready = False
+
     def create_person_marker(self, track_id, marker_id, x, y, confidence):
         """Create visualization marker for detected person using LIDAR data"""
+        # First check if TF is ready
+        if not self.tf_ready:
+            self.get_logger().warn('Waiting for TF tree to become available...')
+            return None
+            
         if self.latest_scan is None:
             return None
             

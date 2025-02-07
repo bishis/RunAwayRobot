@@ -445,8 +445,9 @@ class PersonDetector(Node):
         marker.action = Marker.ADD
         
         try:
-            # Convert image x coordinate to angle in LIDAR frame
-            angle = math.atan2((x - self.cx), self.fx)
+            # Flip the angle calculation since image coordinates are flipped
+            # (x=0 is left in image, but right in LIDAR)
+            angle = -math.atan2((x - self.cx), self.fx)  # Add negative sign here
             
             # Find corresponding LIDAR measurement
             angle_rad = angle

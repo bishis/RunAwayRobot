@@ -70,7 +70,7 @@ class HumanAvoidanceController:
             normalized_error = (image_x - image_center) / image_center
             
             # Calculate turn speed to face human
-            turn_speed = -normalized_error * self.turn_p_gain
+            turn_speed = normalized_error * self.turn_p_gain
             
             # Apply minimum rotation speed if turning
             if abs(turn_speed) > 0.0:

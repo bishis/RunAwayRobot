@@ -49,43 +49,10 @@ class HumanAvoidanceController:
             self.max_linear_speed = node.max_linear_speed
             
     def get_avoidance_command(self, human_distance, human_angle, image_x=None):
-        """
-        Calculate avoidance command based on human position
-        
-        Args:
-            human_distance: Distance to human in meters
-            human_angle: Angle to human in radians
-            image_x: Human's x position in image (0 to frame_width), if available
-        
-        Returns:
-            Tuple(Twist, bool): (velocity command, needs_escape_plan)
-        """
         cmd = Twist()
         needs_escape = False
         
-        # Check distances FIRST - this should take priority
-        if human_distance < self.min_safe_distance:
-            # Start backing up when closer than safe distance
-            self.node.get_logger().info(
-                f'Human too close ({human_distance:.2f}m), backing up'
-            )
-            
-            # Calculate backup speed based on how close the human is
-            # Modified calculation to ensure non-zero speed
-            backup_scale = (self.min_safe_distance - human_distance) / self.min_safe_distance
-            backup_speed = -self.max_backup_speed * max(0.8, backup_scale)  # Ensure minimum backup speed
-            
-            # Set backup speed BEFORE handling turning
-            cmd.linear.x = backup_speed
-            self.node.get_logger().info(f'Setting backup speed to {backup_speed:.2f} m/s')
-            
-            # Check if we can back up
-            if not self.can_move_backward():
-                if human_distance < self.critical_distance:
-                    needs_escape = True
-                    self.node.get_logger().warn('Cannot back up, need escape plan')
-        
-        # Handle turning AFTER setting backup speed
+        # Handle turning FIRST - prioritize facing the human
         if image_x is not None:
             # Calculate normalized error from image center (-1 to 1)
             image_center = 320  # Assuming 640x480 image
@@ -95,13 +62,38 @@ class HumanAvoidanceController:
             turn_speed = normalized_error * self.turn_p_gain
             
             # Apply minimum rotation speed if turning
-            if abs(turn_speed) > 0.0:
+            if abs(normalized_error) > 0.1:  # Only turn if error is significant
                 if abs(turn_speed) < self.min_rotation_speed:
                     turn_speed = math.copysign(self.min_rotation_speed, turn_speed)
+                cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
+                                  -self.max_rotation_speed)
+                
+                # Don't back up while making large turns
+                if abs(normalized_error) > 0.3:
+                    self.node.get_logger().info(
+                        f'Turning to face human first: error={normalized_error:.2f}'
+                    )
+                    return cmd, False
+        
+        # Only start backing up if we're roughly facing the human
+        if human_distance < self.min_safe_distance:
+            self.node.get_logger().info(
+                f'Human too close ({human_distance:.2f}m), backing up'
+            )
             
-            # Limit maximum rotation speed
-            cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
-                              -self.max_rotation_speed)
+            # Calculate backup speed
+            backup_scale = (self.min_safe_distance - human_distance) / self.min_safe_distance
+            backup_speed = -self.max_backup_speed * max(0.8, backup_scale)
+            
+            # Set backup speed
+            cmd.linear.x = backup_speed
+            self.node.get_logger().info(f'Setting backup speed to {backup_speed:.2f} m/s')
+            
+            # Check if we can back up
+            if not self.can_move_backward():
+                if human_distance < self.critical_distance:
+                    needs_escape = True
+                    self.node.get_logger().warn('Cannot back up, need escape plan')
         
         # Debug log the actual commands being sent
         self.node.get_logger().info(

@@ -19,14 +19,14 @@ class HumanAvoidanceController:
         self.waypoint_generator = waypoint_generator
         
         # Distance thresholds
-        self.min_safe_distance = 1.0  # Start backing up at 1m
+        self.min_safe_distance = 1.5  # Start backing up at 1m
         self.critical_distance = 0.3   # Request escape at 0.3m
-        self.max_backup_speed = 0.15   # m/s
+        self.max_backup_speed = 0.15   # Increase backup speed
         
         # Turning parameters
         self.min_rotation_speed = 0.3
         self.max_rotation_speed = 0.8
-        self.turn_p_gain = 1.2  # Increased for more responsive turning
+        self.turn_p_gain = 1.2
         
         # Get latest scan data from node
         self.latest_scan = None
@@ -103,9 +103,16 @@ class HumanAvoidanceController:
                 self.node.get_logger().info(f'Backing up at {backup_speed:.2f} m/s')
                 
                 # Keep facing human while backing up
-                if image_x is None and human_angle is not None:
-                    # Use LIDAR angle if image position not available
-                    turn_speed = math.copysign(0.5, -human_angle)
+                if image_x is not None:
+                    # Calculate turn to keep facing human
+                    image_center = 320  # Assuming 640x480 image
+                    normalized_error = (image_x - image_center) / image_center
+                    turn_speed = normalized_error * self.turn_p_gain
+                    
+                    if abs(turn_speed) > 0.0:
+                        if abs(turn_speed) < self.min_rotation_speed:
+                            turn_speed = math.copysign(self.min_rotation_speed, turn_speed)
+                    
                     cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
                                       -self.max_rotation_speed)
             else:

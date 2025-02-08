@@ -118,11 +118,26 @@ class HumanAvoidanceController:
             cmd.linear.x = backup_speed
             self.node.get_logger().info(f'Setting backup speed to {backup_speed:.2f} m/s')
             
-            # Check if we can back up
-            if not self.can_move_backward():
-                if human_distance < self.critical_distance:
-                    needs_escape = True
-                    self.node.get_logger().warn('Cannot back up, need escape plan')
+            # Check rear distance for escape
+            if self.latest_scan is not None:
+                rear_angle = math.pi  # Only use +180° reading
+                angle_tolerance = math.pi/6
+                
+                start_idx = int((rear_angle - angle_tolerance - self.latest_scan.angle_min) / 
+                              self.latest_scan.angle_increment)
+                end_idx = int((rear_angle + angle_tolerance - self.latest_scan.angle_min) / 
+                             self.latest_scan.angle_increment)
+                
+                rear_readings = [r for r in self.latest_scan.ranges[start_idx:end_idx]
+                               if self.latest_scan.range_min <= r <= self.latest_scan.range_max]
+                
+                if rear_readings:
+                    rear_distance = min(rear_readings)
+                    if rear_distance < self.critical_distance:
+                        needs_escape = True
+                        self.node.get_logger().warn(
+                            f'Wall too close behind ({rear_distance:.2f}m), need escape plan'
+                        )
         
         # Debug log the actual commands being sent
         self.node.get_logger().info(

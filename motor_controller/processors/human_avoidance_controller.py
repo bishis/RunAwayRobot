@@ -63,6 +63,9 @@ class HumanAvoidanceController:
         cmd = Twist()
         needs_escape = False
         
+        # Log the incoming distance
+        self.node.get_logger().info(f'Human distance: {human_distance:.2f}m')
+        
         # Always try to face the human when detected
         if image_x is not None:
             # Calculate normalized error from image center (-1 to 1)
@@ -89,8 +92,8 @@ class HumanAvoidanceController:
         # Check distances and respond accordingly
         if human_distance < self.min_safe_distance:
             # Start backing up when closer than safe distance
-            self.node.get_logger().info(
-                f'Human too close ({human_distance:.2f}m), backing up'
+            self.node.get_logger().warn(
+                f'Human too close ({human_distance:.2f}m < {self.min_safe_distance:.2f}m), backing up'
             )
             
             # Calculate backup speed based on how close the human is
@@ -100,19 +103,20 @@ class HumanAvoidanceController:
             # Check if we can back up
             if self.can_move_backward():
                 cmd.linear.x = backup_speed
-                self.node.get_logger().info(f'Backing up at {backup_speed:.2f} m/s')
+                self.node.get_logger().warn(
+                    f'Backing up at {backup_speed:.2f} m/s (scale={backup_scale:.2f})'
+                )
                 
                 # Keep facing human while backing up
                 if image_x is None and human_angle is not None:
-                    # Use LIDAR angle if image position not available
                     turn_speed = math.copysign(0.5, -human_angle)
                     cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
                                       -self.max_rotation_speed)
             else:
                 # If we can't back up and human is very close, request escape
                 if human_distance < self.critical_distance:
-                    self.node.get_logger().warn(
-                        'Cannot back up and human too close, need escape plan'
+                    self.node.get_logger().error(
+                        f'Cannot back up and human too close ({human_distance:.2f}m), need escape plan'
                     )
                     needs_escape = True
         

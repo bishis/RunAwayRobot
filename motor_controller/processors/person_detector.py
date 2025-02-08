@@ -437,9 +437,20 @@ class PersonDetector(Node):
             marker.pose = Pose()
             marker.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
             marker.scale = Vector3()
-            marker.scale.x = 0.4  # Diameter
-            marker.scale.y = 0.4  # Diameter
-            marker.scale.z = 1.7  # Height
+            
+            # Calculate angle range for person width
+            leg_width = 0.2  # Reduce width to 20cm for legs
+            person_width_rad = math.atan2(leg_width, 1.0)  # Angular width at 1m
+            center_angle = -math.atan2((x - self.cx), self.fx)
+            
+            # Look at a range of angles around the legs
+            start_angle = center_angle - person_width_rad/2
+            end_angle = center_angle + person_width_rad/2
+            
+            # Also adjust marker size for legs
+            marker.scale.x = 0.25  # Reduce diameter to match leg width
+            marker.scale.y = 0.25  # Reduce diameter to match leg width
+            marker.scale.z = 1.0  # Reduce height since we're tracking legs
             
             # Set color based on track_id
             marker.color = ColorRGBA()
@@ -447,10 +458,6 @@ class PersonDetector(Node):
             marker.color.g = float((track_id * 147) % 255) / 255.0
             marker.color.b = float((track_id * 213) % 255) / 255.0
             marker.color.a = float(max(0.5, confidence))
-            
-            # Calculate angle range for person width
-            person_width_rad = math.atan2(0.4, 1.0)  # Approx width of person at 1m
-            center_angle = -math.atan2((x - self.cx), self.fx)
             
             # Look at a range of angles around the person
             start_angle = center_angle - person_width_rad/2

@@ -106,6 +106,7 @@ class HumanAvoidanceController:
     def can_move_backward(self):
         """Check if there's space to move backward"""
         if self.latest_scan is None:
+            self.node.get_logger().warn('No LIDAR data available')
             return False
             
         # Check rear LIDAR readings (assume LIDAR 0 is front, ±π is rear)
@@ -126,9 +127,19 @@ class HumanAvoidanceController:
                            if self.latest_scan.range_min <= r <= self.latest_scan.range_max]
             
             if rear_readings:
-                min_rear_distance = min(min_rear_distance, min(rear_readings))
+                arc_min_distance = min(rear_readings)
+                min_rear_distance = min(min_rear_distance, arc_min_distance)
+                self.node.get_logger().info(
+                    f'Rear distance at {math.degrees(angle):.1f}°: {arc_min_distance:.2f}m'
+                )
         
-        return min_rear_distance > min_backup_distance
+        can_backup = min_rear_distance > min_backup_distance
+        self.node.get_logger().info(
+            f'Minimum rear distance: {min_rear_distance:.2f}m, '
+            f'can back up: {can_backup}'
+        )
+        
+        return can_backup
         
     def plan_escape(self):
         """Plan escape waypoint furthest from current position"""

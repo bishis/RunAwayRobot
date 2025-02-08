@@ -280,11 +280,12 @@ class PersonDetector(Node):
                             confidence=1.0
                         )
                         
-                        if marker is not None:
+                        if marker is not None:  # Only add valid markers
                             marker_array.markers.append(marker)
                 
-                    # Always publish markers even if empty
-                    self.map_marker_pub.publish(marker_array)
+                    # Only publish if we have valid markers
+                    if marker_array.markers:
+                        self.map_marker_pub.publish(marker_array)
                     
                     # Find person closest to center
                     image_center_x = cv_image.shape[1] / 2
@@ -306,16 +307,6 @@ class PersonDetector(Node):
                         if center_dist < min_center_dist:
                             min_center_dist = center_dist
                             target_person = track
-                            
-                        # Create marker for each tracked person
-                        marker = self.create_person_marker(
-                            track_id=int(track_id),
-                            marker_id=len(marker_array.markers),
-                            x=person_center_x,
-                            y=(y1 + y2) / 2,
-                            confidence=1.0
-                        )
-                        marker_array.markers.append(marker)
                     
                     if target_person is not None:
                         x1, y1, x2, y2, track_id = target_person

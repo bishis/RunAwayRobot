@@ -14,14 +14,14 @@ class ImageFlipper(Node):
             CompressedImage,
             '/camera/image_raw/compressed',  # Subscribe to compressed image
             self.image_callback,
-            10
+            20
         )
         
         # Create publisher for flipped compressed image
         self.image_pub = self.create_publisher(
             CompressedImage,
             '/camera/image_raw_flipped/compressed',  # Publish compressed image
-            10
+            20
         )
         
         self.get_logger().info('Image flipper initialized')

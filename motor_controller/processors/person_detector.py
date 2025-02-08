@@ -312,6 +312,17 @@ class PersonDetector(Node):
                         x1, y1, x2, y2, track_id = target_person
                         person_center_x = (x1 + x2) / 2
                         
+                        # Calculate distance using LIDAR data
+                        angle = -math.atan2((person_center_x - self.cx), self.fx)
+                        index = int((angle - self.latest_scan.angle_min) / self.latest_scan.angle_increment)
+                        
+                        # Get distance from LIDAR
+                        human_distance = None
+                        if 0 <= index < len(self.latest_scan.ranges):
+                            if (self.latest_scan.ranges[index] >= self.latest_scan.range_min and 
+                                self.latest_scan.ranges[index] <= self.latest_scan.range_max):
+                                human_distance = self.latest_scan.ranges[index]
+                        
                         # Calculate normalized error (-1 to 1)
                         center_error = (person_center_x - image_center_x) / image_center_x
                         
@@ -334,6 +345,11 @@ class PersonDetector(Node):
                             self.get_logger().info(
                                 f'Turning command: {cmd.angular.z:.2f} rad/s'
                             )
+                        
+                        if human_distance is not None:
+                            self.get_logger().info(f'Human distance: {human_distance:.2f}m')
+                            # Let avoidance controller handle backup behavior
+                            cmd.linear.x = 0.0  # Clear any forward motion
                         
                         self.tracking_cmd_pub.publish(cmd)
                         

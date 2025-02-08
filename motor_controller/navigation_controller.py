@@ -393,31 +393,24 @@ class NavigationController(Node):
                 
                 if human_distance > 0:  # Only if we have valid distance
                     # Get avoidance command
-                    cmd, needs_escape = self.human_avoidance.get_avoidance_command(
+                    avoidance_cmd, needs_escape = self.human_avoidance.get_avoidance_command(
                         human_distance, 
                         human_angle,
                         image_x
                     )
                     
+                    # IMPORTANT: Always publish the avoidance command
+                    self.wheel_speeds_pub.publish(avoidance_cmd)
+                    
+                    # Only check for escape after publishing command
                     if needs_escape:
-                        # Plan escape waypoint
                         escape_point = self.human_avoidance.plan_escape()
                         if escape_point is not None:
                             self.send_goal(escape_point)
-                            return
-                    
-                    # Apply normal speed limits
-                    cmd.linear.x = max(min(cmd.linear.x, self.max_linear_speed), 
-                                     -self.max_linear_speed)
-                    cmd.angular.z = max(min(cmd.angular.z, self.max_angular_speed), 
-                                      -self.max_angular_speed)
-                    
-                    # Publish command
-                    self.wheel_speeds_pub.publish(cmd)
                     
                     self.get_logger().info(
                         f'Human tracking: dist={human_distance:.2f}m, '
-                        f'angle={math.degrees(human_angle):.1f}°'
+                        f'backing_up={avoidance_cmd.linear.x:.2f}m/s'
                     )
                 
             except Exception as e:

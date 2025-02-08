@@ -420,10 +420,7 @@ class PersonDetector(Node):
 
     def create_person_marker(self, track_id, marker_id, x, y, confidence):
         """Create visualization marker for detected person using LIDAR data"""
-        if not self.tf_ready:
-            return None
-            
-        if self.latest_scan is None:
+        if not self.tf_ready or self.latest_scan is None:
             return None
             
         try:
@@ -436,61 +433,78 @@ class PersonDetector(Node):
             marker.type = Marker.CYLINDER
             marker.action = Marker.ADD
             
-            # Initialize pose
+            # Initialize pose and scale
             marker.pose = Pose()
             marker.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
-            
-            # Set scale
             marker.scale = Vector3()
             marker.scale.x = 0.4  # Diameter
             marker.scale.y = 0.4  # Diameter
             marker.scale.z = 1.7  # Height
             
-            # Set color
+            # Set color based on track_id
             marker.color = ColorRGBA()
             marker.color.r = float((track_id * 123) % 255) / 255.0
             marker.color.g = float((track_id * 147) % 255) / 255.0
             marker.color.b = float((track_id * 213) % 255) / 255.0
             marker.color.a = float(max(0.5, confidence))
             
-            # Calculate position
-            angle = -math.atan2((x - self.cx), self.fx)
-            index = int((angle - self.latest_scan.angle_min) / 
-                       self.latest_scan.angle_increment)
+            # Calculate angle range for person width
+            person_width_rad = math.atan2(0.4, 1.0)  # Approx width of person at 1m
+            center_angle = -math.atan2((x - self.cx), self.fx)
             
-            if 0 <= index < len(self.latest_scan.ranges):
-                depth = self.latest_scan.ranges[index]
+            # Look at a range of angles around the person
+            start_angle = center_angle - person_width_rad/2
+            end_angle = center_angle + person_width_rad/2
+            
+            start_idx = int((start_angle - self.latest_scan.angle_min) / 
+                           self.latest_scan.angle_increment)
+            end_idx = int((end_angle - self.latest_scan.angle_min) / 
+                         self.latest_scan.angle_increment)
+            
+            # Get all valid readings in the person's angular range
+            valid_readings = []
+            valid_angles = []
+            
+            for i in range(start_idx, end_idx + 1):
+                if 0 <= i < len(self.latest_scan.ranges):
+                    r = self.latest_scan.ranges[i]
+                    if (self.latest_scan.range_min <= r <= self.latest_scan.range_max):
+                        angle = self.latest_scan.angle_min + i * self.latest_scan.angle_increment
+                        valid_readings.append(r)
+                        valid_angles.append(angle)
+            
+            if valid_readings:
+                # Use the closest valid reading as the person's position
+                min_dist_idx = valid_readings.index(min(valid_readings))
+                depth = valid_readings[min_dist_idx]
+                angle = valid_angles[min_dist_idx]
                 
-                if (depth >= self.latest_scan.range_min and 
-                    depth <= self.latest_scan.range_max):
+                # Create point in camera frame
+                camera_point = PointStamped()
+                camera_point.header.frame_id = 'camera_link'
+                camera_point.header.stamp = self.get_clock().now().to_msg()
+                camera_point.point.x = depth * math.cos(angle)
+                camera_point.point.y = depth * math.sin(angle)
+                camera_point.point.z = 0.0
+                
+                try:
+                    transform = self.tf_buffer.lookup_transform(
+                        'map',
+                        'camera_link',
+                        Time(),
+                        timeout=Duration(seconds=1.0)
+                    )
                     
-                    camera_point = PointStamped()
-                    camera_point.header.frame_id = 'camera_link'
-                    camera_point.header.stamp = self.get_clock().now().to_msg()
-                    camera_point.point.x = depth * math.cos(angle)
-                    camera_point.point.y = depth * math.sin(angle)
-                    camera_point.point.z = 0.0
+                    map_point = do_transform_point(camera_point, transform)
+                    marker.pose.position = map_point.point
+                    marker.lifetime = Duration(seconds=0.5).to_msg()
                     
-                    try:
-                        transform = self.tf_buffer.lookup_transform(
-                            'map',
-                            'camera_link',
-                            Time(),
-                            timeout=Duration(seconds=1.0)
-                        )
-                        
-                        map_point = do_transform_point(camera_point, transform)
-                        marker.pose.position = map_point.point
-                        
-                        # Set marker lifetime
-                        marker.lifetime = Duration(seconds=0.5).to_msg()
-                        
-                        return marker
-                        
-                    except TransformException as e:
-                        self.get_logger().warn(f'Transform failed: {str(e)}')
-                        return None
-                        
+                    return marker
+                    
+                except TransformException as e:
+                    self.get_logger().warn(f'Transform failed: {str(e)}')
+                    return None
+            
             return None
             
         except Exception as e:

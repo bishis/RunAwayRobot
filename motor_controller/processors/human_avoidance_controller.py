@@ -48,6 +48,9 @@ class HumanAvoidanceController:
         if hasattr(node, 'max_linear_speed'):
             self.max_linear_speed = node.max_linear_speed
             
+        # Add timer to continuously monitor rear distance
+        self.node.create_timer(0.2, self.monitor_rear_distance)  # 5Hz updates
+        
     def get_avoidance_command(self, human_distance, human_angle, image_x=None):
         cmd = Twist()
         needs_escape = False
@@ -153,3 +156,38 @@ class HumanAvoidanceController:
             
         self.node.get_logger().warn('Could not find suitable escape waypoint')
         return None 
+
+    def monitor_rear_distance(self):
+        """Continuously monitor and log distance behind robot"""
+        if self.latest_scan is None:
+            return
+            
+        # Check rear LIDAR readings
+        rear_angles = [-math.pi, math.pi]  # Check both sides of rear
+        angle_tolerance = math.pi/6  # 30 degree cone behind robot
+        
+        min_rear_distance = float('inf')
+        distances = []
+        
+        for angle in rear_angles:
+            start_idx = int((angle - angle_tolerance - self.latest_scan.angle_min) / 
+                          self.latest_scan.angle_increment)
+            end_idx = int((angle + angle_tolerance - self.latest_scan.angle_min) / 
+                         self.latest_scan.angle_increment)
+            
+            # Get valid readings in rear arc
+            rear_readings = [r for r in self.latest_scan.ranges[start_idx:end_idx]
+                           if self.latest_scan.range_min <= r <= self.latest_scan.range_max]
+            
+            if rear_readings:
+                arc_min_distance = min(rear_readings)
+                distances.append(arc_min_distance)
+                min_rear_distance = min(min_rear_distance, arc_min_distance)
+                self.node.get_logger().info(
+                    f'Wall at {math.degrees(angle):.1f}°: {arc_min_distance:.2f}m'
+                )
+        
+        if distances:
+            self.node.get_logger().info(
+                f'Wall behind robot: {min_rear_distance:.2f}m'
+            ) 

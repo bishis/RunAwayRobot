@@ -430,38 +430,40 @@ class PersonDetector(Node):
     def create_person_marker(self, track_id, marker_id, x, y, confidence):
         """Create visualization marker for detected person using LIDAR data"""
         if not self.tf_ready:
-            self.get_logger().warn('Waiting for TF tree to become available...')
             return None
             
         if self.latest_scan is None:
             return None
             
-        # Create marker with all required fields
-        marker = Marker()
-        marker.header.frame_id = 'map'
-        marker.header.stamp = self.get_clock().now().to_msg()
-        marker.ns = 'detected_persons'
-        marker.id = marker_id
-        marker.type = Marker.CYLINDER
-        marker.action = Marker.ADD
-        
-        # Initialize pose and scale (required fields)
-        marker.pose = Pose()
-        marker.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
-        marker.scale = Vector3(x=0.4, y=0.4, z=1.7)
-        
-        # Initialize color using std_msgs.msg.ColorRGBA
-        color = ColorRGBA()
-        color.r = float((track_id * 123) % 255) / 255.0
-        color.g = float((track_id * 147) % 255) / 255.0
-        color.b = float((track_id * 213) % 255) / 255.0
-        color.a = float(max(0.5, confidence))
-        marker.color = color
-        
         try:
-            angle = -math.atan2((x - self.cx), self.fx)
+            # Create marker with all required fields
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = 'detected_persons'
+            marker.id = marker_id
+            marker.type = Marker.CYLINDER
+            marker.action = Marker.ADD
             
-            # Find corresponding LIDAR measurement
+            # Initialize pose
+            marker.pose = Pose()
+            marker.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+            
+            # Set scale
+            marker.scale = Vector3()
+            marker.scale.x = 0.4  # Diameter
+            marker.scale.y = 0.4  # Diameter
+            marker.scale.z = 1.7  # Height
+            
+            # Set color
+            marker.color = ColorRGBA()
+            marker.color.r = float((track_id * 123) % 255) / 255.0
+            marker.color.g = float((track_id * 147) % 255) / 255.0
+            marker.color.b = float((track_id * 213) % 255) / 255.0
+            marker.color.a = float(max(0.5, confidence))
+            
+            # Calculate position
+            angle = -math.atan2((x - self.cx), self.fx)
             index = int((angle - self.latest_scan.angle_min) / 
                        self.latest_scan.angle_increment)
             
@@ -489,30 +491,20 @@ class PersonDetector(Node):
                         map_point = do_transform_point(camera_point, transform)
                         marker.pose.position = map_point.point
                         
-                        self.get_logger().info(
-                            f'Person {track_id} at depth={depth:.2f}m, '
-                            f'angle={math.degrees(angle):.1f}°'
-                        )
+                        # Set marker lifetime
+                        marker.lifetime = Duration(seconds=0.5).to_msg()
+                        
+                        return marker
                         
                     except TransformException as e:
                         self.get_logger().warn(f'Transform failed: {str(e)}')
                         return None
                         
-                else:
-                    self.get_logger().warn('Invalid LIDAR measurement')
-                    return None
-            else:
-                self.get_logger().warn('Angle outside LIDAR range')
-                return None
+            return None
             
         except Exception as e:
-            self.get_logger().error(f'Failed to create person marker: {str(e)}')
+            self.get_logger().error(f'Failed to create marker: {str(e)}')
             return None
-        
-        # Set marker lifetime
-        marker.lifetime = Duration(seconds=0.5).to_msg()
-        
-        return marker
 
 def main(args=None):
     rclpy.init(args=args)

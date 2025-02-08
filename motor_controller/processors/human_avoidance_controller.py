@@ -71,14 +71,19 @@ class HumanAvoidanceController:
             )
             
             # Calculate backup speed based on how close the human is
-            backup_scale = 1.0 - (human_distance / self.min_safe_distance)
-            backup_speed = -self.max_backup_speed * backup_scale
+            # Modified calculation to ensure non-zero speed
+            backup_scale = (self.min_safe_distance - human_distance) / self.min_safe_distance
+            backup_speed = -self.max_backup_speed * max(0.8, backup_scale)  # Ensure minimum backup speed
+            
+            # Set backup speed BEFORE handling turning
+            cmd.linear.x = backup_speed
+            self.node.get_logger().info(f'Setting backup speed to {backup_speed:.2f} m/s')
             
             # Check if we can back up
-            if self.can_move_backward():
-                # Set backup speed BEFORE handling turning
-                cmd.linear.x = backup_speed
-                self.node.get_logger().info(f'Backing up at {backup_speed:.2f} m/s')
+            if not self.can_move_backward():
+                if human_distance < self.critical_distance:
+                    needs_escape = True
+                    self.node.get_logger().warn('Cannot back up, need escape plan')
         
         # Handle turning AFTER setting backup speed
         if image_x is not None:
@@ -93,16 +98,16 @@ class HumanAvoidanceController:
             if abs(turn_speed) > 0.0:
                 if abs(turn_speed) < self.min_rotation_speed:
                     turn_speed = math.copysign(self.min_rotation_speed, turn_speed)
-                    # Don't stop backing up while turning
-                    # Remove: cmd.linear.x = 0.0
             
             # Limit maximum rotation speed
             cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
                               -self.max_rotation_speed)
         
-        # Ensure we're not exceeding max speeds
-        cmd.linear.x = max(min(cmd.linear.x, self.max_linear_speed), -self.max_linear_speed)
-        cmd.angular.z = max(min(cmd.angular.z, self.max_rotation_speed), -self.max_rotation_speed)
+        # Debug log the actual commands being sent
+        self.node.get_logger().info(
+            f'Avoidance command: linear={cmd.linear.x:.2f} m/s, '
+            f'angular={cmd.angular.z:.2f} rad/s'
+        )
         
         return cmd, needs_escape
         

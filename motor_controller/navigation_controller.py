@@ -385,33 +385,40 @@ class NavigationController(Node):
                 # Extract human position from tracking command
                 human_angle = -msg.angular.z  # Invert because cmd is opposite
                 
-                # Estimate distance from linear command (rough approximation)
-                human_distance = 1.0 - abs(msg.linear.x) * 2.0  # Rough conversion
+                # Get actual distance from linear.y
+                human_distance = msg.linear.y  # Get real distance measurement
                 
                 # Calculate normalized image position from angular command
-                # Convert angular command back to approximate image position
-                image_x = ((-human_angle / self.max_angular_speed) + 1) * 320  # Assuming 640x480 image
+                image_x = ((-human_angle / self.max_angular_speed) + 1) * 320
                 
-                # Get avoidance command
-                cmd, needs_escape = self.human_avoidance.get_avoidance_command(
-                    human_distance, 
-                    human_angle,
-                    image_x
-                )
-                
-                if needs_escape:
-                    # Plan escape waypoint
-                    escape_point = self.human_avoidance.plan_escape()
-                    if escape_point is not None:
-                        self.send_goal(escape_point)
-                        return  # Skip normal command processing
-                
-                # Apply normal speed limits
-                cmd.linear.x = max(min(cmd.linear.x, self.max_linear_speed), -self.max_linear_speed)
-                cmd.angular.z = max(min(cmd.angular.z, self.max_angular_speed), -self.max_angular_speed)
-                
-                # Publish command
-                self.wheel_speeds_pub.publish(cmd)
+                if human_distance > 0:  # Only if we have valid distance
+                    # Get avoidance command
+                    cmd, needs_escape = self.human_avoidance.get_avoidance_command(
+                        human_distance, 
+                        human_angle,
+                        image_x
+                    )
+                    
+                    if needs_escape:
+                        # Plan escape waypoint
+                        escape_point = self.human_avoidance.plan_escape()
+                        if escape_point is not None:
+                            self.send_goal(escape_point)
+                            return
+                    
+                    # Apply normal speed limits
+                    cmd.linear.x = max(min(cmd.linear.x, self.max_linear_speed), 
+                                     -self.max_linear_speed)
+                    cmd.angular.z = max(min(cmd.angular.z, self.max_angular_speed), 
+                                      -self.max_angular_speed)
+                    
+                    # Publish command
+                    self.wheel_speeds_pub.publish(cmd)
+                    
+                    self.get_logger().info(
+                        f'Human tracking: dist={human_distance:.2f}m, '
+                        f'angle={math.degrees(human_angle):.1f}°'
+                    )
                 
             except Exception as e:
                 self.get_logger().error(f'Error in tracking cmd callback: {str(e)}')

@@ -316,40 +316,24 @@ class PersonDetector(Node):
                         angle = -math.atan2((person_center_x - self.cx), self.fx)
                         index = int((angle - self.latest_scan.angle_min) / self.latest_scan.angle_increment)
                         
-                        # Get distance from LIDAR
-                        human_distance = None
-                        if 0 <= index < len(self.latest_scan.ranges):
-                            if (self.latest_scan.ranges[index] >= self.latest_scan.range_min and 
-                                self.latest_scan.ranges[index] <= self.latest_scan.range_max):
-                                human_distance = self.latest_scan.ranges[index]
-                        
-                        # Calculate normalized error (-1 to 1)
-                        center_error = (person_center_x - image_center_x) / image_center_x
-                        
-                        # Log target person
-                        self.get_logger().info(
-                            f'Target person ID {int(track_id)}: '
-                            f'error={center_error:.2f}'
-                        )
-                        
-                        # Create and publish tracking command
+                        # Create tracking command
                         cmd = Twist()
                         
-                        # Only turn if outside deadzone
+                        # Set distance in linear.y (using it as a communication channel)
+                        if 0 <= index < len(self.latest_scan.ranges):
+                            distance = self.latest_scan.ranges[index]
+                            if (distance >= self.latest_scan.range_min and 
+                                distance <= self.latest_scan.range_max):
+                                cmd.linear.y = distance  # Use linear.y to pass distance
+                                self.get_logger().info(f'Human distance: {distance:.2f}m')
+                        
+                        # Calculate turning command as before
+                        center_error = (person_center_x - image_center_x) / image_center_x
                         deadzone = 0.5
                         if abs(center_error) > deadzone:
                             turning_gain = 0.5
                             cmd.angular.z = -center_error * turning_gain
                             cmd.angular.z = max(min(cmd.angular.z, 0.5), -0.5)
-                            
-                            self.get_logger().info(
-                                f'Turning command: {cmd.angular.z:.2f} rad/s'
-                            )
-                        
-                        if human_distance is not None:
-                            self.get_logger().info(f'Human distance: {human_distance:.2f}m')
-                            # Let avoidance controller handle backup behavior
-                            cmd.linear.x = 0.0  # Clear any forward motion
                         
                         self.tracking_cmd_pub.publish(cmd)
                         

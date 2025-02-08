@@ -179,11 +179,14 @@ class HumanAvoidanceController:
     def monitor_rear_distance(self):
         """Continuously monitor and log distance behind robot"""
         if self.latest_scan is None:
+            self.node.get_logger().warn('No scan data available for rear monitoring')
             return
             
         # Check rear LIDAR readings
         rear_angles = [-math.pi, math.pi]  # Check both sides of rear
         angle_tolerance = math.pi/6  # 30 degree cone behind robot
+        
+        self.node.get_logger().info('=== Rear Distance Monitor ===')
         
         min_rear_distance = float('inf')
         distances = []
@@ -194,8 +197,16 @@ class HumanAvoidanceController:
             end_idx = int((angle + angle_tolerance - self.latest_scan.angle_min) / 
                          self.latest_scan.angle_increment)
             
+            # Get all readings (including invalid ones)
+            all_readings = self.latest_scan.ranges[start_idx:end_idx]
+            if len(all_readings) > 0:
+                self.node.get_logger().info(
+                    f'Raw readings at {math.degrees(angle):.1f}°: '
+                    f'min={min(all_readings):.2f}m, max={max(all_readings):.2f}m'
+                )
+            
             # Get valid readings in rear arc
-            rear_readings = [r for r in self.latest_scan.ranges[start_idx:end_idx]
+            rear_readings = [r for r in all_readings
                            if self.latest_scan.range_min <= r <= self.latest_scan.range_max]
             
             if rear_readings:
@@ -203,10 +214,18 @@ class HumanAvoidanceController:
                 distances.append(arc_min_distance)
                 min_rear_distance = min(min_rear_distance, arc_min_distance)
                 self.node.get_logger().info(
-                    f'Wall at {math.degrees(angle):.1f}°: {arc_min_distance:.2f}m'
+                    f'Valid distance at {math.degrees(angle):.1f}°: {arc_min_distance:.2f}m'
+                )
+            else:
+                self.node.get_logger().warn(
+                    f'No valid readings at {math.degrees(angle):.1f}°'
                 )
         
         if distances:
             self.node.get_logger().info(
-                f'Wall behind robot: {min_rear_distance:.2f}m'
-            ) 
+                f'Minimum wall distance behind robot: {min_rear_distance:.2f}m'
+            )
+        else:
+            self.node.get_logger().warn('No valid distances behind robot!')
+        
+        self.node.get_logger().info('===========================') 

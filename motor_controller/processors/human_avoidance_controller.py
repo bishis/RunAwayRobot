@@ -63,30 +63,7 @@ class HumanAvoidanceController:
         cmd = Twist()
         needs_escape = False
         
-        # Always try to face the human when detected
-        if image_x is not None:
-            # Calculate normalized error from image center (-1 to 1)
-            image_center = 320  # Assuming 640x480 image
-            normalized_error = (image_x - image_center) / image_center
-            
-            # Calculate turn speed to face human
-            turn_speed = normalized_error * self.turn_p_gain
-            
-            # Apply minimum rotation speed if turning
-            if abs(turn_speed) > 0.0:
-                if abs(turn_speed) < self.min_rotation_speed:
-                    turn_speed = math.copysign(self.min_rotation_speed, turn_speed)
-                    cmd.linear.x = 0.0  # Stop while turning slowly
-            
-            # Limit maximum rotation speed
-            cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
-                              -self.max_rotation_speed)
-            
-            self.node.get_logger().info(
-                f'Facing human: error={normalized_error:.2f}, turn={cmd.angular.z:.2f}'
-            )
-        
-        # Check distances and respond accordingly
+        # Check distances FIRST - this should take priority
         if human_distance < self.min_safe_distance:
             # Start backing up when closer than safe distance
             self.node.get_logger().info(
@@ -99,29 +76,29 @@ class HumanAvoidanceController:
             
             # Check if we can back up
             if self.can_move_backward():
+                # Set backup speed BEFORE handling turning
                 cmd.linear.x = backup_speed
                 self.node.get_logger().info(f'Backing up at {backup_speed:.2f} m/s')
-                
-                # Keep facing human while backing up
-                if image_x is not None:
-                    # Calculate turn to keep facing human
-                    image_center = 320  # Assuming 640x480 image
-                    normalized_error = (image_x - image_center) / image_center
-                    turn_speed = normalized_error * self.turn_p_gain
-                    
-                    if abs(turn_speed) > 0.0:
-                        if abs(turn_speed) < self.min_rotation_speed:
-                            turn_speed = math.copysign(self.min_rotation_speed, turn_speed)
-                    
-                    cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
-                                      -self.max_rotation_speed)
-            else:
-                # If we can't back up and human is very close, request escape
-                if human_distance < self.critical_distance:
-                    self.node.get_logger().warn(
-                        'Cannot back up and human too close, need escape plan'
-                    )
-                    needs_escape = True
+        
+        # Handle turning AFTER setting backup speed
+        if image_x is not None:
+            # Calculate normalized error from image center (-1 to 1)
+            image_center = 320  # Assuming 640x480 image
+            normalized_error = (image_x - image_center) / image_center
+            
+            # Calculate turn speed to face human
+            turn_speed = normalized_error * self.turn_p_gain
+            
+            # Apply minimum rotation speed if turning
+            if abs(turn_speed) > 0.0:
+                if abs(turn_speed) < self.min_rotation_speed:
+                    turn_speed = math.copysign(self.min_rotation_speed, turn_speed)
+                    # Don't stop backing up while turning
+                    # Remove: cmd.linear.x = 0.0
+            
+            # Limit maximum rotation speed
+            cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
+                              -self.max_rotation_speed)
         
         # Ensure we're not exceeding max speeds
         cmd.linear.x = max(min(cmd.linear.x, self.max_linear_speed), -self.max_linear_speed)

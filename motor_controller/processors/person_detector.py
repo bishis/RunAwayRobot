@@ -315,39 +315,25 @@ class PersonDetector(Node):
                         # Calculate normalized error (-1 to 1)
                         center_error = (person_center_x - image_center_x) / image_center_x
                         
-                        # Calculate distance using LIDAR
-                        angle = -math.atan2((person_center_x - self.cx), self.fx)
-                        index = int((angle - self.latest_scan.angle_min) / 
-                                   self.latest_scan.angle_increment)
-                        
-                        human_distance = float('inf')
-                        if 0 <= index < len(self.latest_scan.ranges):
-                            depth = self.latest_scan.ranges[index]
-                            if (depth >= self.latest_scan.range_min and 
-                                depth <= self.latest_scan.range_max):
-                                human_distance = depth
-                        
-                        # Log distance and angle
+                        # Log target person
                         self.get_logger().info(
                             f'Target person ID {int(track_id)}: '
-                            f'distance={human_distance:.2f}m, '
-                            f'angle={math.degrees(angle):.1f}°, '
                             f'error={center_error:.2f}'
                         )
                         
-                        # Create and publish tracking command with distance info
+                        # Create and publish tracking command
                         cmd = Twist()
                         
-                        # Get avoidance command based on distance
-                        avoidance_cmd, needs_escape = self.human_avoidance.get_avoidance_command(
-                            human_distance=human_distance,
-                            human_angle=angle,
-                            image_x=person_center_x
-                        )
-                        
-                        # Use avoidance command if generated
-                        if avoidance_cmd is not None:
-                            cmd = avoidance_cmd
+                        # Only turn if outside deadzone
+                        deadzone = 0.5
+                        if abs(center_error) > deadzone:
+                            turning_gain = 0.5
+                            cmd.angular.z = -center_error * turning_gain
+                            cmd.angular.z = max(min(cmd.angular.z, 0.5), -0.5)
+                            
+                            self.get_logger().info(
+                                f'Turning command: {cmd.angular.z:.2f} rad/s'
+                            )
                         
                         self.tracking_cmd_pub.publish(cmd)
                         

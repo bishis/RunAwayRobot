@@ -48,34 +48,10 @@ class HumanAvoidanceController:
         if hasattr(node, 'max_linear_speed'):
             self.max_linear_speed = node.max_linear_speed
             
-        # Add escape state tracking
-        self.is_escaping = False
-        self.wall_too_close = False
-        self.min_wall_distance = 0.4  # Minimum safe distance from wall
-        
     def get_avoidance_command(self, human_distance, human_angle, image_x=None):
         cmd = Twist()
         needs_escape = False
         
-        # Always check for walls behind
-        self.wall_too_close = not self.can_move_backward()
-        
-        # If we're already escaping, ignore humans and continue to waypoint
-        if self.is_escaping:
-            self.node.get_logger().info('Currently escaping - ignoring human tracking')
-            return cmd, False
-        
-        # Check if we need to start escape sequence
-        if self.wall_too_close and human_distance < self.min_safe_distance:
-            self.node.get_logger().warn(
-                f'Wall detected at {self.get_wall_distance():.2f}m behind, '
-                f'human at {human_distance:.2f}m - initiating escape'
-            )
-            self.is_escaping = True
-            needs_escape = True
-            return cmd, needs_escape
-            
-        # Normal human tracking behavior if not escaping
         # Handle turning FIRST - prioritize facing the human
         if image_x is not None:
             # Calculate normalized error from image center (-1 to 1)
@@ -129,17 +105,13 @@ class HumanAvoidanceController:
         
     def can_move_backward(self):
         """Check if there's space to move backward"""
-        wall_distance = self.get_wall_distance()
-        return wall_distance > self.min_wall_distance
-        
-    def get_wall_distance(self):
-        """Get distance to nearest wall behind robot"""
         if self.latest_scan is None:
-            return 0.0
+            return False
             
         # Check rear LIDAR readings (assume LIDAR 0 is front, ±π is rear)
         rear_angles = [-math.pi, math.pi]  # Check both sides of rear
         angle_tolerance = math.pi/6  # 30 degree cone behind robot
+        min_backup_distance = 0.3  # Minimum space needed to back up
         
         min_rear_distance = float('inf')
         
@@ -156,12 +128,7 @@ class HumanAvoidanceController:
             if rear_readings:
                 min_rear_distance = min(min_rear_distance, min(rear_readings))
         
-        return min_rear_distance if min_rear_distance != float('inf') else 0.0
-        
-    def reset_escape_state(self):
-        """Reset escape state after reaching waypoint"""
-        self.is_escaping = False
-        self.wall_too_close = False
+        return min_rear_distance > min_backup_distance
         
     def plan_escape(self):
         """Plan escape waypoint furthest from current position"""

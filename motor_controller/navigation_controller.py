@@ -242,17 +242,10 @@ class NavigationController(Node):
             self.reset_navigation_state()
 
     def get_result_callback(self, future):
-        """Handle navigation result"""
+        """Handle navigation result with timeout recovery"""
         try:
             status = future.result().status
-            if status == GoalStatus.STATUS_SUCCEEDED:
-                self.get_logger().info('Navigation succeeded')
-                # Reset escape state when waypoint reached
-                if hasattr(self.human_avoidance, 'reset_escape_state'):
-                    self.human_avoidance.reset_escape_state()
-                self.consecutive_failures = 0
-                self.planning_attempts = 0
-            else:
+            if status != GoalStatus.STATUS_SUCCEEDED:
                 self.get_logger().warn(f'Navigation failed with status: {status}')
                 self.consecutive_failures += 1
                 self.planning_attempts += 1
@@ -268,6 +261,11 @@ class NavigationController(Node):
                         self._reset_timer = self.create_timer(5.0, self.reset_with_timer)
                 else:
                     self.reset_navigation_state()
+            else:
+                self.get_logger().info('Navigation succeeded')
+                self.consecutive_failures = 0
+                self.planning_attempts = 0
+                self.reset_navigation_state()
                 
         except Exception as e:
             self.get_logger().error(f'Error getting navigation result: {str(e)}')

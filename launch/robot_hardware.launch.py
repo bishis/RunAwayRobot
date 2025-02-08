@@ -72,7 +72,19 @@ def generate_launch_description():
             arguments=['0', '0', '0.1', '0', '0', '0', 'base_link', 'camera_link'],
             parameters=[{'use_sim_time': False}]  # Make sure this is false
         ),
-        
+
+        # # Add image compression node
+        # Node(
+        #     package='image_transport',
+        #     executable='republish',
+        #     name='image_compress',
+        #     arguments=['raw', 'compressed'],
+        #     remappings=[
+        #         ('in', '/camera/image_raw'),
+        #         ('out/compressed', '/camera/image_raw/compressed'),
+        #     ]
+        # ),
+
         # Add robot visualizer
         Node(
             package='motor_controller',

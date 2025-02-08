@@ -79,7 +79,7 @@ class PersonDetector(Node):
         self.data_lock = threading.Lock()
         
         # Maximum age for cached data (in seconds)
-        self.max_data_age = 0.05
+        self.max_data_age = 0.1
         
         # Create synchronized subscribers
         self.image_sub = Subscriber(self, CompressedImage, '/camera/image_raw_flipped/compressed')
@@ -88,26 +88,26 @@ class PersonDetector(Node):
         # Synchronize messages with 0.1 second tolerance
         self.ts = ApproximateTimeSynchronizer(
             [self.image_sub, self.scan_sub],
-            queue_size=10,
-            slop=0.05
+            queue_size=5,
+            slop=0.1
         )
         self.ts.registerCallback(self.synchronized_callback)
         
         # Create high-frequency processing timer
-        self.create_timer(0.02, self.process_data)  # 50Hz processing
+        self.create_timer(0.05, self.process_data)  # 20Hz processing
         
         # Create publishers
         self.detection_pub = self.create_publisher(
             DetectionArray, 
             '/person_detections',
-            20
+            10
         )
         
         # Only publish compressed debug image
         self.debug_img_pub = self.create_publisher(
             CompressedImage,
             '/person_detections/compressed',
-            20
+            10
         )
         
         # info counter
@@ -190,13 +190,13 @@ class PersonDetector(Node):
         self.tracking_cmd_pub = self.create_publisher(
             Twist,
             '/human_tracking_cmd',
-            20
+            10
         )
         
         self.tracking_active_pub = self.create_publisher(
             Bool,
             '/human_tracking_active',
-            20
+            10
         )
         
         # Add TF availability check

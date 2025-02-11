@@ -125,11 +125,12 @@ class NavigationController(Node):
     def cmd_vel_callback(self, msg: Twist):
         """Handle incoming velocity commands"""
         try:
-            # Just handle rotation speeds
+            # Handle rotation speeds
             if abs(msg.angular.z) > 0.0:
                 if abs(msg.angular.z) < self.min_rotation_speed:
-                    # Only enforce minimum rotation speed, don't stop forward motion
                     msg.angular.z = math.copysign(self.min_rotation_speed, msg.angular.z)
+                    # Scale down linear speed during turns but don't stop completely
+                    msg.linear.x *= 0.5  # Reduce forward speed by half during turns
             
             # Ensure we're not exceeding max speeds
             msg.linear.x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)

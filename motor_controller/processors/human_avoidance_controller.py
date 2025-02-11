@@ -160,8 +160,10 @@ class HumanAvoidanceController:
                 waypoint.pose.position.y**2
             )
             if distance > 1.0:  # Minimum escape distance
-                # Mark this as an escape waypoint
-                waypoint.header.frame_id = 'escape_waypoint'  # Special marker for escape
+                # Keep frame_id as 'map' but add custom field for escape
+                waypoint.header.frame_id = 'map'
+                # Use stamp.nanosec to mark as escape waypoint (a bit hacky but works)
+                waypoint.header.stamp.nanosec = 1  # Special marker for escape
                 
                 # Log the escape plan
                 self.node.get_logger().warn(

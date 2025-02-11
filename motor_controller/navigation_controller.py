@@ -263,8 +263,7 @@ class NavigationController(Node):
                 self.planning_attempts += 1
                 
                 # Check if this was an escape waypoint
-                if (self.current_goal is not None and 
-                    self.current_goal.header.frame_id == 'escape_waypoint'):
+                if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
                     self.get_logger().warn('Escape plan failed - resuming normal operation')
                 
                 if self.planning_attempts >= self.max_planning_attempts:
@@ -281,8 +280,7 @@ class NavigationController(Node):
             else:
                 self.get_logger().info('Navigation succeeded')
                 # Check if this was an escape waypoint
-                if (self.current_goal is not None and 
-                    self.current_goal.header.frame_id == 'escape_waypoint'):
+                if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
                     self.get_logger().info('Escape plan succeeded - resuming normal operation')
                 
                 self.consecutive_failures = 0
@@ -405,8 +403,7 @@ class NavigationController(Node):
         if self.is_tracking_human:
             try:
                 # Check if we're executing an escape plan
-                if (self.current_goal is not None and 
-                    self.current_goal.header.frame_id == 'escape_waypoint'):
+                if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
                     self.get_logger().info('Executing escape plan - ignoring human tracking')
                     return  # Don't process human tracking while escaping
                 
@@ -442,6 +439,10 @@ class NavigationController(Node):
             except Exception as e:
                 self.get_logger().error(f'Error in tracking cmd callback: {str(e)}')
                 self.wheel_speeds_pub.publish(Twist())  # Stop on error
+
+    def is_escape_waypoint(self, waypoint):
+        """Check if waypoint is an escape waypoint"""
+        return waypoint is not None and waypoint.header.stamp.nanosec == 1
 
 def main(args=None):
     rclpy.init(args=args)

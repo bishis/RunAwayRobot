@@ -248,8 +248,16 @@ class NavigationController(Node):
     def get_result_callback(self, future):
         """Handle navigation result with timeout recovery"""
         try:
-            status = future.result().status
+            result = future.result()
+            status = result.status
+            
             if status != GoalStatus.STATUS_SUCCEEDED:
+                # Check for specific failure messages
+                if hasattr(result, 'result') and hasattr(result.result, 'error_code'):
+                    if result.result.error_code == 100:  # Nav2 error code for no valid path
+                        self.get_logger().error('ROBOT IS TRAPPED - No valid escape path found!')
+                        # Could add additional recovery behavior here
+                
                 self.get_logger().warn(f'Navigation failed with status: {status}')
                 self.consecutive_failures += 1
                 self.planning_attempts += 1

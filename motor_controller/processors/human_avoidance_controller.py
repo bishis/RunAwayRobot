@@ -153,12 +153,20 @@ class HumanAvoidanceController:
         self.waypoint_generator.force_waypoint_change()
         waypoint = self.waypoint_generator.get_furthest_waypoint()
         
-        if waypoint is not None and waypoint.position.x**2 + waypoint.position.y**2 > self.min_escape_distance**2:
-            self.node.get_logger().info('Found escape waypoint')
-            return waypoint
+        if waypoint is not None:
+            # waypoint is a PoseStamped, so we need to access pose.position
+            distance = math.sqrt(
+                waypoint.pose.position.x**2 + 
+                waypoint.pose.position.y**2
+            )
+            if distance > 1.0:  # Minimum escape distance
+                self.node.get_logger().info(
+                    f'Found escape waypoint at ({waypoint.pose.position.x:.2f}, {waypoint.pose.position.y:.2f})'
+                )
+                return waypoint
             
         self.node.get_logger().warn('Could not find suitable escape waypoint')
-        return None 
+        return None
 
     def monitor_rear_distance(self):
         """Continuously monitor and log distance behind robot"""

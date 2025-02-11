@@ -33,6 +33,7 @@ setup(
             'person_detector = motor_controller.processors.person_detector:main',
             'robot_visualizer = motor_controller.processors.robot_visualizer:main',
             'image_flipper = motor_controller.processors.image_flipper:main',
+            'object_detector = motor_controller.processors.object_detector:main',
         ],
     },
 )

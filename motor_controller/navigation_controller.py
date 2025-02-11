@@ -128,8 +128,8 @@ class NavigationController(Node):
             # Just handle rotation speeds
             if abs(msg.angular.z) > 0.0:
                 if abs(msg.angular.z) < self.min_rotation_speed:
+                    # Only enforce minimum rotation speed, don't stop forward motion
                     msg.angular.z = math.copysign(self.min_rotation_speed, msg.angular.z)
-                    msg.linear.x = 0.0
             
             # Ensure we're not exceeding max speeds
             msg.linear.x = max(min(msg.linear.x, self.max_linear_speed), -self.max_linear_speed)

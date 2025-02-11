@@ -254,6 +254,11 @@ class NavigationController(Node):
                 self.consecutive_failures += 1
                 self.planning_attempts += 1
                 
+                # Check if this was an escape waypoint
+                if (self.current_goal is not None and 
+                    self.current_goal.header.frame_id == 'escape_waypoint'):
+                    self.get_logger().warn('Escape plan failed - resuming normal operation')
+                
                 if self.planning_attempts >= self.max_planning_attempts:
                     self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
                     self.planning_attempts = 0
@@ -267,6 +272,11 @@ class NavigationController(Node):
                     self.reset_navigation_state()
             else:
                 self.get_logger().info('Navigation succeeded')
+                # Check if this was an escape waypoint
+                if (self.current_goal is not None and 
+                    self.current_goal.header.frame_id == 'escape_waypoint'):
+                    self.get_logger().info('Escape plan succeeded - resuming normal operation')
+                
                 self.consecutive_failures = 0
                 self.planning_attempts = 0
                 self.reset_navigation_state()
@@ -386,10 +396,14 @@ class NavigationController(Node):
         """Handle human tracking commands with avoidance"""
         if self.is_tracking_human:
             try:
+                # Check if we're executing an escape plan
+                if (self.current_goal is not None and 
+                    self.current_goal.header.frame_id == 'escape_waypoint'):
+                    self.get_logger().info('Executing escape plan - ignoring human tracking')
+                    return  # Don't process human tracking while escaping
+                
                 # Extract human position from tracking command
                 human_angle = -msg.angular.z  # Invert because cmd is opposite
-                
-                # Get actual distance from linear.y
                 human_distance = msg.linear.y  # Get real distance measurement
                 
                 # Calculate normalized image position from angular command

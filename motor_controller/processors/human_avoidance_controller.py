@@ -49,7 +49,7 @@ class HumanAvoidanceController:
             self.max_linear_speed = node.max_linear_speed
             
         # Add timer to continuously monitor rear distance
-        self.node.create_timer(0.2, self.monitor_rear_distance)  # 5Hz updates
+        #self.node.create_timer(0.2, self.monitor_rear_distance)  # 5Hz updates
         
     def get_avoidance_command(self, human_distance, human_angle, image_x=None):
         cmd = Twist()
@@ -160,8 +160,13 @@ class HumanAvoidanceController:
                 waypoint.pose.position.y**2
             )
             if distance > 1.0:  # Minimum escape distance
-                self.node.get_logger().info(
-                    f'Found escape waypoint at ({waypoint.pose.position.x:.2f}, {waypoint.pose.position.y:.2f})'
+                # Mark this as an escape waypoint
+                waypoint.header.frame_id = 'escape_waypoint'  # Special marker for escape
+                
+                # Log the escape plan
+                self.node.get_logger().warn(
+                    f'ESCAPE PLAN: Moving to ({waypoint.pose.position.x:.2f}, '
+                    f'{waypoint.pose.position.y:.2f}), ignoring humans until reached'
                 )
                 return waypoint
             

@@ -390,22 +390,29 @@ class NavigationController(Node):
     def tracking_active_callback(self, msg):
         """Handle changes in tracking status"""
         was_tracking = self.is_tracking_human
+        
+        # Don't start tracking if we're executing an escape
+        if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+            self.get_logger().info('Ignoring tracking request - currently executing escape plan')
+            self.is_tracking_human = False
+            return
+            
         self.is_tracking_human = msg.data
         
         if self.is_tracking_human and not was_tracking:
             # Cancel current navigation goal when starting to track
             if self._current_goal_handle is not None:
                 self._current_goal_handle.cancel_goal_async()
-                
+
     def tracking_cmd_callback(self, msg):
         """Handle human tracking commands with avoidance"""
+        # First check if we're executing an escape plan
+        if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+            self.get_logger().info('Executing escape plan - ignoring ALL human tracking')
+            return  # Don't process any human tracking while escaping
+            
         if self.is_tracking_human:
             try:
-                # Check if we're executing an escape plan
-                if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
-                    self.get_logger().info('Executing escape plan - ignoring human tracking')
-                    return  # Don't process human tracking while escaping
-                
                 # Extract human position from tracking command
                 human_angle = -msg.angular.z  # Invert because cmd is opposite
                 human_distance = msg.linear.y  # Get real distance measurement
@@ -429,6 +436,8 @@ class NavigationController(Node):
                         escape_point = self.human_avoidance.plan_escape()
                         if escape_point is not None:
                             self.send_goal(escape_point)
+                            # Force tracking off when starting escape
+                            self.is_tracking_human = False
                     
                     self.get_logger().info(
                         f'Human tracking: dist={human_distance:.2f}m, '

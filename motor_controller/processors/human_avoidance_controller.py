@@ -150,7 +150,6 @@ class HumanAvoidanceController:
                                 f'Wall too close behind ({rear_distance:.2f}m), moving forward instead'
                             )
                             cmd.linear.x = 0.1  # Small forward motion
-        
         # Debug log the actual commands being sent
         self.node.get_logger().info(
             f'Avoidance command: linear={cmd.linear.x:.2f} m/s, '

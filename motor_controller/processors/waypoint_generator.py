@@ -551,6 +551,19 @@ class WaypointGenerator:
             self.node.get_logger().warn('No map available for escape planning')
             return None
             
+        try:
+            # Get current robot position
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            robot_x = transform.transform.translation.x
+            robot_y = transform.transform.translation.y
+        except Exception as e:
+            self.node.get_logger().warn(f'Could not get robot position: {e}')
+            return None
+            
         # Convert map to numpy array
         map_data = np.array(self.current_map.data).reshape(
             self.current_map.info.height,
@@ -562,48 +575,60 @@ class WaypointGenerator:
         origin_x = self.current_map.info.origin.position.x
         origin_y = self.current_map.info.origin.position.y
         
+        # Calculate distance transform from walls
+        wall_distance = distance_transform_edt(map_data < 50) * resolution
+        
         # Find all valid points (not occupied or unknown)
-        valid_points = np.where((map_data < 50) & (map_data >= 0))
-        if len(valid_points[0]) == 0:
+        valid_points = []
+        for y in range(map_data.shape[0]):
+            for x in range(map_data.shape[1]):
+                # Convert to world coordinates
+                world_x = x * resolution + origin_x
+                world_y = y * resolution + origin_y
+                
+                # Calculate distance from robot
+                dist_from_robot = math.sqrt(
+                    (world_x - robot_x)**2 + 
+                    (world_y - robot_y)**2
+                )
+                
+                # Only consider points that are:
+                # 1. In free space (< 50)
+                # 2. At least 0.5m from walls
+                # 3. At least 2m from robot
+                # 4. Not too close to map edges
+                if (map_data[y, x] < 50 and  # Free space
+                    wall_distance[y, x] > 0.5 and  # Away from walls
+                    dist_from_robot > 2.0):  # Away from robot
+                    valid_points.append((world_x, world_y, dist_from_robot))
+        
+        if not valid_points:
+            self.node.get_logger().error('No valid escape points found!')
             return None
             
-        # Convert map coordinates to world coordinates
-        world_points = []
-        for y, x in zip(valid_points[0], valid_points[1]):
-            world_x = x * resolution + origin_x
-            world_y = y * resolution + origin_y
-            
-            # Check if point is away from walls
-            if not self.is_near_wall(world_x, world_y, map_data, resolution, origin_x, origin_y):
-                world_points.append((world_x, world_y))
+        # Sort by distance from robot and take the furthest point
+        valid_points.sort(key=lambda p: p[2], reverse=True)
         
-        if not world_points:
-            return None
-            
-        # Find point furthest from current position
-        max_dist = 0
-        furthest_point = None
-        
-        for wx, wy in world_points:
-            dist = wx*wx + wy*wy  # Distance from origin (squared)
-            if dist > max_dist:
-                max_dist = dist
-                furthest_point = (wx, wy)
-        
-        if furthest_point is None:
-            return None
-            
         # Create PoseStamped message
         waypoint = PoseStamped()
         waypoint.header.frame_id = 'map'
         waypoint.header.stamp = self.node.get_clock().now().to_msg()
-        waypoint.pose.position.x = furthest_point[0]
-        waypoint.pose.position.y = furthest_point[1]
-        waypoint.pose.orientation.w = 1.0
+        waypoint.pose.position.x = valid_points[0][0]
+        waypoint.pose.position.y = valid_points[0][1]
         
-        self.node.get_logger().info(
+        # Calculate orientation to face away from robot
+        dx = waypoint.pose.position.x - robot_x
+        dy = waypoint.pose.position.y - robot_y
+        yaw = math.atan2(dy, dx)
+        
+        # Convert yaw to quaternion
+        waypoint.pose.orientation.z = math.sin(yaw / 2.0)
+        waypoint.pose.orientation.w = math.cos(yaw / 2.0)
+        
+        self.node.get_logger().warn(
             f'Generated escape waypoint at ({waypoint.pose.position.x:.2f}, '
-            f'{waypoint.pose.position.y:.2f})'
+            f'{waypoint.pose.position.y:.2f}), '
+            f'{valid_points[0][2]:.2f}m from robot'
         )
         
         return waypoint

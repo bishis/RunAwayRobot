@@ -79,16 +79,15 @@ class HumanAvoidanceController:
                         f'Wall too close behind ({rear_distance:.2f}m), need escape plan'
                     )
                     needs_escape = True
+                    if rear_distance < 0.2:  # 20cm safety threshold
+                        self.node.get_logger().warn(
+                            f'Wall too close behind ({rear_distance:.2f}m), moving forward instead'
+                        )
+                        cmd.linear.x = 0.1  # Small forward motion
                     return cmd, needs_escape
                 
-                # Prevent backing into walls - if too close, move forward instead
-                if rear_distance < 0.2:  # 20cm safety threshold
-                    self.node.get_logger().warn(
-                        f'Wall too close behind ({rear_distance:.2f}m), moving forward instead'
-                    )
-                    cmd.linear.x = 0.05  # Small forward motion
-                    return cmd, False
 
+                
         # Handle turning FIRST - prioritize facing the human
         if image_x is not None:
             # Calculate normalized error from image center (-1 to 1)
@@ -146,6 +145,11 @@ class HumanAvoidanceController:
                         self.node.get_logger().warn(
                             f'Wall too close behind ({rear_distance:.2f}m), need escape plan'
                         )
+                        if rear_distance < 0.2:  # 20cm safety threshold
+                            self.node.get_logger().warn(
+                                f'Wall too close behind ({rear_distance:.2f}m), moving forward instead'
+                            )
+                            cmd.linear.x = 0.1  # Small forward motion
         
         # Debug log the actual commands being sent
         self.node.get_logger().info(

@@ -453,36 +453,49 @@ class WaypointGenerator:
         self.last_waypoint_change = current_time
         return self.current_waypoint
 
-    def create_visualization_markers(self, waypoint: PoseStamped = None) -> MarkerArray:
-        """Create visualization markers for waypoints"""
+    def create_visualization_markers(self, waypoint: PoseStamped = None, is_escape: bool = False) -> MarkerArray:
+        """Create visualization markers for waypoint and frontiers
+        
+        Args:
+            waypoint: Optional waypoint to visualize
+            is_escape: If True, use red color for escape waypoint
+        """
         markers = MarkerArray()
         
-        if waypoint:
-            # Create marker for waypoint
+        # Add waypoint marker if provided
+        if waypoint is not None:
             marker = Marker()
             marker.header.frame_id = 'map'
             marker.header.stamp = self.node.get_clock().now().to_msg()
             marker.ns = 'waypoints'
             marker.id = 0
-            marker.type = Marker.CYLINDER
+            marker.type = Marker.SPHERE
             marker.action = Marker.ADD
             
-            # Set marker position
+            # Set position
             marker.pose = waypoint.pose
             
-            # Set marker size
+            # Set scale
             marker.scale.x = self.waypoint_size
             marker.scale.y = self.waypoint_size
             marker.scale.z = 0.1
             
-            # Set marker color (green)
-            marker.color.r = 0.0
-            marker.color.g = 1.0
-            marker.color.b = 0.0
-            marker.color.a = 0.5
+            # Set color based on type
+            if is_escape:
+                # Red for escape waypoints
+                marker.color.r = 1.0
+                marker.color.g = 0.0
+                marker.color.b = 0.0
+            else:
+                # Green for exploration waypoints
+                marker.color.r = 0.0
+                marker.color.g = 1.0
+                marker.color.b = 0.0
+            marker.color.a = 0.8
             
             markers.markers.append(marker)
-        
+            
+        # Rest of visualization code...
         return markers
 
     def validate_existing_waypoints(self):

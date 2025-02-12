@@ -149,25 +149,24 @@ class HumanAvoidanceController:
         
     def plan_escape(self):
         """Plan escape waypoint furthest from current position"""
-        # Force waypoint generator to pick furthest point
-        self.node.get_logger().warn('Ahmed is planning escape')
-
+        self.node.get_logger().warn('Planning escape')
+        
         self.waypoint_generator.force_waypoint_change()
         waypoint = self.waypoint_generator.get_furthest_waypoint()
         
         if waypoint is not None:
-            # waypoint is a PoseStamped, so we need to access pose.position
             distance = math.sqrt(
                 waypoint.pose.position.x**2 + 
                 waypoint.pose.position.y**2
             )
             if distance > 1.0:  # Minimum escape distance
-                # Keep frame_id as 'map' but add custom field for escape
                 waypoint.header.frame_id = 'map'
-                # Use stamp.nanosec to mark as escape waypoint (a bit hacky but works)
                 waypoint.header.stamp.nanosec = 1  # Special marker for escape
                 
-                # Log the escape plan
+                # Create red visualization for escape waypoint
+                markers = self.waypoint_generator.create_visualization_markers(waypoint, is_escape=True)
+                self.node.marker_pub.publish(markers)
+                
                 self.node.get_logger().warn(
                     f'ESCAPE PLAN: Moving to ({waypoint.pose.position.x:.2f}, '
                     f'{waypoint.pose.position.y:.2f}), ignoring humans until reached'

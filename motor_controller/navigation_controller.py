@@ -161,7 +161,6 @@ class NavigationController(Node):
     def exploration_loop(self):
         """Modified exploration loop to handle human tracking"""
         if self.is_tracking_human:
-            # Skip waypoint generation while tracking human
             return
             
         try:
@@ -171,7 +170,6 @@ class NavigationController(Node):
             if not self.is_navigating:
                 waypoint = self.waypoint_generator.generate_waypoint()
                 if waypoint:
-                    # Additional safety check before sending
                     if self.current_map and not self.waypoint_generator.is_near_wall(
                         waypoint.pose.position.x,
                         waypoint.pose.position.y,
@@ -184,7 +182,8 @@ class NavigationController(Node):
                         self.current_map.info.origin.position.y
                     ):
                         self.send_goal(waypoint)
-                        markers = self.waypoint_generator.create_visualization_markers(waypoint)
+                        # Green for exploration
+                        markers = self.waypoint_generator.create_visualization_markers(waypoint, is_escape=False)
                         self.marker_pub.publish(markers)
                     else:
                         self.get_logger().warn('Generated waypoint too close to wall, skipping')

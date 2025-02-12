@@ -150,6 +150,8 @@ class HumanAvoidanceController:
     def plan_escape(self):
         """Plan escape waypoint furthest from current position"""
         # Force waypoint generator to pick furthest point
+        self.node.get_logger().warn('Ahmed is planning escape')
+
         self.waypoint_generator.force_waypoint_change()
         waypoint = self.waypoint_generator.get_furthest_waypoint()
         

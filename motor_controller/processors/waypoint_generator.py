@@ -546,7 +546,7 @@ class WaypointGenerator:
         pass
 
     def get_furthest_waypoint(self):
-        """Generate a waypoint at the furthest reachable point from current position using random sampling"""
+        """Generate a waypoint at the furthest reachable point from current position"""
         if self.current_map is None:
             self.node.get_logger().warn('No map available for escape planning')
             return None
@@ -577,21 +577,25 @@ class WaypointGenerator:
         # Calculate distance transform from walls
         wall_distance = distance_transform_edt(map_data < 50) * resolution
         
-        # Get map dimensions in world coordinates
-        map_width = self.current_map.info.width * resolution
-        map_height = self.current_map.info.height * resolution
+        # Define map boundaries with margin
+        margin_cells = int(self.safety_margin / resolution)
+        min_x_cell = margin_cells
+        min_y_cell = margin_cells
+        max_x_cell = map_data.shape[1] - margin_cells
+        max_y_cell = map_data.shape[0] - margin_cells
         
-        # Find maximum possible distance in the map
-        max_possible_distance = math.sqrt(map_width**2 + map_height**2)
-        min_wall_distance = self.safety_margin * 2  # Double the normal safety margin for escapes
+        # Convert robot position to map coordinates
+        robot_cell_x = int((robot_x - origin_x) / resolution)
+        robot_cell_y = int((robot_y - origin_y) / resolution)
         
         valid_points = []
-        max_attempts = 100  # Number of random points to try
+        max_attempts = 100
+        min_wall_distance = self.safety_margin * 1.5  # Margin from walls
         
         for _ in range(max_attempts):
-            # Generate random point in map coordinates
-            map_x = np.random.randint(0, map_data.shape[1])
-            map_y = np.random.randint(0, map_data.shape[0])
+            # Generate random point within safe map boundaries
+            map_x = np.random.randint(min_x_cell, max_x_cell)
+            map_y = np.random.randint(min_y_cell, max_y_cell)
             
             # Convert to world coordinates
             world_x = map_x * resolution + origin_x
@@ -603,55 +607,73 @@ class WaypointGenerator:
                 (world_y - robot_y)**2
             )
             
-            # Calculate relative distance (0-1 scale)
-            relative_distance = dist_from_robot / max_possible_distance
-            
             # Check if point is valid:
             # 1. In free space
-            # 2. Away from walls based on distance transform
-            # 3. Reasonable distance from robot (at least 20% of max possible distance)
+            # 2. Sufficient distance from walls
+            # 3. Within map boundaries
             if (map_data[map_y, map_x] < 50 and  # Free space
                 wall_distance[map_y, map_x] > min_wall_distance and  # Away from walls
-                relative_distance > 0.2):  # Not too close to robot
+                min_x_cell <= map_x <= max_x_cell and  # Within x bounds
+                min_y_cell <= map_y <= max_y_cell):    # Within y bounds
                 
-                # Score the point based on:
-                # - Distance from robot (higher is better)
-                # - Distance from walls (higher is better)
-                wall_score = wall_distance[map_y, map_x] / (resolution * 10)  # Normalize wall distance
-                distance_score = relative_distance
-                total_score = distance_score * 0.7 + wall_score * 0.3  # Weight distance more
+                # Score based on:
+                # - Distance from robot (60%)
+                # - Distance from walls (30%)
+                # - Distance from map edges (10%)
+                wall_score = min(wall_distance[map_y, map_x] / (min_wall_distance * 2), 1.0)
+                distance_score = dist_from_robot  # No cap - prioritize furthest points
+                
+                # Calculate distance from edges
+                edge_dist_x = min(map_x - min_x_cell, max_x_cell - map_x) * resolution
+                edge_dist_y = min(map_y - min_y_cell, max_y_cell - map_y) * resolution
+                edge_score = min(min(edge_dist_x, edge_dist_y) / (self.safety_margin * 2), 1.0)
+                
+                # Normalize distance score to 0-1 range based on max seen so far
+                if valid_points:
+                    max_dist = max(p[2] for p in valid_points)
+                    norm_distance = distance_score / max(max_dist, distance_score)
+                else:
+                    norm_distance = 1.0
+                
+                total_score = (
+                    norm_distance * 0.6 +
+                    wall_score * 0.3 +
+                    edge_score * 0.1
+                )
                 
                 valid_points.append((world_x, world_y, dist_from_robot, total_score))
+                
+                self.node.get_logger().info(
+                    f'Valid point: ({world_x:.2f}, {world_y:.2f}), '
+                    f'dist={dist_from_robot:.2f}m, score={total_score:.2f}'
+                )
         
         if not valid_points:
             self.node.get_logger().error('No valid escape points found!')
             return None
             
-        # Sort by total score and take the best point
+        # Sort by score and take the best point
         valid_points.sort(key=lambda p: p[3], reverse=True)
         best_point = valid_points[0]
         
-        # Create PoseStamped message
+        # Create waypoint message
         waypoint = PoseStamped()
         waypoint.header.frame_id = 'map'
         waypoint.header.stamp = self.node.get_clock().now().to_msg()
         waypoint.pose.position.x = best_point[0]
         waypoint.pose.position.y = best_point[1]
         
-        # Calculate orientation to face away from robot
+        # Face away from robot
         dx = waypoint.pose.position.x - robot_x
         dy = waypoint.pose.position.y - robot_y
         yaw = math.atan2(dy, dx)
-        
-        # Convert yaw to quaternion
         waypoint.pose.orientation.z = math.sin(yaw / 2.0)
         waypoint.pose.orientation.w = math.cos(yaw / 2.0)
         
         self.node.get_logger().warn(
             f'Generated escape waypoint at ({waypoint.pose.position.x:.2f}, '
             f'{waypoint.pose.position.y:.2f}), '
-            f'{best_point[2]:.2f}m from robot, '
-            f'score: {best_point[3]:.2f}'
+            f'{best_point[2]:.2f}m from robot'
         )
         
         return waypoint

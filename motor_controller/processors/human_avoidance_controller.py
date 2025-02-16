@@ -38,7 +38,6 @@ class HumanAvoidanceController:
         self.last_turn_cmd = 0.0
         self.last_track_time = 0.0
         self.track_timeout = 0.2
-        self.max_turn_angle = math.pi/2  # Maximum 90 degree turn at once
         
         # Get latest scan data from node
         self.latest_scan = None
@@ -52,6 +51,11 @@ class HumanAvoidanceController:
             self.max_rotation_speed = node.max_angular_speed
         if hasattr(node, 'max_linear_speed'):
             self.max_linear_speed = node.max_linear_speed
+
+        # Add forward motion control
+        self.forward_motion_start = 0.0
+        self.forward_motion_duration = 0.5  # Forward motion duration in seconds
+        self.is_moving_forward = False
 
     def calculate_turn_command(self, image_x: float, current_time: float) -> float:
         """Calculate turn speed to face human."""
@@ -105,6 +109,19 @@ class HumanAvoidanceController:
         needs_escape = False
         current_time = time.time()
         
+        # Check if we're in forward motion mode
+        if self.is_moving_forward:
+            if current_time - self.forward_motion_start < self.forward_motion_duration:
+                # Continue forward motion
+                cmd.linear.x = 0.1
+                self.node.get_logger().info('Continuing forward motion')
+                return cmd, True
+            else:
+                # Stop forward motion
+                self.is_moving_forward = False
+                self.node.get_logger().info('Forward motion complete - stopping')
+                return Twist(), True
+        
         # Check rear distance first using monitor method
         if self.latest_scan is not None:
             rear_angle = math.pi  # Only use +180° reading
@@ -125,15 +142,15 @@ class HumanAvoidanceController:
                 
                 # Check if we need to escape
                 if rear_distance < self.critical_distance:
-                    self.node.get_logger().warn(
-                        f'Wall too close behind ({rear_distance:.2f}m), need escape plan'
-                    )
                     needs_escape = True
                     if rear_distance < 0.2:  # 20cm safety threshold
                         self.node.get_logger().warn(
-                            f'Wall too close behind ({rear_distance:.2f}m), moving forward instead'
+                            f'Wall too close behind ({rear_distance:.2f}m), starting forward motion'
                         )
-                        cmd.linear.x = 0.1  # Small forward motion
+                        # Start forward motion timer
+                        self.is_moving_forward = True
+                        self.forward_motion_start = current_time
+                        cmd.linear.x = 0.1
                     return cmd, needs_escape
                 
         # Handle turning to face human

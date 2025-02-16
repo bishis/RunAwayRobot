@@ -24,20 +24,17 @@ class HumanAvoidanceController:
         self.critical_distance = 0.3   # Request escape at 0.3m
         self.max_backup_speed = 0.15   # Increase backup speed
         
-        # Tracking parameters - reduce maximum speeds
-        self.min_rotation_speed = 0.05    # Reduced from 0.3
-        self.max_rotation_speed = 0.1    # Reduced from 0.75
-        self.turn_p_gain = 0.6           # Reduced from 0.8
+        # Tracking parameters
+        self.min_rotation_speed = 0.05
+        self.max_rotation_speed = 0.1
+        self.turn_p_gain = 0.6
         
-        # Frame zones - make tracking smoother
-        self.center_threshold = 0.2      # Increased from 0.15 for wider "center" zone
-        self.max_error = 0.4             # Limit maximum error for gentler turns
+        # Frame zones - simpler tracking
+        self.center_zone = 0.25  # Consider centered within ±25% of frame center
         
         # Tracking state
         self.last_image_x = None
-        self.last_turn_cmd = 0.0
-        self.last_track_time = 0.0
-        self.track_timeout = 0.2
+        self.is_turning = False
         
         # Get latest scan data from node
         self.latest_scan = None
@@ -57,61 +54,37 @@ class HumanAvoidanceController:
         self.forward_motion_duration = 0.5  # Forward motion duration in seconds
         self.is_moving_forward = False
 
-    def calculate_turn_command(self, image_x: float, current_time: float) -> float:
+    def calculate_turn_command(self, image_x: float) -> float:
         """Calculate turn speed to face human."""
-        # Update tracking state
-        time_delta = current_time - self.last_track_time
-        self.last_track_time = current_time
-        
         # Calculate normalized error from image center (-1 to 1)
         image_center = 320
         normalized_error = (image_x - image_center) / image_center
         
-        # Limit maximum error to prevent large turns
-        if abs(normalized_error) > self.max_error:
-            normalized_error = math.copysign(self.max_error, normalized_error)
-            self.node.get_logger().info(
-                f'Large turn limited: error capped at {normalized_error:.2f}'
-            )
+        # Check if human is in center zone
+        if abs(normalized_error) <= self.center_zone:
+            self.node.get_logger().info('Human centered - no turn needed')
+            self.is_turning = False
+            return 0.0
+            
+        # Calculate turn direction and speed
+        turn_direction = 1.0 if normalized_error > 0 else -1.0
         
-        # Basic proportional control with deadzone
-        if abs(normalized_error) < self.center_threshold:
-            turn_speed = 0.0  # In center zone - don't turn
-            self.node.get_logger().info('Target centered - no turn needed')
-        else:
-            # Calculate base turn speed
-            turn_speed = self.turn_p_gain * normalized_error
-            
-            # Ensure minimum speed if turning
-            if abs(turn_speed) < self.min_rotation_speed:
-                turn_speed = math.copysign(self.min_rotation_speed, normalized_error)
-            
-            # Gentle speed scaling
-            scale_factor = 1.0 + (0.3 * abs(normalized_error))  # Max 1.3x scaling
-            turn_speed *= scale_factor
-            
-            # Enforce maximum speed
-            turn_speed = max(min(turn_speed, self.max_rotation_speed), 
-                           -self.max_rotation_speed)
-            
-            self.node.get_logger().info(
-                f'Turn: error={normalized_error:.2f}, speed={turn_speed:.2f}'
-            )
+        # Use constant turn speed based on direction
+        turn_speed = self.max_rotation_speed * turn_direction
         
-        # Store state for next iteration
-        self.last_image_x = image_x
-        self.last_turn_cmd = turn_speed
-        
+        self.node.get_logger().info(
+            f'Turning to face human: error={normalized_error:.2f}, speed={turn_speed:.2f}'
+        )
+        self.is_turning = True
         return turn_speed
 
     def get_avoidance_command(self, human_distance, human_angle, image_x=None):
         cmd = Twist()
         needs_escape = False
-        current_time = time.time()
         
         # Check if we're in forward motion mode
         if self.is_moving_forward:
-            if current_time - self.forward_motion_start < self.forward_motion_duration:
+            if time.time() - self.forward_motion_start < self.forward_motion_duration:
                 # Continue forward motion
                 cmd.linear.x = 0.1
                 self.node.get_logger().info('Continuing forward motion')
@@ -149,29 +122,34 @@ class HumanAvoidanceController:
                         )
                         # Start forward motion timer
                         self.is_moving_forward = True
-                        self.forward_motion_start = current_time
+                        self.forward_motion_start = time.time()
                         cmd.linear.x = 0.1
                     return cmd, needs_escape
                 
         # Handle turning to face human
         if image_x is not None:
             # Calculate turn command
-            cmd.angular.z = self.calculate_turn_command(image_x, current_time)
+            cmd.angular.z = self.calculate_turn_command(image_x)
             
-            # Send a brief turn command then stop
-            if abs(cmd.angular.z) > 0:
-                self.node.get_logger().info(f'Executing turn: {cmd.angular.z:.2f}')
-                # Return the turn command
+            if self.is_turning:
+                # If turning, only turn (no backup)
+                self.node.get_logger().info('Turning to face human')
                 return cmd, False
             else:
-                # Explicitly stop if no turn needed
+                # Human is centered - stop turning
                 stop_cmd = Twist()
+                
+                # Only allow backup when human is centered
+                if human_distance < self.min_safe_distance:
+                    stop_cmd.linear.x = -self.max_backup_speed
+                    self.node.get_logger().info('Human centered - backing up')
+                
                 return stop_cmd, False
                 
-        else:  # No current human detection
-            # Immediately stop turning if we lose track
+        else:  # No human detected
+            # Stop all motion
             stop_cmd = Twist()
-            self.last_turn_cmd = 0.0
+            self.is_turning = False
             self.last_image_x = None
             return stop_cmd, False
         

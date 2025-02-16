@@ -155,24 +155,25 @@ class HumanAvoidanceController:
                 
         # Handle turning to face human
         if image_x is not None:
+            # Calculate turn command
             cmd.angular.z = self.calculate_turn_command(image_x, current_time)
             
-            # Don't back up during large turns
-            if abs(cmd.angular.z) > self.max_rotation_speed * 0.7:
-                self.node.get_logger().info('Large turn - pausing backup')
+            # Send a brief turn command then stop
+            if abs(cmd.angular.z) > 0:
+                self.node.get_logger().info(f'Executing turn: {cmd.angular.z:.2f}')
+                # Return the turn command
                 return cmd, False
+            else:
+                # Explicitly stop if no turn needed
+                stop_cmd = Twist()
+                return stop_cmd, False
                 
         else:  # No current human detection
-            # Decay any existing turn
-            time_since_track = current_time - self.last_track_time
-            if time_since_track < self.track_timeout and self.last_turn_cmd != 0:
-                decay_factor = 1.0 - (time_since_track / self.track_timeout)
-                cmd.angular.z = self.last_turn_cmd * decay_factor
-                self.node.get_logger().info(f'Decay turn: {cmd.angular.z:.2f}')
-            else:
-                cmd.angular.z = 0.0
-                self.last_turn_cmd = 0.0
-                self.last_image_x = None
+            # Immediately stop turning if we lose track
+            stop_cmd = Twist()
+            self.last_turn_cmd = 0.0
+            self.last_image_x = None
+            return stop_cmd, False
         
         # Only start backing up if we're roughly facing the human
         if human_distance < self.min_safe_distance:

@@ -24,13 +24,14 @@ class HumanAvoidanceController:
         self.critical_distance = 0.3   # Request escape at 0.3m
         self.max_backup_speed = 0.15   # Increase backup speed
         
-        # Tracking parameters
-        self.min_rotation_speed = 0.3
-        self.max_rotation_speed = 0.75
-        self.turn_p_gain = 0.8         # Reduced from 1.2 for gentler turns
+        # Tracking parameters - reduce maximum speeds
+        self.min_rotation_speed = 0.2    # Reduced from 0.3
+        self.max_rotation_speed = 0.5    # Reduced from 0.75
+        self.turn_p_gain = 0.6           # Reduced from 0.8
         
-        # Frame zones
-        self.center_threshold = 0.15    # Smaller center zone for tighter tracking
+        # Frame zones - make tracking smoother
+        self.center_threshold = 0.2      # Increased from 0.15 for wider "center" zone
+        self.max_error = 0.4             # Limit maximum error for gentler turns
         
         # Tracking state
         self.last_image_x = None
@@ -53,16 +54,7 @@ class HumanAvoidanceController:
             self.max_linear_speed = node.max_linear_speed
 
     def calculate_turn_command(self, image_x: float, current_time: float) -> float:
-        """
-        Calculate turn speed to face human.
-        
-        Args:
-            image_x: x-coordinate of human in image (0-640)
-            current_time: current time for tracking
-            
-        Returns:
-            float: Angular velocity command (-max_rotation_speed to max_rotation_speed)
-        """
+        """Calculate turn speed to face human."""
         # Update tracking state
         time_delta = current_time - self.last_track_time
         self.last_track_time = current_time
@@ -71,35 +63,37 @@ class HumanAvoidanceController:
         image_center = 320
         normalized_error = (image_x - image_center) / image_center
         
-        # Limit maximum turn to prevent spinning
-        if abs(normalized_error) > 0.5:
-            normalized_error = math.copysign(0.5, normalized_error)
-            self.node.get_logger().warn(
+        # Limit maximum error to prevent large turns
+        if abs(normalized_error) > self.max_error:
+            normalized_error = math.copysign(self.max_error, normalized_error)
+            self.node.get_logger().info(
                 f'Large turn limited: error capped at {normalized_error:.2f}'
             )
         
-        # Basic proportional control
-        turn_speed = self.turn_p_gain * normalized_error
-        
-        # Apply minimum speed if outside center zone
-        if abs(normalized_error) > self.center_threshold:
+        # Basic proportional control with deadzone
+        if abs(normalized_error) < self.center_threshold:
+            turn_speed = 0.0  # In center zone - don't turn
+            self.node.get_logger().info('Target centered - no turn needed')
+        else:
+            # Calculate base turn speed
+            turn_speed = self.turn_p_gain * normalized_error
+            
+            # Ensure minimum speed if turning
             if abs(turn_speed) < self.min_rotation_speed:
                 turn_speed = math.copysign(self.min_rotation_speed, normalized_error)
             
-            # Conservative speed scaling
-            scale_factor = 1.0 + (0.5 * abs(normalized_error))
+            # Gentle speed scaling
+            scale_factor = 1.0 + (0.3 * abs(normalized_error))  # Max 1.3x scaling
             turn_speed *= scale_factor
             
-            # Enforce limits
+            # Enforce maximum speed
             turn_speed = max(min(turn_speed, self.max_rotation_speed), 
                            -self.max_rotation_speed)
             
             self.node.get_logger().info(
-                f'Turn: error={normalized_error:.2f}, speed={turn_speed:.2f}, scale={scale_factor:.2f}'
+                f'Turn: error={normalized_error:.2f}, speed={turn_speed:.2f}'
             )
-        else:
-            turn_speed = 0.0  # Don't turn in center zone
-            
+        
         # Store state for next iteration
         self.last_image_x = image_x
         self.last_turn_cmd = turn_speed

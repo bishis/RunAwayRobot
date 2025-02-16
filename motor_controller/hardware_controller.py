@@ -57,8 +57,8 @@ class HardwareController(Node):
             linear_x = msg.linear.x
             angular_z = msg.angular.z
             
-            # Send commands to motor controller
-            self.motor_controller.set_speeds(linear_x, angular_z)
+            # Send commands to motor controller and get actual speeds
+            left_speed, right_speed, left_pwm, right_pwm = self.motor_controller.set_speeds(linear_x, angular_z)
             
             # Publish actual speeds for debugging
             actual = Twist()
@@ -66,25 +66,15 @@ class HardwareController(Node):
             actual.angular.z = angular_z
             self.actual_speeds_pub.publish(actual)
             
-            # Calculate normalized differential drive speeds
-            left_speed = linear_x + angular_z
-            right_speed = linear_x - angular_z
-            
-            # Normalize if speeds exceed [-1, 1]
-            max_speed = max(abs(left_speed), abs(right_speed))
-            if max_speed > 1.0:
-                left_speed /= max_speed
-                right_speed /= max_speed
-            
-            # Debug logging with normalized speeds
+            # Debug logging with normalized speeds and PWM values
             self.get_logger().info(
                 f'Speeds (-1 to 1) - Left: {left_speed:6.3f}, Right: {right_speed:6.3f} | ' +
+                f'PWM% - Left: {left_pwm*100:3.0f}%, Right: {right_pwm*100:3.0f}% | ' +
                 f'Input - Linear: {linear_x:6.3f}, Angular: {angular_z:6.3f}'
             )
             
         except Exception as e:
             self.get_logger().error(f'Error in wheel speeds callback: {str(e)}')
-            # Try to stop motors on error
             self.motor_controller.stop_motors()
 
     def __del__(self):

@@ -44,21 +44,18 @@ class MotorController:
         # Register cleanup handler
         signal.signal(signal.SIGINT, self.cleanup)
 
-    def set_speeds(self, linear: float, angular: float):
+    def scale_motor_speeds(self, left_speed: float, right_speed: float, angular: float) -> tuple[float, float]:
         """
-        Update motor speeds based on linear and angular velocity commands.
-        linear: Forward/backward speed (-1.0 to 1.0)
-        angular: Left/right turning speed (-1.0 to 1.0)
+        Scale motor speeds to handle normalization and minimum thresholds.
         
-        For 4-wheeled differential drive (robot on opposite side):
-        - Robot Forward = Motors Backward
-        - Robot Right = Robot's Left side forward, Right side backward
-        - Robot Left = Robot's Left side backward, Right side forward
+        Args:
+            left_speed: Raw left motor speed (-1.0 to 1.0)
+            right_speed: Raw right motor speed (-1.0 to 1.0)
+            angular: Angular velocity command for determining turn mode
+            
+        Returns:
+            tuple[float, float]: Scaled (left_speed, right_speed)
         """
-        
-        left_speed = linear + angular
-        right_speed = linear - angular
-        
         # Normalize speeds if they exceed [-1, 1]
         max_speed = max(abs(left_speed), abs(right_speed))
         if max_speed > 1.0:
@@ -81,28 +78,48 @@ class MotorController:
             right_speed = current_min_speed if right_speed > 0 else -current_min_speed
             if self.logger:
                 self.logger.info(f'Right speed boosted to minimum: {right_speed:.2f}')
+                
+        return left_speed, right_speed
+
+    def set_speeds(self, linear: float, angular: float) -> tuple[float, float, float, float]:
+        """
+        Update motor speeds based on linear and angular velocity commands.
+        
+        Args:
+            linear: Forward/backward speed (-1.0 to 1.0)
+            angular: Left/right turning speed (-1.0 to 1.0)
+            
+        Returns:
+            tuple[float, float, float, float]: (left_speed, right_speed, left_pwm, right_pwm)
+            where speeds are the scaled differential drive values and pwm are the actual motor powers
+        """
+        # Convert to differential drive
+        left_speed = linear + angular
+        right_speed = linear - angular
+        
+        # Apply scaling and minimum speeds
+        left_speed, right_speed = self.scale_motor_speeds(left_speed, right_speed, angular)
+        
+        # Store PWM values
+        left_pwm = abs(left_speed)
+        right_pwm = abs(right_speed)
         
         # Set motor directions and speeds
         if left_speed >= 0:
             self.left_dir.off()  # Forward for motor = Backward for robot
-            self.left_pwm.value = abs(left_speed)
+            self.left_pwm.value = left_pwm
         else:
             self.left_dir.on()   # Backward for motor = Forward for robot
-            self.left_pwm.value = abs(left_speed)
+            self.left_pwm.value = left_pwm
             
         if right_speed >= 0:
             self.right_dir.on()  # Forward for motor = Backward for robot
-            self.right_pwm.value = abs(right_speed)
+            self.right_pwm.value = right_pwm
         else:
             self.right_dir.off() # Backward for motor = Forward for robot
-            self.right_pwm.value = abs(right_speed)
+            self.right_pwm.value = right_pwm
         
-        # Log actual speeds being applied (show robot's perspective)
-        if self.logger:
-            self.logger.info(
-                f'Robot speeds - Left: {-left_speed:6.3f}, Right: {-right_speed:6.3f} ' +
-                f'(Turn: {abs(angular) > 0.1}, Spin: {abs(angular) > 0.1 and abs(linear) < 0.1})'
-            )
+        return left_speed, right_speed, left_pwm, right_pwm
 
     def stop_motors(self):
         """Stop all motors"""
@@ -172,7 +189,7 @@ class MotorControlNode(Node):
             angular = msg.angular.z  # Left/right turning
             
             # Update motor speeds
-            self.motor_controller.set_speeds(linear, angular)
+            left_speed, right_speed, left_pwm, right_pwm = self.motor_controller.set_speeds(linear, angular)
             
             # Debug logging
             self.get_logger().debug(

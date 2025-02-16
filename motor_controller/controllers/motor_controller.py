@@ -61,23 +61,20 @@ class MotorController:
         if max_speed > 1.0:
             left_speed /= max_speed
             right_speed /= max_speed
+            
+        # Scale the entire range from MIN_SPEED to 1.0
+        MIN_SPEED = 0.75
         
-        # Apply minimum threshold - if speed is non-zero but below threshold, set to threshold
-        MIN_SPEED = 0.7  # 70% power minimum
-        TURN_MIN_SPEED = 0.75  # Higher minimum speed for turning
-        
-        # Use higher minimum speed when turning
-        current_min_speed = TURN_MIN_SPEED if abs(angular) > 0.1 else MIN_SPEED
-        
-        if abs(left_speed) > 0 and abs(left_speed) < current_min_speed:
-            left_speed = current_min_speed if left_speed > 0 else -current_min_speed
-            if self.logger:
-                self.logger.info(f'Left speed boosted to minimum: {left_speed:.2f}')
-        
-        if abs(right_speed) > 0 and abs(right_speed) < current_min_speed:
-            right_speed = current_min_speed if right_speed > 0 else -current_min_speed
-            if self.logger:
-                self.logger.info(f'Right speed boosted to minimum: {right_speed:.2f}')
+        def scale_to_min_speed(speed: float) -> float:
+            if speed == 0.0:
+                return 0.0
+            # Map from [-1, 1] to [-1, -MIN_SPEED] U [MIN_SPEED, 1]
+            direction = 1.0 if speed > 0 else -1.0
+            scaled = MIN_SPEED + (abs(speed) * (1.0 - MIN_SPEED))
+            return direction * scaled
+            
+        left_speed = scale_to_min_speed(left_speed)
+        right_speed = scale_to_min_speed(right_speed)
                 
         return left_speed, right_speed
 

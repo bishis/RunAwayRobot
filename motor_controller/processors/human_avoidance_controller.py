@@ -26,7 +26,7 @@ class HumanAvoidanceController:
         
         # Tracking parameters
         self.min_rotation_speed = 0.05
-        self.max_rotation_speed = 0.1
+        self.max_rotation_speed = 0.06
         self.turn_p_gain = 0.6
         
         # Frame zones - simpler tracking
@@ -41,13 +41,6 @@ class HumanAvoidanceController:
         if hasattr(node, 'latest_scan'):
             self.latest_scan = node.latest_scan
             
-        # Get parameters from node if available
-        if hasattr(node, 'min_rotation_speed'):
-            self.min_rotation_speed = node.min_rotation_speed
-        if hasattr(node, 'max_angular_speed'):
-            self.max_rotation_speed = node.max_angular_speed
-        if hasattr(node, 'max_linear_speed'):
-            self.max_linear_speed = node.max_linear_speed
 
         # Add forward motion control
         self.forward_motion_start = 0.0
@@ -152,53 +145,7 @@ class HumanAvoidanceController:
             self.is_turning = False
             self.last_image_x = None
             return stop_cmd, False
-        
-        # Only start backing up if we're roughly facing the human
-        if human_distance < self.min_safe_distance:
-            self.node.get_logger().info(
-                f'Human too close ({human_distance:.2f}m), backing up'
-            )
-            
-            # Calculate backup speed
-            backup_scale = (self.min_safe_distance - human_distance) / self.min_safe_distance
-            backup_speed = -self.max_backup_speed * max(0.8, backup_scale)
-            
-            # Set backup speed
-            cmd.linear.x = backup_speed
-            self.node.get_logger().info(f'Setting backup speed to {backup_speed:.2f} m/s')
-            
-            # Check rear distance for escape
-            if self.latest_scan is not None:
-                rear_angle = math.pi  # Only use +180° reading
-                angle_tolerance = math.pi/6
-                
-                start_idx = int((rear_angle - angle_tolerance - self.latest_scan.angle_min) / 
-                              self.latest_scan.angle_increment)
-                end_idx = int((rear_angle + angle_tolerance - self.latest_scan.angle_min) / 
-                             self.latest_scan.angle_increment)
-                
-                rear_readings = [r for r in self.latest_scan.ranges[start_idx:end_idx]
-                               if self.latest_scan.range_min <= r <= self.latest_scan.range_max]
-                
-                if rear_readings:
-                    rear_distance = min(rear_readings)
-                    if rear_distance < self.critical_distance:
-                        needs_escape = True
-                        self.node.get_logger().warn(
-                            f'Wall too close behind ({rear_distance:.2f}m), need escape plan'
-                        )
-                        if rear_distance < 0.2:  # 20cm safety threshold
-                            self.node.get_logger().warn(
-                                f'Wall too close behind ({rear_distance:.2f}m), moving forward instead'
-                            )
-                            cmd.linear.x = 0.1  # Small forward motion
-        # Debug log the actual commands being sent
-        self.node.get_logger().info(
-            f'Avoidance command: linear={cmd.linear.x:.2f} m/s, '
-            f'angular={cmd.angular.z:.2f} rad/s'
-        )
-        
-        return cmd, needs_escape
+
         
     def plan_escape(self):
         """Plan escape waypoint furthest from current position"""

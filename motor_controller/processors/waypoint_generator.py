@@ -574,32 +574,43 @@ class WaypointGenerator:
         origin_x = self.current_map.info.origin.position.x
         origin_y = self.current_map.info.origin.position.y
         
+        # Calculate strict map boundaries in world coordinates
+        map_width = self.current_map.info.width * resolution
+        map_height = self.current_map.info.height * resolution
+        map_max_x = origin_x + map_width
+        map_max_y = origin_y + map_height
+        
+        # Add safety margin to boundaries
+        margin = self.safety_margin * 2
+        min_x = origin_x + margin
+        min_y = origin_y + margin
+        max_x = map_max_x - margin
+        max_y = map_max_y - margin
+        
         # Calculate distance transform from walls
         wall_distance = distance_transform_edt(map_data < 50) * resolution
         
-        # Define map boundaries with margin
-        margin_cells = int(self.safety_margin / resolution)
-        min_x_cell = margin_cells
-        min_y_cell = margin_cells
-        max_x_cell = map_data.shape[1] - margin_cells
-        max_y_cell = map_data.shape[0] - margin_cells
-        
-        # Convert robot position to map coordinates
-        robot_cell_x = int((robot_x - origin_x) / resolution)
-        robot_cell_y = int((robot_y - origin_y) / resolution)
-        
         valid_points = []
         max_attempts = 100
-        min_wall_distance = self.safety_margin * 1.5  # Margin from walls
+        min_wall_distance = self.safety_margin * 1.5
+        
+        self.node.get_logger().info(
+            f'Map bounds: x=[{min_x:.2f}, {max_x:.2f}], y=[{min_y:.2f}, {max_y:.2f}]'
+        )
         
         for _ in range(max_attempts):
-            # Generate random point within safe map boundaries
-            map_x = np.random.randint(min_x_cell, max_x_cell)
-            map_y = np.random.randint(min_y_cell, max_y_cell)
+            # Generate random point in world coordinates within map bounds
+            world_x = np.random.uniform(min_x, max_x)
+            world_y = np.random.uniform(min_y, max_y)
             
-            # Convert to world coordinates
-            world_x = map_x * resolution + origin_x
-            world_y = map_y * resolution + origin_y
+            # Convert to map coordinates
+            map_x = int((world_x - origin_x) / resolution)
+            map_y = int((world_y - origin_y) / resolution)
+            
+            # Verify point is within array bounds
+            if (map_x < 0 or map_x >= map_data.shape[1] or 
+                map_y < 0 or map_y >= map_data.shape[0]):
+                continue
             
             # Calculate distance from robot
             dist_from_robot = math.sqrt(
@@ -607,33 +618,22 @@ class WaypointGenerator:
                 (world_y - robot_y)**2
             )
             
-            # Check if point is valid:
-            # 1. In free space
-            # 2. Sufficient distance from walls
-            # 3. Within map boundaries
+            # Check if point is valid
             if (map_data[map_y, map_x] < 50 and  # Free space
-                wall_distance[map_y, map_x] > min_wall_distance and  # Away from walls
-                min_x_cell <= map_x <= max_x_cell and  # Within x bounds
-                min_y_cell <= map_y <= max_y_cell):    # Within y bounds
+                wall_distance[map_y, map_x] > min_wall_distance):  # Away from walls
                 
-                # Score based on:
-                # - Distance from robot (60%)
-                # - Distance from walls (30%)
-                # - Distance from map edges (10%)
+                # Score based on distance from robot and walls
                 wall_score = min(wall_distance[map_y, map_x] / (min_wall_distance * 2), 1.0)
-                distance_score = dist_from_robot  # No cap - prioritize furthest points
+                distance_score = dist_from_robot
                 
-                # Calculate distance from edges
-                edge_dist_x = min(map_x - min_x_cell, max_x_cell - map_x) * resolution
-                edge_dist_y = min(map_y - min_y_cell, max_y_cell - map_y) * resolution
-                edge_score = min(min(edge_dist_x, edge_dist_y) / (self.safety_margin * 2), 1.0)
+                # Calculate distance from map edges
+                edge_dist_x = min(world_x - min_x, max_x - world_x)
+                edge_dist_y = min(world_y - min_y, max_y - world_y)
+                edge_score = min(min(edge_dist_x, edge_dist_y) / margin, 1.0)
                 
-                # Normalize distance score to 0-1 range based on max seen so far
-                if valid_points:
-                    max_dist = max(p[2] for p in valid_points)
-                    norm_distance = distance_score / max(max_dist, distance_score)
-                else:
-                    norm_distance = 1.0
+                # Normalize distance score based on map size
+                map_diagonal = math.sqrt(map_width**2 + map_height**2)
+                norm_distance = distance_score / map_diagonal
                 
                 total_score = (
                     norm_distance * 0.6 +

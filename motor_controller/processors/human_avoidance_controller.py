@@ -61,10 +61,18 @@ class HumanAvoidanceController:
             
         # Add timer to continuously monitor rear distance
         #self.node.create_timer(0.2, self.monitor_rear_distance)  # 5Hz updates
+        
+        # Add state tracking for smoother transitions
+        self.last_image_x = None
+        self.last_turn_cmd = 0.0
+        self.turn_decay_rate = 0.5  # How quickly to decay turn speed when losing track
+        self.last_track_time = 0.0
+        self.track_timeout = 0.5    # How long to maintain last direction
 
     def get_avoidance_command(self, human_distance, human_angle, image_x=None):
         cmd = Twist()
         needs_escape = False
+        current_time = time.time()
         
         # Check rear distance first using monitor method
         if self.latest_scan is not None:
@@ -101,8 +109,12 @@ class HumanAvoidanceController:
                 
         # Handle turning FIRST - prioritize facing the human
         if image_x is not None:
+            # Update tracking state
+            self.last_image_x = image_x
+            self.last_track_time = current_time
+            
             # Calculate normalized error from image center (-1 to 1)
-            image_center = 320  # Assuming 640x480 image
+            image_center = 320
             normalized_error = (image_x - image_center) / image_center
             
             # Calculate turn speed to face human
@@ -115,12 +127,30 @@ class HumanAvoidanceController:
                 cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
                                   -self.max_rotation_speed)
                 
+                # Store last turn command
+                self.last_turn_cmd = cmd.angular.z
+                
                 # Don't back up while making large turns
                 if abs(normalized_error) > 0.3:
                     self.node.get_logger().info(
                         f'Turning to face human first: error={normalized_error:.2f}'
                     )
                     return cmd, False
+                    
+        else:  # No current human detection
+            # If we recently lost track, gradually decay the turn
+            time_since_track = current_time - self.last_track_time
+            if time_since_track < self.track_timeout and self.last_turn_cmd != 0:
+                # Gradually reduce turn speed but maintain direction
+                decay_factor = 1.0 - (time_since_track / self.track_timeout)
+                cmd.angular.z = self.last_turn_cmd * decay_factor
+                self.node.get_logger().info(
+                    f'Lost track - decaying turn: {cmd.angular.z:.2f} (decay={decay_factor:.2f})'
+                )
+            else:
+                # Stop turning if we've lost track for too long
+                cmd.angular.z = 0.0
+                self.last_turn_cmd = 0.0
         
         # Only start backing up if we're roughly facing the human
         if human_distance < self.min_safe_distance:

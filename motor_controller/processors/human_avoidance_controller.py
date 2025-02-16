@@ -24,20 +24,22 @@ class HumanAvoidanceController:
         self.critical_distance = 0.3   # Request escape at 0.3m
         self.max_backup_speed = 0.15   # Increase backup speed
         
-        # Turning parameters
+        # Improved tracking parameters
         self.min_rotation_speed = 0.3
-        self.max_rotation_speed = 0.75  # Reduced from 0.8
-        self.turn_p_gain = 0.8         # Reduced from 1.2
+        self.max_rotation_speed = 0.75
+        self.turn_p_gain = 1.2        # Increased from 0.8 for more responsive tracking
         
-        # Tracking parameters
+        # Frame zones
         self.frame_width = 640
-        self.center_threshold = 0.7    # Increased from 0.5 - wider "center" zone
-        self.edge_threshold = 0.1      # Don't react to humans in edge 10% of frame
+        self.center_threshold = 0.3    # Narrower center zone - track more actively
+        self.edge_threshold = 0.05     # Smaller edge zone
+        self.tracking_deadzone = 0.1   # Small deadzone to prevent tiny corrections
         
-        # Add hysteresis to prevent oscillation
-        self.min_turn_duration = 0.5   # Minimum seconds to maintain turn
+        # Smoother transitions
+        self.min_turn_duration = 0.2   # Shorter minimum turn time
         self.last_turn_time = 0.0
         self.last_turn_direction = 0
+        self.last_error = 0.0         # For derivative control
         
         # Get latest scan data from node
         self.latest_scan = None
@@ -61,40 +63,56 @@ class HumanAvoidanceController:
         #self.node.create_timer(0.2, self.monitor_rear_distance)  # 5Hz updates
         
     def calculate_avoidance(self, human_x: float, distance: float) -> tuple[float, float]:
-        """Calculate avoidance velocities with improved edge handling"""
+        """Calculate avoidance velocities with improved tracking"""
         current_time = time.time()
         
         # Normalize x position to [-1, 1]
         x_normalized = (2.0 * human_x / self.frame_width) - 1.0
         
-        # Ignore humans at the very edges of frame
+        # Ignore humans at the very edges
         if abs(x_normalized) > (1.0 - self.edge_threshold):
             return 0.0, 0.0
             
-        # Only change turn direction if enough time has passed
-        if current_time - self.last_turn_time > self.min_turn_duration:
-            # Calculate turn speed with reduced gain near center
-            error = x_normalized
-            if abs(error) < self.center_threshold:
-                turn_speed = 0.0  # In "center" zone - don't turn
-            else:
-                turn_speed = self.turn_p_gain * error
-                turn_speed = max(min(turn_speed, self.max_rotation_speed), -self.max_rotation_speed)
-                
-                # Update turn tracking
-                if abs(turn_speed) > 0:
-                    self.last_turn_time = current_time
-                    self.last_turn_direction = math.copysign(1.0, turn_speed)
-        else:
-            # Maintain previous turn direction
-            turn_speed = self.last_turn_direction * self.min_rotation_speed
+        # Calculate error
+        error = x_normalized
+        
+        # Apply deadzone to prevent tiny oscillations
+        if abs(error) < self.tracking_deadzone:
+            error = 0.0
             
-        # Calculate linear speed based on distance
+        # PD control for smoother tracking
+        error_derivative = (error - self.last_error) / 0.1  # Assume 10Hz update rate
+        self.last_error = error
+        
+        # Calculate base turn speed
+        if abs(error) < self.center_threshold:
+            # In center zone - small corrections only
+            turn_speed = 0.3 * error
+        else:
+            # Outside center - more aggressive tracking
+            turn_speed = self.turn_p_gain * error + 0.2 * error_derivative
+            
+        # Apply speed limits
+        turn_speed = max(min(turn_speed, self.max_rotation_speed), -self.max_rotation_speed)
+        
+        # Maintain turn direction for minimum duration to prevent jitter
+        if current_time - self.last_turn_time > self.min_turn_duration:
+            if abs(turn_speed) > self.min_rotation_speed:
+                self.last_turn_time = current_time
+                self.last_turn_direction = math.copysign(1.0, turn_speed)
+        else:
+            # Keep turning in the same direction
+            if abs(turn_speed) > 0:
+                turn_speed = self.last_turn_direction * max(abs(turn_speed), self.min_rotation_speed)
+                
+        # Calculate linear speed based on distance with smoother transitions
         linear_speed = 0.0
         if distance < self.critical_distance:
             linear_speed = -self.max_backup_speed
         elif distance < self.min_safe_distance:
-            linear_speed = -self.max_backup_speed * (self.min_safe_distance - distance) / (self.min_safe_distance - self.critical_distance)
+            # Smoother backup speed transition
+            dist_ratio = (distance - self.critical_distance) / (self.min_safe_distance - self.critical_distance)
+            linear_speed = -self.max_backup_speed * (1.0 - dist_ratio**2)
             
         return linear_speed, turn_speed
 

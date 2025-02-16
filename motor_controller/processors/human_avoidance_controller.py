@@ -27,7 +27,7 @@ class HumanAvoidanceController:
         # Tracking parameters
         self.min_rotation_speed = 0.3
         self.max_rotation_speed = 0.75
-        self.turn_p_gain = 1.2
+        self.turn_p_gain = 0.8         # Reduced from 1.2 for gentler turns
         
         # Frame zones
         self.center_threshold = 0.15    # Smaller center zone for tighter tracking
@@ -36,7 +36,8 @@ class HumanAvoidanceController:
         self.last_image_x = None
         self.last_turn_cmd = 0.0
         self.last_track_time = 0.0
-        self.track_timeout = 0.2        # Shorter timeout to stop turning sooner
+        self.track_timeout = 0.2
+        self.max_turn_angle = math.pi/2  # Maximum 90 degree turn at once
         
         # Get latest scan data from node
         self.latest_scan = None
@@ -97,29 +98,37 @@ class HumanAvoidanceController:
             image_center = 320
             normalized_error = (image_x - image_center) / image_center
             
-            # Calculate error rate of change for smoother tracking
-            error_rate = 0.0
-            if self.last_image_x is not None:
-                prev_error = (self.last_image_x - image_center) / image_center
-                error_rate = (normalized_error - prev_error) / time_delta
-            self.last_image_x = image_x
+            # Limit maximum turn to prevent spinning
+            if abs(normalized_error) > 0.5:  # If human is more than halfway to edge
+                normalized_error = math.copysign(0.5, normalized_error)
+                self.node.get_logger().warn(
+                    f'Large turn limited: error capped at {normalized_error:.2f}'
+                )
             
-            # Calculate turn speed with rate control
+            # Calculate base turn speed
             turn_speed = self.turn_p_gain * normalized_error
             
-            # Add damping based on error rate to prevent overshooting
-            damping = -0.2 * error_rate
-            turn_speed += damping
+            # Calculate error rate only if we have recent history
+            if self.last_image_x is not None and time_delta < 0.5:
+                prev_error = (self.last_image_x - image_center) / image_center
+                error_rate = (normalized_error - prev_error) / time_delta
+                # Only apply damping if error is decreasing
+                if abs(normalized_error) < abs(prev_error):
+                    damping = -0.3 * error_rate
+                    turn_speed += damping
+            
+            self.last_image_x = image_x
             
             # Apply minimum rotation speed if outside center zone
             if abs(normalized_error) > self.center_threshold:
                 if abs(turn_speed) < self.min_rotation_speed:
                     turn_speed = math.copysign(self.min_rotation_speed, normalized_error)
                 
-                # Scale up turn speed when far from center
-                scale_factor = min(2.0, 1.0 + abs(normalized_error))
+                # More conservative speed scaling
+                scale_factor = 1.0 + (0.5 * abs(normalized_error))  # Max 1.5x scaling
                 turn_speed *= scale_factor
                 
+                # Enforce maximum rotation speed
                 cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
                                   -self.max_rotation_speed)
                 
@@ -128,12 +137,11 @@ class HumanAvoidanceController:
                 
                 # Log tracking info
                 self.node.get_logger().info(
-                    f'Tracking: error={normalized_error:.2f}, rate={error_rate:.2f}, ' +
-                    f'turn={turn_speed:.2f}, damping={damping:.2f}'
+                    f'Tracking: error={normalized_error:.2f}, turn={cmd.angular.z:.2f}, scale={scale_factor:.2f}'
                 )
                 
                 # Don't back up during large turns
-                if abs(normalized_error) > 0.4:
+                if abs(normalized_error) > 0.3:  # Reduced from 0.4
                     return cmd, False
                     
         else:  # No current human detection

@@ -5,6 +5,7 @@ from geometry_msgs.msg import Twist, PoseStamped
 from sensor_msgs.msg import LaserScan
 import math
 import numpy as np
+import time
 
 class HumanAvoidanceController:
     def __init__(self, node, waypoint_generator):
@@ -25,8 +26,18 @@ class HumanAvoidanceController:
         
         # Turning parameters
         self.min_rotation_speed = 0.3
-        self.max_rotation_speed = 0.8
-        self.turn_p_gain = 1.2
+        self.max_rotation_speed = 0.75  # Reduced from 0.8
+        self.turn_p_gain = 0.8         # Reduced from 1.2
+        
+        # Tracking parameters
+        self.frame_width = 640
+        self.center_threshold = 0.7    # Increased from 0.5 - wider "center" zone
+        self.edge_threshold = 0.1      # Don't react to humans in edge 10% of frame
+        
+        # Add hysteresis to prevent oscillation
+        self.min_turn_duration = 0.5   # Minimum seconds to maintain turn
+        self.last_turn_time = 0.0
+        self.last_turn_direction = 0
         
         # Get latest scan data from node
         self.latest_scan = None
@@ -34,8 +45,6 @@ class HumanAvoidanceController:
             self.latest_scan = node.latest_scan
             
         # Add tracking parameters
-        self.frame_width = 640  # Default camera width
-        self.center_threshold = 0.5  # Keep human within 50% of center
         self.max_turn_speed = 0.8
         self.min_turn_speed = 0.3
         self.max_linear_speed = 0.07   # Maximum linear speed
@@ -51,6 +60,44 @@ class HumanAvoidanceController:
         # Add timer to continuously monitor rear distance
         #self.node.create_timer(0.2, self.monitor_rear_distance)  # 5Hz updates
         
+    def calculate_avoidance(self, human_x: float, distance: float) -> tuple[float, float]:
+        """Calculate avoidance velocities with improved edge handling"""
+        current_time = time.time()
+        
+        # Normalize x position to [-1, 1]
+        x_normalized = (2.0 * human_x / self.frame_width) - 1.0
+        
+        # Ignore humans at the very edges of frame
+        if abs(x_normalized) > (1.0 - self.edge_threshold):
+            return 0.0, 0.0
+            
+        # Only change turn direction if enough time has passed
+        if current_time - self.last_turn_time > self.min_turn_duration:
+            # Calculate turn speed with reduced gain near center
+            error = x_normalized
+            if abs(error) < self.center_threshold:
+                turn_speed = 0.0  # In "center" zone - don't turn
+            else:
+                turn_speed = self.turn_p_gain * error
+                turn_speed = max(min(turn_speed, self.max_rotation_speed), -self.max_rotation_speed)
+                
+                # Update turn tracking
+                if abs(turn_speed) > 0:
+                    self.last_turn_time = current_time
+                    self.last_turn_direction = math.copysign(1.0, turn_speed)
+        else:
+            # Maintain previous turn direction
+            turn_speed = self.last_turn_direction * self.min_rotation_speed
+            
+        # Calculate linear speed based on distance
+        linear_speed = 0.0
+        if distance < self.critical_distance:
+            linear_speed = -self.max_backup_speed
+        elif distance < self.min_safe_distance:
+            linear_speed = -self.max_backup_speed * (self.min_safe_distance - distance) / (self.min_safe_distance - self.critical_distance)
+            
+        return linear_speed, turn_speed
+
     def get_avoidance_command(self, human_distance, human_angle, image_x=None):
         cmd = Twist()
         needs_escape = False

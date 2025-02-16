@@ -69,51 +69,79 @@ class HumanAvoidanceController:
         # Normalize x position to [-1, 1]
         x_normalized = (2.0 * human_x / self.frame_width) - 1.0
         
+        # Log initial position
+        self.node.get_logger().info(
+            f'Human position: raw_x={human_x:.1f}, norm_x={x_normalized:.2f}, dist={distance:.2f}m'
+        )
+        
         # Ignore humans at the very edges
         if abs(x_normalized) > (1.0 - self.edge_threshold):
+            self.node.get_logger().warn(f'Human at edge ({x_normalized:.2f}) - ignoring')
             return 0.0, 0.0
             
         # Calculate error
         error = x_normalized
         
-        # Apply deadzone to prevent tiny oscillations
+        # Apply deadzone
         if abs(error) < self.tracking_deadzone:
+            self.node.get_logger().info(f'In deadzone (error={error:.2f}) - no correction')
             error = 0.0
             
-        # PD control for smoother tracking
-        error_derivative = (error - self.last_error) / 0.1  # Assume 10Hz update rate
+        # PD control
+        error_derivative = (error - self.last_error) / 0.1
         self.last_error = error
         
-        # Calculate base turn speed
+        # Calculate turn speed
         if abs(error) < self.center_threshold:
-            # In center zone - small corrections only
             turn_speed = 0.3 * error
+            self.node.get_logger().info(
+                f'Center zone: error={error:.2f}, turn={turn_speed:.2f}'
+            )
         else:
-            # Outside center - more aggressive tracking
             turn_speed = self.turn_p_gain * error + 0.2 * error_derivative
+            self.node.get_logger().info(
+                f'Outer zone: error={error:.2f}, deriv={error_derivative:.2f}, turn={turn_speed:.2f}'
+            )
             
         # Apply speed limits
+        raw_turn = turn_speed
         turn_speed = max(min(turn_speed, self.max_rotation_speed), -self.max_rotation_speed)
+        if raw_turn != turn_speed:
+            self.node.get_logger().warn(
+                f'Turn speed limited: {raw_turn:.2f} -> {turn_speed:.2f}'
+            )
         
-        # Maintain turn direction for minimum duration to prevent jitter
+        # Direction hysteresis
         if current_time - self.last_turn_time > self.min_turn_duration:
             if abs(turn_speed) > self.min_rotation_speed:
+                old_dir = self.last_turn_direction
                 self.last_turn_time = current_time
                 self.last_turn_direction = math.copysign(1.0, turn_speed)
+                if old_dir != self.last_turn_direction:
+                    self.node.get_logger().warn(
+                        f'Turn direction changed: {old_dir:.0f} -> {self.last_turn_direction:.0f}'
+                    )
         else:
-            # Keep turning in the same direction
             if abs(turn_speed) > 0:
+                old_turn = turn_speed
                 turn_speed = self.last_turn_direction * max(abs(turn_speed), self.min_rotation_speed)
+                self.node.get_logger().info(
+                    f'Maintaining direction: {old_turn:.2f} -> {turn_speed:.2f}'
+                )
                 
-        # Calculate linear speed based on distance with smoother transitions
+        # Calculate backup speed
         linear_speed = 0.0
         if distance < self.critical_distance:
             linear_speed = -self.max_backup_speed
+            self.node.get_logger().warn(f'Critical distance ({distance:.2f}m) - max backup')
         elif distance < self.min_safe_distance:
-            # Smoother backup speed transition
             dist_ratio = (distance - self.critical_distance) / (self.min_safe_distance - self.critical_distance)
             linear_speed = -self.max_backup_speed * (1.0 - dist_ratio**2)
+            self.node.get_logger().info(f'Backing up: dist={distance:.2f}m, speed={linear_speed:.2f}')
             
+        self.node.get_logger().info(
+            f'Final speeds: linear={linear_speed:.2f}, turn={turn_speed:.2f}'
+        )
         return linear_speed, turn_speed
 
     def get_avoidance_command(self, human_distance, human_angle, image_x=None):

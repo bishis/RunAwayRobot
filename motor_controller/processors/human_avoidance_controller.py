@@ -24,33 +24,25 @@ class HumanAvoidanceController:
         self.critical_distance = 0.3   # Request escape at 0.3m
         self.max_backup_speed = 0.15   # Increase backup speed
         
-        # Improved tracking parameters
+        # Tracking parameters
         self.min_rotation_speed = 0.3
         self.max_rotation_speed = 0.75
-        self.turn_p_gain = 1.2        # Increased from 0.8 for more responsive tracking
+        self.turn_p_gain = 1.2
         
         # Frame zones
-        self.frame_width = 640
-        self.center_threshold = 0.3    # Narrower center zone - track more actively
-        self.edge_threshold = 0.05     # Smaller edge zone
-        self.tracking_deadzone = 0.1   # Small deadzone to prevent tiny corrections
+        self.center_threshold = 0.15    # Smaller center zone for tighter tracking
         
-        # Smoother transitions
-        self.min_turn_duration = 0.2   # Shorter minimum turn time
-        self.last_turn_time = 0.0
-        self.last_turn_direction = 0
-        self.last_error = 0.0         # For derivative control
+        # Tracking state
+        self.last_image_x = None
+        self.last_turn_cmd = 0.0
+        self.last_track_time = 0.0
+        self.track_timeout = 0.2        # Shorter timeout to stop turning sooner
         
         # Get latest scan data from node
         self.latest_scan = None
         if hasattr(node, 'latest_scan'):
             self.latest_scan = node.latest_scan
             
-        # Add tracking parameters
-        self.max_turn_speed = 0.8
-        self.min_turn_speed = 0.3
-        self.max_linear_speed = 0.07   # Maximum linear speed
-        
         # Get parameters from node if available
         if hasattr(node, 'min_rotation_speed'):
             self.min_rotation_speed = node.min_rotation_speed
@@ -58,16 +50,6 @@ class HumanAvoidanceController:
             self.max_rotation_speed = node.max_angular_speed
         if hasattr(node, 'max_linear_speed'):
             self.max_linear_speed = node.max_linear_speed
-            
-        # Add timer to continuously monitor rear distance
-        #self.node.create_timer(0.2, self.monitor_rear_distance)  # 5Hz updates
-        
-        # Add state tracking for smoother transitions
-        self.last_image_x = None
-        self.last_turn_cmd = 0.0
-        self.turn_decay_rate = 0.5  # How quickly to decay turn speed when losing track
-        self.last_track_time = 0.0
-        self.track_timeout = 0.5    # How long to maintain last direction
 
     def get_avoidance_command(self, human_distance, human_angle, image_x=None):
         cmd = Twist()
@@ -105,52 +87,66 @@ class HumanAvoidanceController:
                         cmd.linear.x = 0.1  # Small forward motion
                     return cmd, needs_escape
                 
-
-                
-        # Handle turning FIRST - prioritize facing the human
+        # Handle turning to face human
         if image_x is not None:
             # Update tracking state
-            self.last_image_x = image_x
+            time_delta = current_time - self.last_track_time
             self.last_track_time = current_time
             
             # Calculate normalized error from image center (-1 to 1)
             image_center = 320
             normalized_error = (image_x - image_center) / image_center
             
-            # Calculate turn speed to face human
-            turn_speed = normalized_error * self.turn_p_gain
+            # Calculate error rate of change for smoother tracking
+            error_rate = 0.0
+            if self.last_image_x is not None:
+                prev_error = (self.last_image_x - image_center) / image_center
+                error_rate = (normalized_error - prev_error) / time_delta
+            self.last_image_x = image_x
             
-            # Apply minimum rotation speed if turning
-            if abs(normalized_error) > 0.1:  # Only turn if error is significant
+            # Calculate turn speed with rate control
+            turn_speed = self.turn_p_gain * normalized_error
+            
+            # Add damping based on error rate to prevent overshooting
+            damping = -0.2 * error_rate
+            turn_speed += damping
+            
+            # Apply minimum rotation speed if outside center zone
+            if abs(normalized_error) > self.center_threshold:
                 if abs(turn_speed) < self.min_rotation_speed:
-                    turn_speed = math.copysign(self.min_rotation_speed, turn_speed)
+                    turn_speed = math.copysign(self.min_rotation_speed, normalized_error)
+                
+                # Scale up turn speed when far from center
+                scale_factor = min(2.0, 1.0 + abs(normalized_error))
+                turn_speed *= scale_factor
+                
                 cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
                                   -self.max_rotation_speed)
                 
                 # Store last turn command
                 self.last_turn_cmd = cmd.angular.z
                 
-                # Don't back up while making large turns
-                if abs(normalized_error) > 0.3:
-                    self.node.get_logger().info(
-                        f'Turning to face human first: error={normalized_error:.2f}'
-                    )
+                # Log tracking info
+                self.node.get_logger().info(
+                    f'Tracking: error={normalized_error:.2f}, rate={error_rate:.2f}, ' +
+                    f'turn={turn_speed:.2f}, damping={damping:.2f}'
+                )
+                
+                # Don't back up during large turns
+                if abs(normalized_error) > 0.4:
                     return cmd, False
                     
         else:  # No current human detection
-            # If we recently lost track, gradually decay the turn
+            # Quick decay of turn speed when losing track
             time_since_track = current_time - self.last_track_time
             if time_since_track < self.track_timeout and self.last_turn_cmd != 0:
-                # Gradually reduce turn speed but maintain direction
                 decay_factor = 1.0 - (time_since_track / self.track_timeout)
                 cmd.angular.z = self.last_turn_cmd * decay_factor
-                self.node.get_logger().info(
-                    f'Lost track - decaying turn: {cmd.angular.z:.2f} (decay={decay_factor:.2f})'
-                )
+                self.node.get_logger().info(f'Decay turn: {cmd.angular.z:.2f}')
             else:
-                # Stop turning if we've lost track for too long
                 cmd.angular.z = 0.0
                 self.last_turn_cmd = 0.0
+                self.last_image_x = None  # Reset tracking state
         
         # Only start backing up if we're roughly facing the human
         if human_distance < self.min_safe_distance:

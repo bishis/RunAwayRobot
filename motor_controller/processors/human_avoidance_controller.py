@@ -52,6 +52,60 @@ class HumanAvoidanceController:
         if hasattr(node, 'max_linear_speed'):
             self.max_linear_speed = node.max_linear_speed
 
+    def calculate_turn_command(self, image_x: float, current_time: float) -> float:
+        """
+        Calculate turn speed to face human.
+        
+        Args:
+            image_x: x-coordinate of human in image (0-640)
+            current_time: current time for tracking
+            
+        Returns:
+            float: Angular velocity command (-max_rotation_speed to max_rotation_speed)
+        """
+        # Update tracking state
+        time_delta = current_time - self.last_track_time
+        self.last_track_time = current_time
+        
+        # Calculate normalized error from image center (-1 to 1)
+        image_center = 320
+        normalized_error = (image_x - image_center) / image_center
+        
+        # Limit maximum turn to prevent spinning
+        if abs(normalized_error) > 0.5:
+            normalized_error = math.copysign(0.5, normalized_error)
+            self.node.get_logger().warn(
+                f'Large turn limited: error capped at {normalized_error:.2f}'
+            )
+        
+        # Basic proportional control
+        turn_speed = self.turn_p_gain * normalized_error
+        
+        # Apply minimum speed if outside center zone
+        if abs(normalized_error) > self.center_threshold:
+            if abs(turn_speed) < self.min_rotation_speed:
+                turn_speed = math.copysign(self.min_rotation_speed, normalized_error)
+            
+            # Conservative speed scaling
+            scale_factor = 1.0 + (0.5 * abs(normalized_error))
+            turn_speed *= scale_factor
+            
+            # Enforce limits
+            turn_speed = max(min(turn_speed, self.max_rotation_speed), 
+                           -self.max_rotation_speed)
+            
+            self.node.get_logger().info(
+                f'Turn: error={normalized_error:.2f}, speed={turn_speed:.2f}, scale={scale_factor:.2f}'
+            )
+        else:
+            turn_speed = 0.0  # Don't turn in center zone
+            
+        # Store state for next iteration
+        self.last_image_x = image_x
+        self.last_turn_cmd = turn_speed
+        
+        return turn_speed
+
     def get_avoidance_command(self, human_distance, human_angle, image_x=None):
         cmd = Twist()
         needs_escape = False
@@ -90,62 +144,15 @@ class HumanAvoidanceController:
                 
         # Handle turning to face human
         if image_x is not None:
-            # Update tracking state
-            time_delta = current_time - self.last_track_time
-            self.last_track_time = current_time
+            cmd.angular.z = self.calculate_turn_command(image_x, current_time)
             
-            # Calculate normalized error from image center (-1 to 1)
-            image_center = 320
-            normalized_error = (image_x - image_center) / image_center
-            
-            # Limit maximum turn to prevent spinning
-            if abs(normalized_error) > 0.5:  # If human is more than halfway to edge
-                normalized_error = math.copysign(0.5, normalized_error)
-                self.node.get_logger().warn(
-                    f'Large turn limited: error capped at {normalized_error:.2f}'
-                )
-            
-            # Calculate base turn speed
-            turn_speed = self.turn_p_gain * normalized_error
-            
-            # Calculate error rate only if we have recent history
-            if self.last_image_x is not None and time_delta < 0.5:
-                prev_error = (self.last_image_x - image_center) / image_center
-                error_rate = (normalized_error - prev_error) / time_delta
-                # Only apply damping if error is decreasing
-                if abs(normalized_error) < abs(prev_error):
-                    damping = -0.3 * error_rate
-                    turn_speed += damping
-            
-            self.last_image_x = image_x
-            
-            # Apply minimum rotation speed if outside center zone
-            if abs(normalized_error) > self.center_threshold:
-                if abs(turn_speed) < self.min_rotation_speed:
-                    turn_speed = math.copysign(self.min_rotation_speed, normalized_error)
+            # Don't back up during large turns
+            if abs(cmd.angular.z) > self.max_rotation_speed * 0.7:
+                self.node.get_logger().info('Large turn - pausing backup')
+                return cmd, False
                 
-                # More conservative speed scaling
-                scale_factor = 1.0 + (0.5 * abs(normalized_error))  # Max 1.5x scaling
-                turn_speed *= scale_factor
-                
-                # Enforce maximum rotation speed
-                cmd.angular.z = max(min(turn_speed, self.max_rotation_speed), 
-                                  -self.max_rotation_speed)
-                
-                # Store last turn command
-                self.last_turn_cmd = cmd.angular.z
-                
-                # Log tracking info
-                self.node.get_logger().info(
-                    f'Tracking: error={normalized_error:.2f}, turn={cmd.angular.z:.2f}, scale={scale_factor:.2f}'
-                )
-                
-                # Don't back up during large turns
-                if abs(normalized_error) > 0.3:  # Reduced from 0.4
-                    return cmd, False
-                    
         else:  # No current human detection
-            # Quick decay of turn speed when losing track
+            # Decay any existing turn
             time_since_track = current_time - self.last_track_time
             if time_since_track < self.track_timeout and self.last_turn_cmd != 0:
                 decay_factor = 1.0 - (time_since_track / self.track_timeout)
@@ -154,7 +161,7 @@ class HumanAvoidanceController:
             else:
                 cmd.angular.z = 0.0
                 self.last_turn_cmd = 0.0
-                self.last_image_x = None  # Reset tracking state
+                self.last_image_x = None
         
         # Only start backing up if we're roughly facing the human
         if human_distance < self.min_safe_distance:

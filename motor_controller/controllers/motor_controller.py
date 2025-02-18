@@ -96,6 +96,7 @@ class MotorController:
         # Convert to differential drive using wheel width
         # v_l = v + (w * L/2), v_r = v - (w * L/2)
         # where L is the wheel width, v is linear velocity, w is angular velocity
+        angular = angular * 1.2
         left_speed = linear + (angular * self.wheel_width / 2.0)
         right_speed = linear - (angular * self.wheel_width / 2.0)
         

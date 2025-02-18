@@ -14,7 +14,6 @@ from .processors.waypoint_generator import WaypointGenerator
 from std_msgs.msg import Bool
 from .processors.human_avoidance_controller import HumanAvoidanceController
 from std_srvs.srv import Empty
-from nav2_msgs.srv import UpdateCostmap
 from nav2_msgs.msg import C, CostmapUpdate
 
 class NavigationController(Node):
@@ -544,39 +543,8 @@ class NavigationController(Node):
                 map_pub.publish(map_update)
                 self.get_logger().info('Updated SLAM map with human position')
                 
-                # Also update costmap
-                try:
-                    mark_client = self.create_client(
-                        UpdateCostmap, 
-                        '/global_costmap/update_costmap'
-                    )
-                    
-                    while not mark_client.wait_for_service(timeout_sec=1.0):
-                        self.get_logger().info('Waiting for update costmap service...')
-                    
-                    # Create costmap update request
-                    request = UpdateCostmap.Request()
-                    request.updates = []
-                    
-                    # Add same points to costmap
-                    for dx in range(-radius_cells, radius_cells + 1):
-                        for dy in range(-radius_cells, radius_cells + 1):
-                            if dx*dx + dy*dy <= radius_cells*radius_cells:
-                                x = human_pose.pose.position.x + dx * resolution
-                                y = human_pose.pose.position.y + dy * resolution
-                                
-                                point = CostmapUpdate()
-                                point.x = x
-                                point.y = y
-                                point.cost = 254  # Mark as lethal obstacle
-                                request.updates.append(point)
-                    
-                    # Send request to update costmap
-                    mark_client.call_async(request)
-                    self.get_logger().info('Updated costmap with human position')
-                    
-                except Exception as e:
-                    self.get_logger().error(f'Failed to update costmap: {str(e)}')
+                # Clear costmaps to force update from new map
+                self.clear_costmaps()
                 
         except Exception as e:
             self.get_logger().error(f'Failed to mark human position: {str(e)}')

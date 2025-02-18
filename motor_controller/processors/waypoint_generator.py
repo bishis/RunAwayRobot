@@ -561,7 +561,6 @@ class WaypointGenerator:
             robot_x = transform.transform.translation.x
             robot_y = transform.transform.translation.y
             
-            # Log robot position
             self.node.get_logger().info(f'Robot position: ({robot_x:.2f}, {robot_y:.2f})')
             
         except Exception as e:
@@ -578,37 +577,37 @@ class WaypointGenerator:
         origin_x = self.current_map.info.origin.position.x
         origin_y = self.current_map.info.origin.position.y
         
-        # Log map info
-        self.node.get_logger().info(
-            f'Map info: resolution={resolution}, '
-            f'origin=({origin_x:.2f}, {origin_y:.2f}), '
-            f'size={map_data.shape}'
-        )
-        
+        # Get known map area (where we have scan data)
+        known_area = (map_data != -1)  # -1 indicates unknown cells
+        if not np.any(known_area):
+            self.node.get_logger().warn('No known map area available')
+            return None
+            
+        # Find boundaries of known area
+        y_indices, x_indices = np.where(known_area)
+        if len(x_indices) == 0 or len(y_indices) == 0:
+            self.node.get_logger().warn('No valid map points found')
+            return None
+            
         # Calculate map boundaries in world coordinates
-        map_width = (map_data.shape[1] - 1) * resolution
-        map_height = (map_data.shape[0] - 1) * resolution
+        min_x = origin_x + (min(x_indices) * resolution) + self.safety_margin
+        max_x = origin_x + (max(x_indices) * resolution) - self.safety_margin
+        min_y = origin_y + (min(y_indices) * resolution) + self.safety_margin
+        max_y = origin_y + (max(y_indices) * resolution) - self.safety_margin
         
-        # Define valid area (accounting for origin)
-        min_x = origin_x + self.safety_margin * 2
-        min_y = origin_y + self.safety_margin * 2
-        max_x = origin_x + map_width - self.safety_margin * 2
-        max_y = origin_y + map_height - self.safety_margin * 2
-        
-        # Log boundaries
         self.node.get_logger().info(
-            f'Valid area: x=[{min_x:.2f}, {max_x:.2f}], y=[{min_y:.2f}, {max_y:.2f}]'
+            f'Map bounds: x=[{min_x:.2f}, {max_x:.2f}], y=[{min_y:.2f}, {max_y:.2f}]'
         )
         
         # Calculate distance transform from walls
         wall_distance = distance_transform_edt(map_data < 50) * resolution
         
         valid_points = []
-        max_attempts = 200  # Increased attempts
+        max_attempts = 200
         min_wall_distance = self.safety_margin * 1.5
         
-        for i in range(max_attempts):
-            # Generate random point in world coordinates
+        for _ in range(max_attempts):
+            # Generate random point in world coordinates within known map bounds
             world_x = np.random.uniform(min_x, max_x)
             world_y = np.random.uniform(min_y, max_y)
             
@@ -616,17 +615,14 @@ class WaypointGenerator:
             map_x = int((world_x - origin_x) / resolution)
             map_y = int((world_y - origin_y) / resolution)
             
-            # Strict boundary check
+            # Verify point is within array bounds and in known space
             if (map_x < 0 or map_x >= map_data.shape[1] or 
-                map_y < 0 or map_y >= map_data.shape[0]):
-                self.node.get_logger().debug(
-                    f'Point ({world_x:.2f}, {world_y:.2f}) -> map ({map_x}, {map_y}) '
-                    'outside map bounds'
-                )
+                map_y < 0 or map_y >= map_data.shape[0] or
+                map_data[map_y, map_x] == -1):  # Unknown space
                 continue
             
             # Check if point is in free space and away from walls
-            if map_data[map_y, map_x] >= 50:  # Occupied or unknown
+            if map_data[map_y, map_x] >= 50:  # Occupied
                 continue
                 
             if wall_distance[map_y, map_x] <= min_wall_distance:  # Too close to walls
@@ -638,22 +634,23 @@ class WaypointGenerator:
                 (world_y - robot_y)**2
             )
             
-            # Simple scoring - prioritize distance from robot
-            score = dist_from_robot
+            # Score based on distance from robot and walls
+            wall_score = wall_distance[map_y, map_x] / (min_wall_distance * 2)
+            total_score = dist_from_robot * wall_score
             
-            valid_points.append((world_x, world_y, dist_from_robot, score))
+            valid_points.append((world_x, world_y, dist_from_robot, total_score))
             
             self.node.get_logger().info(
-                f'Found valid point: ({world_x:.2f}, {world_y:.2f}), '
-                f'dist={dist_from_robot:.2f}m'
+                f'Valid point: ({world_x:.2f}, {world_y:.2f}), '
+                f'dist={dist_from_robot:.2f}m, score={total_score:.2f}'
             )
         
         if not valid_points:
             self.node.get_logger().error('No valid escape points found!')
             return None
             
-        # Take the point furthest from robot
-        best_point = max(valid_points, key=lambda p: p[2])
+        # Take the point with highest score
+        best_point = max(valid_points, key=lambda p: p[3])
         
         # Create waypoint message
         waypoint = PoseStamped()

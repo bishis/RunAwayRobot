@@ -560,6 +560,10 @@ class WaypointGenerator:
             )
             robot_x = transform.transform.translation.x
             robot_y = transform.transform.translation.y
+            
+            # Log robot position
+            self.node.get_logger().info(f'Robot position: ({robot_x:.2f}, {robot_y:.2f})')
+            
         except Exception as e:
             self.node.get_logger().warn(f'Could not get robot position: {e}')
             return None
@@ -574,32 +578,37 @@ class WaypointGenerator:
         origin_x = self.current_map.info.origin.position.x
         origin_y = self.current_map.info.origin.position.y
         
-        # Calculate strict map boundaries in world coordinates
-        map_width = self.current_map.info.width * resolution
-        map_height = self.current_map.info.height * resolution
-        map_max_x = origin_x + map_width
-        map_max_y = origin_y + map_height
+        # Log map info
+        self.node.get_logger().info(
+            f'Map info: resolution={resolution}, '
+            f'origin=({origin_x:.2f}, {origin_y:.2f}), '
+            f'size={map_data.shape}'
+        )
         
-        # Add safety margin to boundaries
-        margin = self.safety_margin * 2
-        min_x = origin_x + margin
-        min_y = origin_y + margin
-        max_x = map_max_x - margin
-        max_y = map_max_y - margin
+        # Calculate map boundaries in world coordinates
+        map_width = (map_data.shape[1] - 1) * resolution
+        map_height = (map_data.shape[0] - 1) * resolution
+        
+        # Define valid area (accounting for origin)
+        min_x = origin_x + self.safety_margin * 2
+        min_y = origin_y + self.safety_margin * 2
+        max_x = origin_x + map_width - self.safety_margin * 2
+        max_y = origin_y + map_height - self.safety_margin * 2
+        
+        # Log boundaries
+        self.node.get_logger().info(
+            f'Valid area: x=[{min_x:.2f}, {max_x:.2f}], y=[{min_y:.2f}, {max_y:.2f}]'
+        )
         
         # Calculate distance transform from walls
         wall_distance = distance_transform_edt(map_data < 50) * resolution
         
         valid_points = []
-        max_attempts = 100
+        max_attempts = 200  # Increased attempts
         min_wall_distance = self.safety_margin * 1.5
         
-        self.node.get_logger().info(
-            f'Map bounds: x=[{min_x:.2f}, {max_x:.2f}], y=[{min_y:.2f}, {max_y:.2f}]'
-        )
-        
-        for _ in range(max_attempts):
-            # Generate random point in world coordinates within map bounds
+        for i in range(max_attempts):
+            # Generate random point in world coordinates
             world_x = np.random.uniform(min_x, max_x)
             world_y = np.random.uniform(min_y, max_y)
             
@@ -607,9 +616,20 @@ class WaypointGenerator:
             map_x = int((world_x - origin_x) / resolution)
             map_y = int((world_y - origin_y) / resolution)
             
-            # Verify point is within array bounds
+            # Strict boundary check
             if (map_x < 0 or map_x >= map_data.shape[1] or 
                 map_y < 0 or map_y >= map_data.shape[0]):
+                self.node.get_logger().debug(
+                    f'Point ({world_x:.2f}, {world_y:.2f}) -> map ({map_x}, {map_y}) '
+                    'outside map bounds'
+                )
+                continue
+            
+            # Check if point is in free space and away from walls
+            if map_data[map_y, map_x] >= 50:  # Occupied or unknown
+                continue
+                
+            if wall_distance[map_y, map_x] <= min_wall_distance:  # Too close to walls
                 continue
             
             # Calculate distance from robot
@@ -618,43 +638,22 @@ class WaypointGenerator:
                 (world_y - robot_y)**2
             )
             
-            # Check if point is valid
-            if (map_data[map_y, map_x] < 50 and  # Free space
-                wall_distance[map_y, map_x] > min_wall_distance):  # Away from walls
-                
-                # Score based on distance from robot and walls
-                wall_score = min(wall_distance[map_y, map_x] / (min_wall_distance * 2), 1.0)
-                distance_score = dist_from_robot
-                
-                # Calculate distance from map edges
-                edge_dist_x = min(world_x - min_x, max_x - world_x)
-                edge_dist_y = min(world_y - min_y, max_y - world_y)
-                edge_score = min(min(edge_dist_x, edge_dist_y) / margin, 1.0)
-                
-                # Normalize distance score based on map size
-                map_diagonal = math.sqrt(map_width**2 + map_height**2)
-                norm_distance = distance_score / map_diagonal
-                
-                total_score = (
-                    norm_distance * 0.6 +
-                    wall_score * 0.3 +
-                    edge_score * 0.1
-                )
-                
-                valid_points.append((world_x, world_y, dist_from_robot, total_score))
-                
-                self.node.get_logger().info(
-                    f'Valid point: ({world_x:.2f}, {world_y:.2f}), '
-                    f'dist={dist_from_robot:.2f}m, score={total_score:.2f}'
-                )
+            # Simple scoring - prioritize distance from robot
+            score = dist_from_robot
+            
+            valid_points.append((world_x, world_y, dist_from_robot, score))
+            
+            self.node.get_logger().info(
+                f'Found valid point: ({world_x:.2f}, {world_y:.2f}), '
+                f'dist={dist_from_robot:.2f}m'
+            )
         
         if not valid_points:
             self.node.get_logger().error('No valid escape points found!')
             return None
             
-        # Sort by score and take the best point
-        valid_points.sort(key=lambda p: p[3], reverse=True)
-        best_point = valid_points[0]
+        # Take the point furthest from robot
+        best_point = max(valid_points, key=lambda p: p[2])
         
         # Create waypoint message
         waypoint = PoseStamped()

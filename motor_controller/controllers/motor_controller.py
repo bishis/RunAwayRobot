@@ -30,6 +30,9 @@ class MotorController:
         # Store logger
         self.logger = logger
         
+        # Robot physical parameters
+        self.wheel_width = 0.23  # Distance between wheels in meters
+        
         # Left side motors
         self.left_dir = OutputDevice(left_dir_pin)
         self.left_pwm = PWMOutputDevice(left_pwm_pin, frequency=pwm_frequency)
@@ -63,7 +66,7 @@ class MotorController:
             right_speed /= max_speed
             
         # Scale the entire range from MIN_SPEED to 1.0
-        MIN_SPEED = 0.73
+        MIN_SPEED = 0.72
         
         def scale_to_min_speed(speed: float) -> float:
             if speed == 0.0:
@@ -90,9 +93,11 @@ class MotorController:
             tuple[float, float, float, float]: (left_speed, right_speed, left_pwm, right_pwm)
             where speeds are the scaled differential drive values and pwm are the actual motor powers
         """
-        # Convert to differential drive
-        left_speed = linear + angular
-        right_speed = linear - angular
+        # Convert to differential drive using wheel width
+        # v_l = v + (w * L/2), v_r = v - (w * L/2)
+        # where L is the wheel width, v is linear velocity, w is angular velocity
+        left_speed = linear + (angular * self.wheel_width / 2.0)
+        right_speed = linear - (angular * self.wheel_width / 2.0)
         
         # Apply scaling and minimum speeds
         left_speed, right_speed = self.scale_motor_speeds(left_speed, right_speed, angular)

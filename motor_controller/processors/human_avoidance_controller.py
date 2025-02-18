@@ -78,21 +78,19 @@ class HumanAvoidanceController:
         # Check if we're in forward motion mode
         if self.is_moving_forward:
             if time.time() - self.forward_motion_start < self.forward_motion_duration:
-                # Continue forward motion
                 cmd.linear.x = 0.1
                 self.node.get_logger().info('Continuing forward motion')
                 return cmd, True
             else:
-                # Stop forward motion
                 self.is_moving_forward = False
                 self.node.get_logger().info('Forward motion complete - stopping')
                 return Twist(), True
         
-        # Check entire rear half of robot using LIDAR
+        # Check rear 140° arc of robot using LIDAR
         if self.latest_scan is not None:
-            # Define rear arc from 90° to 270° (π/2 to 3π/2)
-            rear_start_angle = math.pi/2  # 90 degrees
-            rear_end_angle = 3*math.pi/2  # 270 degrees
+            # Define rear arc from 110° to 250° for 140° total coverage
+            rear_start_angle = 110 * math.pi/180  # 110 degrees
+            rear_end_angle = 250 * math.pi/180    # 250 degrees
             
             # Convert angles to LIDAR indices
             start_idx = int((rear_start_angle - self.latest_scan.angle_min) / 

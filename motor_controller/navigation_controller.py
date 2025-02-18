@@ -13,6 +13,9 @@ import math
 from .processors.waypoint_generator import WaypointGenerator
 from std_msgs.msg import Bool
 from .processors.human_avoidance_controller import HumanAvoidanceController
+from std_srvs.srv import Empty
+from nav2_msgs.srv import UpdateCostmap
+from nav2_msgs.msg import C, CostmapUpdate
 
 class NavigationController(Node):
     def __init__(self):
@@ -450,20 +453,93 @@ class NavigationController(Node):
                     
                     # Only check for escape after publishing command
                     if needs_escape:
+                        # Clear costmaps before planning escape
+                        self.clear_costmaps()
+                        
+                        # Mark human position in costmap
+                        self.mark_human_position()
+                        
                         escape_point = self.human_avoidance.plan_escape()
                         if escape_point is not None:
                             self.send_goal(escape_point)
                             # Force tracking off when starting escape
                             self.is_tracking_human = False
                     
-                    self.get_logger().info(
-                        f'Human tracking: dist={human_distance:.2f}m, '
-                        f'backing_up={avoidance_cmd.linear.x:.2f}m/s'
-                    )
+                self.get_logger().info(
+                    f'Human tracking: dist={human_distance:.2f}m, '
+                    f'backing_up={avoidance_cmd.linear.x:.2f}m/s'
+                )
                 
             except Exception as e:
                 self.get_logger().error(f'Error in tracking cmd callback: {str(e)}')
                 self.wheel_speeds_pub.publish(Twist())  # Stop on error
+
+    def clear_costmaps(self):
+        """Clear local and global costmaps"""
+        try:
+            # Create service client for clearing costmaps
+            clear_client = self.create_client(Empty, '/global_costmap/clear_entirely_global_costmap')
+            while not clear_client.wait_for_service(timeout_sec=1.0):
+                self.get_logger().info('Waiting for clear costmap service...')
+            
+            # Send request to clear costmaps
+            clear_client.call_async(Empty.Request())
+            self.get_logger().info('Cleared costmaps for escape planning')
+            
+        except Exception as e:
+            self.get_logger().error(f'Failed to clear costmaps: {str(e)}')
+
+    def mark_human_position(self):
+        """Mark human position as obstacle in costmap"""
+        try:
+            # Subscribe to human coordinates
+            human_pose = None
+            human_sub = self.create_subscription(
+                PoseStamped,
+                '/human_coords',
+                lambda msg: setattr(self, 'latest_human_pose', msg),
+                1
+            )
+            
+            # Wait briefly for human position
+            rclpy.spin_once(self, timeout_sec=0.1)
+            human_pose = getattr(self, 'latest_human_pose', None)
+            
+            if human_pose:
+                # Create service client for marking human position
+                mark_client = self.create_client(
+                    UpdateCostmap, 
+                    '/global_costmap/update_costmap'
+                )
+                
+                while not mark_client.wait_for_service(timeout_sec=1.0):
+                    self.get_logger().info('Waiting for update costmap service...')
+                
+                # Create a circular obstacle around human position
+                request = UpdateCostmap.Request()
+                request.updates = []
+                
+                # Add points in a circle around human position
+                radius = 0.5  # 50cm radius around human
+                resolution = 0.05  # 5cm resolution
+                
+                for theta in range(0, 360, 10):  # Every 10 degrees
+                    rad = math.radians(theta)
+                    x = human_pose.pose.position.x + radius * math.cos(rad)
+                    y = human_pose.pose.position.y + radius * math.sin(rad)
+                    
+                    point = CostmapUpdate()
+                    point.x = x
+                    point.y = y
+                    point.cost = 254  # Mark as lethal obstacle
+                    request.updates.append(point)
+                
+                # Send request to update costmap
+                mark_client.call_async(request)
+                self.get_logger().info('Marked human position in costmap')
+                
+        except Exception as e:
+            self.get_logger().error(f'Failed to mark human position: {str(e)}')
 
     def is_escape_waypoint(self, waypoint):
         """Check if waypoint is an escape waypoint"""

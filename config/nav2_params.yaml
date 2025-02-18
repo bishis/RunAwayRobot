@@ -291,8 +291,6 @@ local_costmap:
         raytrace_max_range: 2.0
         obstacle_max_range: 1.5
         obstacle_min_range: 0.02
-
-    plugins: ["obstacle_layer", "voxel_layer", "inflation_layer"]
     
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"

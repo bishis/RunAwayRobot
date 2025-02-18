@@ -21,7 +21,7 @@ class HumanAvoidanceController:
         
         # Distance thresholds
         self.min_safe_distance = 1.5  # Start backing up at 1m
-        self.critical_distance = 0.3   # Request escape at 0.3m
+        self.critical_distance = 0.4   # Request escape at 0.3m
         self.max_backup_speed = 0.15   # Increase backup speed
         
         # Tracking parameters
@@ -91,7 +91,7 @@ class HumanAvoidanceController:
         # Check rear distance first using monitor method
         if self.latest_scan is not None:
             rear_angle = math.pi  # Only use +180° reading
-            angle_tolerance = math.pi/6
+            angle_tolerance = math.pi/2
             
             start_idx = int((rear_angle - angle_tolerance - self.latest_scan.angle_min) / 
                           self.latest_scan.angle_increment)

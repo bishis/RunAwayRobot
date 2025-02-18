@@ -89,8 +89,8 @@ class HumanAvoidanceController:
         # Check rear 140° arc of robot using LIDAR
         if self.latest_scan is not None:
             # Define rear arc from 110° to 250° for 140° total coverage
-            rear_start_angle = 110 * math.pi/180  # 110 degrees
-            rear_end_angle = 250 * math.pi/180    # 250 degrees
+            rear_start_angle = 100 * math.pi/180  # 110 degrees
+            rear_end_angle = 240 * math.pi/180    # 250 degrees
             
             # Convert angles to LIDAR indices
             start_idx = int((rear_start_angle - self.latest_scan.angle_min) / 

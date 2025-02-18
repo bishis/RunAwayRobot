@@ -88,37 +88,64 @@ class HumanAvoidanceController:
                 self.node.get_logger().info('Forward motion complete - stopping')
                 return Twist(), True
         
-        # Check rear distance first using monitor method
+        # Check entire rear half of robot using LIDAR
         if self.latest_scan is not None:
-            rear_angle = math.pi  # Only use +180° reading
-            angle_tolerance = math.pi/2
+            # Define rear arc from 90° to 270° (π/2 to 3π/2)
+            rear_start_angle = math.pi/2  # 90 degrees
+            rear_end_angle = 3*math.pi/2  # 270 degrees
             
-            start_idx = int((rear_angle - angle_tolerance - self.latest_scan.angle_min) / 
+            # Convert angles to LIDAR indices
+            start_idx = int((rear_start_angle - self.latest_scan.angle_min) / 
                           self.latest_scan.angle_increment)
-            end_idx = int((rear_angle + angle_tolerance - self.latest_scan.angle_min) / 
+            end_idx = int((rear_end_angle - self.latest_scan.angle_min) / 
                          self.latest_scan.angle_increment)
             
+            # Ensure indices are within bounds
+            start_idx = max(0, min(start_idx, len(self.latest_scan.ranges)-1))
+            end_idx = max(0, min(end_idx, len(self.latest_scan.ranges)-1))
+            
             # Get valid readings in rear arc
-            rear_readings = [r for r in self.latest_scan.ranges[start_idx:end_idx]
-                           if self.latest_scan.range_min <= r <= self.latest_scan.range_max]
+            rear_readings = []
+            rear_angles = []
+            
+            for i in range(start_idx, end_idx + 1):
+                r = self.latest_scan.ranges[i]
+                if self.latest_scan.range_min <= r <= self.latest_scan.range_max:
+                    rear_readings.append(r)
+                    angle = self.latest_scan.angle_min + (i * self.latest_scan.angle_increment)
+                    rear_angles.append(angle)
             
             if rear_readings:
-                rear_distance = min(rear_readings)
-                self.node.get_logger().info(f'Rear wall distance: {rear_distance:.2f}m')
+                # Find closest point and its angle
+                min_idx = rear_readings.index(min(rear_readings))
+                rear_distance = rear_readings[min_idx]
+                closest_angle = rear_angles[min_idx]
+                
+                self.node.get_logger().info(
+                    f'Rear distance: {rear_distance:.2f}m at angle: {math.degrees(closest_angle):.1f}°'
+                )
                 
                 # Check if we need to escape
                 if rear_distance < self.critical_distance:
                     needs_escape = True
                     if rear_distance < 0.2:  # 20cm safety threshold
                         self.node.get_logger().warn(
-                            f'Wall too close behind ({rear_distance:.2f}m), starting forward motion'
+                            f'Obstacle too close behind ({rear_distance:.2f}m) at '
+                            f'{math.degrees(closest_angle):.1f}°, starting forward motion'
                         )
                         # Start forward motion timer
                         self.is_moving_forward = True
                         self.forward_motion_start = time.time()
+                        
+                        # Adjust forward motion direction based on obstacle angle
+                        if closest_angle > math.pi:  # Obstacle on left side
+                            cmd.angular.z = -0.2  # Turn slightly right
+                        else:  # Obstacle on right side
+                            cmd.angular.z = 0.2   # Turn slightly left
+                            
                         cmd.linear.x = 0.1
                     return cmd, needs_escape
-                
+        
         # Handle turning to face human
         if image_x is not None:
             # Calculate turn command

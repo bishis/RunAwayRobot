@@ -21,7 +21,7 @@ class HumanAvoidanceController:
         
         # Distance thresholds
         self.min_safe_distance = 1.5  # Start backing up at 1m
-        self.critical_distance = 0.4   # Request escape at 0.3m
+        self.critical_distance = 0.35   # Request escape at 0.3m
         self.max_backup_speed = 0.15   # Increase backup speed
         
         # Tracking parameters

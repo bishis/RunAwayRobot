@@ -117,6 +117,9 @@ class HumanAvoidanceController:
                         self.is_moving_forward = True
                         self.forward_motion_start = time.time()
                         cmd.linear.x = 0.1
+                    # Pass human position for escape planning
+                    self.last_human_distance = human_distance
+                    self.last_human_angle = human_angle
                     return cmd, needs_escape
                 
         # Handle turning to face human

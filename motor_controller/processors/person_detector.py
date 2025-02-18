@@ -203,6 +203,13 @@ class PersonDetector(Node):
         self.tf_ready = False
         self.create_timer(1.0, self.check_tf_availability)  # Check every second
         
+        # Add new publisher for human coordinates
+        self.human_coords_pub = self.create_publisher(
+            PoseStamped,
+            '/human_coords',
+            10
+        )
+        
         self.get_logger().info('Person detector initialized successfully')
         
     def synchronized_callback(self, image_msg, scan_msg):
@@ -505,6 +512,38 @@ class PersonDetector(Node):
                     map_point = do_transform_point(camera_point, transform)
                     marker.pose.position = map_point.point
                     marker.lifetime = Duration(seconds=0.5).to_msg()
+                    
+                    # Add human coordinates publishing
+                    human_pose = PoseStamped()
+                    human_pose.header.frame_id = 'map'
+                    human_pose.header.stamp = self.get_clock().now().to_msg()
+                    human_pose.pose.position = map_point.point
+                    # Calculate orientation to face the robot
+                    try:
+                        robot_transform = self.tf_buffer.lookup_transform(
+                            'map',
+                            'base_link',
+                            Time(),
+                            timeout=Duration(seconds=0.1)
+                        )
+                        robot_x = robot_transform.transform.translation.x
+                        robot_y = robot_transform.transform.translation.y
+                        
+                        # Calculate angle from human to robot
+                        dx = robot_x - map_point.point.x
+                        dy = robot_y - map_point.point.y
+                        yaw = math.atan2(dy, dx)
+                        
+                        # Convert to quaternion
+                        human_pose.pose.orientation.z = math.sin(yaw / 2.0)
+                        human_pose.pose.orientation.w = math.cos(yaw / 2.0)
+                        
+                    except TransformException:
+                        # If we can't get robot position, just use default orientation
+                        human_pose.pose.orientation.w = 1.0
+                    
+                    # Publish human coordinates
+                    self.human_coords_pub.publish(human_pose)
                     
                     return marker
                     

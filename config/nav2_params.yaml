@@ -71,8 +71,8 @@ controller_server:
     # Much looser goal tolerances
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 3.14  # Almost 180 degrees - effectively ignore orientation
+      xy_goal_tolerance: 0.3
+      yaw_goal_tolerance: 0.5
       stateful: true
 
     FollowPath:
@@ -80,11 +80,11 @@ controller_server:
       
       # Angular velocity limits
       min_vel_theta: 0.2      # Lower minimum to allow gentler turns
-      max_vel_theta: 0.75     # Match motor controller max
+      max_vel_theta: 0.6     # Match motor controller max
       
       # Forward motion limits
       min_vel_x: -0.05
-      max_vel_x: 0.1
+      max_vel_x: 0.08
       
       # Reduce path following strictness
       path_distance_bias: 8.0       # Much lower - care less about exact path
@@ -97,7 +97,7 @@ controller_server:
       
       # Critics - reduce path alignment importance
       critics: ["Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "GoalDist"]
-      BaseObstacle.scale: 0.02
+      BaseObstacle.scale: 0.4
       GoalAlign.scale: 4.0     # Reduced for gentler alignment
       PathAlign.scale: 4.0     # Reduced for gentler alignment
       GoalDist.scale: 24.0     # Keep goal priority high
@@ -192,17 +192,17 @@ controller_server:
       backup_vel: -0.1
 
     # Make controller more robust near obstacles
-    min_vel_x: -0.025  # Allow very slow reverse
+    min_vel_x: -0.05
     max_vel_x: 0.07
     min_vel_theta: 0.1
-    max_vel_theta: 1.0
+    max_vel_theta: 0.5
     min_speed_xy: 0.025
     
     # Increase clearance checking
     robot_radius: 0.16
     inflation_layer:
       inflation_radius: 0.5
-      cost_scaling_factor: 3.0
+      cost_scaling_factor: 5.0
     
     # Recovery behavior
     recovery_enabled: true
@@ -270,16 +270,16 @@ local_costmap:
     width: 3
     height: 3
     resolution: 0.05
-    footprint: "[
-      [-0.155, -0.185],  
-      [-0.155,  0.185],  
-      [ 0.155,  0.185],  
-      [ 0.155, -0.185]   
-    ]"
-    plugins: ["obstacle_layer", "voxel_layer", "inflation_layer"]
+    
+    # Add larger robot footprint with padding
+    footprint: [
+      [-0.17, -0.20],  # Add 2cm padding
+      [-0.17,  0.20],
+      [ 0.17,  0.20],
+      [ 0.17, -0.20]
+    ]
     
     obstacle_layer:
-      plugin: "nav2_costmap_2d::ObstacleLayer"
       enabled: true
       observation_sources: scan
       scan:
@@ -288,15 +288,12 @@ local_costmap:
         clearing: true
         marking: true
         data_type: "LaserScan"
-        raytrace_max_range: 3.0
-        raytrace_min_range: 0.0
-        obstacle_max_range: 2.5
-        obstacle_min_range: 0.0
-        inf_is_valid: false
-        observation_persistence: 0.0
-        marking_buffers: 1
-        clearing_buffers: 1
+        raytrace_max_range: 2.0
+        obstacle_max_range: 1.5
+        obstacle_min_range: 0.02
 
+    plugins: ["obstacle_layer", "voxel_layer", "inflation_layer"]
+    
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
       enabled: true

@@ -545,65 +545,11 @@ class WaypointGenerator:
         # Implement the logic to republish updated waypoints
         pass
 
-    def add_human_to_map(self, human_x, human_y, radius=0.5):
-        """Add human position as temporary obstacle in map"""
-        if self.current_map is None:
-            return
-            
-        resolution = self.current_map.info.resolution
-        origin_x = self.current_map.info.origin.position.x
-        origin_y = self.current_map.info.origin.position.y
-        
-        # Convert human position to map coordinates
-        map_x = int((human_x - origin_x) / resolution)
-        map_y = int((human_y - origin_y) / resolution)
-        
-        # Convert radius to cells
-        radius_cells = int(radius / resolution)
-        
-        # Create temporary copy of map data
-        map_data = np.array(self.current_map.data).reshape(
-            self.current_map.info.height,
-            self.current_map.info.width
-        )
-        
-        # Create a circle mask for the human
-        y, x = np.ogrid[-radius_cells:radius_cells+1, -radius_cells:radius_cells+1]
-        mask = x**2 + y**2 <= radius_cells**2
-        
-        # Calculate bounds for the circle
-        x_min = max(0, map_x - radius_cells)
-        x_max = min(map_data.shape[1], map_x + radius_cells + 1)
-        y_min = max(0, map_y - radius_cells)
-        y_max = min(map_data.shape[0], map_y + radius_cells + 1)
-        
-        # Adjust mask if near map edges
-        mask_x_start = abs(min(0, map_x - radius_cells))
-        mask_y_start = abs(min(0, map_y - radius_cells))
-        mask_x_end = mask.shape[1] - abs(min(0, map_data.shape[1] - (map_x + radius_cells + 1)))
-        mask_y_end = mask.shape[0] - abs(min(0, map_data.shape[0] - (map_y + radius_cells + 1)))
-        
-        # Add human to map as obstacle (100 = occupied)
-        map_data[y_min:y_max, x_min:x_max][
-            mask[mask_y_start:mask_y_end, mask_x_start:mask_x_end]
-        ] = 100
-        
-        return map_data
-
-    def get_furthest_waypoint(self, human_x=None, human_y=None):
+    def get_furthest_waypoint(self):
         """Generate a waypoint at the furthest reachable point from current position"""
         if self.current_map is None:
             self.node.get_logger().warn('No map available for escape planning')
             return None
-            
-        # If human position provided, add to map
-        if human_x is not None and human_y is not None:
-            map_data = self.add_human_to_map(human_x, human_y)
-        else:
-            map_data = np.array(self.current_map.data).reshape(
-                self.current_map.info.height,
-                self.current_map.info.width
-            )
             
         try:
             # Get current robot position

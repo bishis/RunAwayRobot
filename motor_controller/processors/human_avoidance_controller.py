@@ -147,12 +147,34 @@ class HumanAvoidanceController:
             return stop_cmd, False
 
         
-    def plan_escape(self):
-        """Plan escape waypoint furthest from current position"""
+    def plan_escape(self, human_distance, human_angle):
+        """Plan escape waypoint furthest from current position and around human"""
         self.node.get_logger().warn('Planning escape')
         
-        self.waypoint_generator.force_waypoint_change()
-        waypoint = self.waypoint_generator.get_furthest_waypoint()
+        # Calculate human position in map frame
+        try:
+            transform = self.waypoint_generator.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            robot_x = transform.transform.translation.x
+            robot_y = transform.transform.translation.y
+            
+            # Convert polar coordinates (distance, angle) to cartesian
+            human_x = robot_x + human_distance * math.cos(human_angle)
+            human_y = robot_y + human_distance * math.sin(human_angle)
+            
+            self.node.get_logger().info(
+                f'Human position in map: ({human_x:.2f}, {human_y:.2f})'
+            )
+            
+            # Get waypoint with human position
+            waypoint = self.waypoint_generator.get_furthest_waypoint(human_x, human_y)
+            
+        except Exception as e:
+            self.node.get_logger().error(f'Error calculating human position: {e}')
+            waypoint = self.waypoint_generator.get_furthest_waypoint()
         
         if waypoint is not None:
             distance = math.sqrt(
@@ -163,13 +185,9 @@ class HumanAvoidanceController:
                 waypoint.header.frame_id = 'map'
                 waypoint.header.stamp.nanosec = 1  # Special marker for escape
                 
-                # Create red visualization for escape waypoint
-                markers = self.waypoint_generator.create_visualization_markers(waypoint, is_escape=True)
-                self.node.marker_pub.publish(markers)
-                
                 self.node.get_logger().warn(
                     f'ESCAPE PLAN: Moving to ({waypoint.pose.position.x:.2f}, '
-                    f'{waypoint.pose.position.y:.2f}), ignoring humans until reached'
+                    f'{waypoint.pose.position.y:.2f}), avoiding human'
                 )
                 return waypoint
             

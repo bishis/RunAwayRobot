@@ -14,7 +14,6 @@ from .processors.waypoint_generator import WaypointGenerator
 from std_msgs.msg import Bool
 from .processors.human_avoidance_controller import HumanAvoidanceController
 from std_srvs.srv import Empty
-from nav2_msgs.msg import C, CostmapUpdate
 
 class NavigationController(Node):
     def __init__(self):

@@ -164,14 +164,26 @@ class NavigationController(Node):
 
             # Check if map is complete
             if self.waypoint_generator.is_map_complete():
-                self.get_logger().info(' Ahmed ahmed Map exploration complete!')
+                self.get_logger().info('Map exploration complete!')
                 # Optional: Stop the exploration loop
                 # self.create_timer(1.0, self.exploration_loop).cancel()
                 return
 
             if not self.is_navigating:
+                # Store current waypoint before generating new one
+                self.previous_waypoint = self.current_goal
+                
                 waypoint = self.waypoint_generator.generate_waypoint()
                 if waypoint:
+                    # Check if waypoint is same as previous
+                    if self.previous_waypoint and \
+                       abs(waypoint.pose.position.x - self.previous_waypoint.pose.position.x) < 0.1 and \
+                       abs(waypoint.pose.position.y - self.previous_waypoint.pose.position.y) < 0.1:
+                        self.get_logger().warn('bishi Generated waypoint is too similar to previous, forcing new one')
+                        self.waypoint_generator.force_waypoint_change()
+                        return
+                        
+                    # Check if waypoint is near wall
                     if self.current_map and not self.waypoint_generator.is_near_wall(
                         waypoint.pose.position.x,
                         waypoint.pose.position.y,
@@ -183,12 +195,13 @@ class NavigationController(Node):
                         self.current_map.info.origin.position.x,
                         self.current_map.info.origin.position.y
                     ):
+                        self.current_goal = waypoint  # Store new goal
                         self.send_goal(waypoint)
                         # Green for exploration
                         markers = self.waypoint_generator.create_visualization_markers(waypoint, is_escape=False)
                         self.marker_pub.publish(markers)
                     else:
-                        self.get_logger().warn('Generated waypoint too close to wall, skipping')
+                        self.get_logger().warn('Generated waypoint too close to wall, forcing new one')
                         self.waypoint_generator.force_waypoint_change()
         
         except Exception as e:

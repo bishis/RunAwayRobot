@@ -49,3 +49,5 @@ slam_toolbox:
     optimization_period: 10.0                 # How frequently (in seconds) to run pose graph optimization
     optimizer_max_iterations: 20              # Maximum iterations for the pose graph optimizer per run
     constraint_search_space_time: 5.0         # Time window (in seconds) for considering loop closures
+
+    use_adaptive_motion_thresholds: true   # Dynamically adjust thresholds based on velocity

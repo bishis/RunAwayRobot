@@ -277,10 +277,6 @@ class WaypointGenerator:
         """Get next waypoint, either existing or new"""
         current_time = self.node.get_clock().now()
         
-        # Add minimum distance between waypoints
-        min_waypoint_distance = 1.0  # Minimum 1 meter between waypoints
-        max_attempts = 20  # Maximum attempts to find a waypoint with minimum distance
-        
         # Check if minimum time has elapsed since last change
         if self.last_waypoint_change and not self.force_new_waypoint:
             time_since_change = (current_time - self.last_waypoint_change).nanoseconds / 1e9
@@ -341,7 +337,6 @@ class WaypointGenerator:
 
         best_point = None
         best_score = -float('inf')
-        attempts = 0
         
         # Use time-bound approach instead of fixed attempts
         start_time = self.node.get_clock().now()
@@ -372,18 +367,6 @@ class WaypointGenerator:
             # Convert to world coordinates
             x = origin_x + map_x * resolution
             y = origin_y + map_y * resolution
-            
-            # Check minimum distance from previous waypoint
-            if self.current_waypoint:
-                prev_x = self.current_waypoint.pose.position.x
-                prev_y = self.current_waypoint.pose.position.y
-                dist_to_prev = math.sqrt((x - prev_x)**2 + (y - prev_y)**2)
-                if dist_to_prev < min_waypoint_distance:
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        self.node.get_logger().warn('Could not find waypoint with minimum distance after max attempts')
-                        break
-                    continue
             
             # Calculate scores with additional stability factors
             dist_to_robot = math.sqrt((map_x - robot_grid_x)**2 + (map_y - robot_grid_y)**2) * resolution
@@ -416,10 +399,16 @@ class WaypointGenerator:
                 2.0 * stability_score    # Add stability preference
             )
             
+            # Only accept new waypoint if score is significantly better
+            if self.current_waypoint and total_score < self.last_best_score + self.score_improvement_threshold:
+                self.waypoint_attempts += 1
+                if self.waypoint_attempts < self.max_attempts:
+                    continue
+            
             if total_score > best_score:
                 best_score = total_score
                 best_point = (x, y)
-
+        
         if best_point is None:
             return None
         

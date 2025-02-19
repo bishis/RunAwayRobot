@@ -452,6 +452,9 @@ class NavigationController(Node):
             
         if self.is_tracking_human:
             try:
+                # Initialize avoidance_cmd before using it
+                avoidance_cmd = Twist()
+                
                 # Extract human position from tracking command
                 human_angle = -msg.angular.z  # Invert because cmd is opposite
                 human_distance = msg.linear.y  # Get real distance measurement

@@ -44,3 +44,8 @@ slam_toolbox:
     coarse_search_angle_offset: 0.349         # ~20° in radians
     coarse_angle_resolution: 0.0349           # ~2° in radians
     loop_match_minimum_response_coarse: 0.3
+
+    ## Graph Optimization Settings
+    optimization_period: 10.0                 # How frequently (in seconds) to run pose graph optimization
+    optimizer_max_iterations: 20              # Maximum iterations for the pose graph optimizer per run
+    constraint_search_space_time: 5.0         # Time window (in seconds) for considering loop closures

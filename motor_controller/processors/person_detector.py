@@ -164,7 +164,7 @@ class PersonDetector(Node):
         self.lidar_window_size = 3  # Window size for LIDAR measurements
         
         # Optimize tracking parameters
-        self.conf_threshold = 0.5  # Lower threshold for faster detection
+        self.conf_threshold = 0.6  # Lower threshold for faster detection
         self.model.conf = self.conf_threshold
         self.model.iou = 0.35  # Lower IOU for better tracking
         self.model.max_det = 10  # Increase max detections

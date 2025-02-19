@@ -665,25 +665,7 @@ class WaypointGenerator:
             
         # Take the point with highest score
         best_point = max(valid_points, key=lambda p: p[3])
-        
-        # Check if this point is too close to the last goal
-        if self.last_goal is not None:
-            dist_to_last = math.sqrt(
-                (best_point[0] - self.last_goal.pose.position.x)**2 +
-                (best_point[1] - self.last_goal.pose.position.y)**2
-            )
-            if dist_to_last < self.min_goal_distance:
-                self.node.get_logger().info(
-                    f'New goal too close to last goal ({dist_to_last:.2f}m), finding alternative'
-                )
-                # Try to find another point
-                valid_points.remove(best_point)
-                if valid_points:
-                    best_point = max(valid_points, key=lambda p: p[3])
-                else:
-                    self.node.get_logger().warn('No alternative points available')
-                    return None
-        
+    
         # Create waypoint message
         waypoint = PoseStamped()
         waypoint.header.frame_id = 'map'
@@ -697,9 +679,6 @@ class WaypointGenerator:
         yaw = math.atan2(dy, dx)
         waypoint.pose.orientation.z = math.sin(yaw / 2.0)
         waypoint.pose.orientation.w = math.cos(yaw / 2.0)
-        
-        # Store this as the last goal
-        self.last_goal = waypoint
         
         self.node.get_logger().warn(
             f'Generated escape waypoint at ({waypoint.pose.position.x:.2f}, '

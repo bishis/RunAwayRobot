@@ -708,38 +708,3 @@ class WaypointGenerator:
         )
         
         return waypoint
-
-    def is_same_waypoint(self, waypoint1: PoseStamped, waypoint2: PoseStamped, tolerance: float = 0.1) -> bool:
-        """
-        Check if two waypoints are effectively the same location
-        
-        Args:
-            waypoint1: First waypoint to compare
-            waypoint2: Second waypoint to compare
-            tolerance: Distance tolerance for considering waypoints the same (meters)
-            
-        Returns:
-            bool: True if waypoints are within tolerance distance
-        """
-        if waypoint1 is None or waypoint2 is None:
-            return False
-            
-        try:
-            # Calculate distance between waypoints
-            dx = waypoint1.pose.position.x - waypoint2.pose.position.x
-            dy = waypoint1.pose.position.y - waypoint2.pose.position.y
-            distance = math.sqrt(dx*dx + dy*dy)
-            
-            # Log comparison for debugging
-            self.node.get_logger().debug(
-                f'Comparing waypoints: '
-                f'({waypoint1.pose.position.x:.2f}, {waypoint1.pose.position.y:.2f}) and '
-                f'({waypoint2.pose.position.x:.2f}, {waypoint2.pose.position.y:.2f}), '
-                f'distance={distance:.2f}m'
-            )
-            
-            return distance < tolerance
-            
-        except Exception as e:
-            self.node.get_logger().error(f'Error comparing waypoints: {str(e)}')
-            return False

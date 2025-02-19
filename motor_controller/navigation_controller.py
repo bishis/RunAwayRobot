@@ -14,16 +14,10 @@ from .processors.waypoint_generator import WaypointGenerator
 from std_msgs.msg import Bool
 from .processors.human_avoidance_controller import HumanAvoidanceController
 from std_srvs.srv import Empty
-from tf2_ros import Buffer, TransformListener
 
 class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
-        
-        # Add at the beginning of __init__
-        # TF buffer and listener for robot pose
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
         
         # Parameters
         self.declare_parameter('robot_radius', 0.16)
@@ -169,13 +163,19 @@ class NavigationController(Node):
             
         try:
             if not self.nav2_ready:
-                return  
-            
+                return
+
             if not self.is_navigating:
                 waypoint = self.waypoint_generator.generate_waypoint()
                 if waypoint:
-                    if self.previous_waypoint and self.waypoint_generator.is_same_waypoint(waypoint, self.previous_waypoint) and self.previous_robot_pose.pose.position.x == waypoint.pose.position.x and self.previous_robot_pose.pose.position.y == waypoint.pose.position.y:
-                        self.get_logger().warn('ahmed .. Generated waypoint is the same as the previous one, skipping')
+                    if self.previous_waypoint and self.waypoint_generator.is_same_waypoint(waypoint, self.previous_waypoint):
+                        self.get_logger().warn('Generated waypoint is the same as the previous one, skipping')
+                        self.waypoint_generator.force_waypoint_change()
+                        self.previous_waypoint_count += 1
+                        if self.previous_waypoint_count > 3:
+                            self.get_logger().warn('Too many consecutive same waypoints, resetting navigation')
+                            self.reset_navigation_state()
+                        return
                     elif self.current_map and not self.waypoint_generator.is_near_wall(
                         waypoint.pose.position.x,
                         waypoint.pose.position.y,
@@ -187,13 +187,11 @@ class NavigationController(Node):
                         self.current_map.info.origin.position.x,
                         self.current_map.info.origin.position.y
                     ):
+                        self.previous_waypoint = waypoint
                         self.send_goal(waypoint)
                         # Green for exploration
                         markers = self.waypoint_generator.create_visualization_markers(waypoint, is_escape=False)
                         self.marker_pub.publish(markers)
-                        self.previous_waypoint = waypoint
-                        self.previous_robot_pose = self.get_robot_pose()
-                        self.previous_waypoint_count = 0
                     else:
                         self.previous_waypoint = waypoint
                         self.get_logger().warn('Generated waypoint too close to wall, skipping')
@@ -566,35 +564,6 @@ class NavigationController(Node):
     def is_escape_waypoint(self, waypoint):
         """Check if waypoint is an escape waypoint"""
         return waypoint is not None and waypoint.header.stamp.nanosec == 1
-
-    def get_robot_pose(self) -> PoseStamped:
-        """Get current robot pose in map frame"""
-        try:
-            # Get transform from map to base_link
-            transform = self.tf_buffer.lookup_transform(
-                'map',
-                'base_link',
-                rclpy.time.Time()
-            )
-            
-            # Convert transform to PoseStamped
-            pose = PoseStamped()
-            pose.header.frame_id = 'map'
-            pose.header.stamp = self.get_clock().now().to_msg()
-            
-            # Set position from transform
-            pose.pose.position.x = transform.transform.translation.x
-            pose.pose.position.y = transform.transform.translation.y
-            pose.pose.position.z = transform.transform.translation.z
-            
-            # Set orientation from transform
-            pose.pose.orientation = transform.transform.rotation
-            
-            return pose
-            
-        except Exception as e:
-            self.get_logger().error(f'Failed to get robot pose: {str(e)}')
-            return None
 
 def main(args=None):
     rclpy.init(args=args)

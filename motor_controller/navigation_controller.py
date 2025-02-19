@@ -154,12 +154,19 @@ class NavigationController(Node):
             self.get_logger().warn(f'Error checking Nav2 readiness: {str(e)}')
 
     def exploration_loop(self):
-        """Modified exploration loop to handle human tracking"""
+        """Modified exploration loop to handle human tracking and map completion"""
         if self.is_tracking_human:
             return
             
         try:
             if not self.nav2_ready:
+                return
+
+            # Check if map is complete
+            if self.waypoint_generator.is_map_complete():
+                self.get_logger().info(' Ahmed ahmed Map exploration complete!')
+                # Optional: Stop the exploration loop
+                # self.create_timer(1.0, self.exploration_loop).cancel()
                 return
 
             if not self.is_navigating:

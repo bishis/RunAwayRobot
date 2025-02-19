@@ -708,3 +708,57 @@ class WaypointGenerator:
         )
         
         return waypoint
+
+    def is_map_complete(self) -> bool:
+        """
+        Check if the map is sufficiently complete.
+        Returns True if most of the accessible area has been mapped.
+        """
+        if self.current_map is None:
+            return False
+            
+        try:
+            # Convert map to numpy array
+            map_data = np.array(self.current_map.data).reshape(
+                self.current_map.info.height,
+                self.current_map.info.width
+            )
+            
+            # Count cells in different states
+            total_cells = map_data.size
+            unknown_cells = np.sum(map_data == -1)  # Unknown space
+            occupied_cells = np.sum(map_data > 50)   # Walls/obstacles
+            free_cells = np.sum((map_data >= 0) & (map_data <= 50))  # Free space
+            
+            # Calculate exploration ratio
+            explored_cells = free_cells + occupied_cells
+            exploration_ratio = explored_cells / total_cells
+            
+            # Calculate the rate of change in exploration
+            if hasattr(self, 'last_explored_ratio'):
+                change_rate = abs(exploration_ratio - self.last_explored_ratio)
+                self.last_explored_ratio = exploration_ratio
+                
+                # If exploration has stagnated and we've explored enough
+                if change_rate < 0.01 and exploration_ratio > 0.85:
+                    self.node.get_logger().info(
+                        f'Map complete: {exploration_ratio:.1%} explored, '
+                        f'change rate: {change_rate:.3f}'
+                    )
+                    return True
+            else:
+                self.last_explored_ratio = exploration_ratio
+            
+            # Log exploration progress
+            self.node.get_logger().debug(
+                f'Map exploration: {exploration_ratio:.1%} '
+                f'(Free: {free_cells/total_cells:.1%}, '
+                f'Occupied: {occupied_cells/total_cells:.1%}, '
+                f'Unknown: {unknown_cells/total_cells:.1%})'
+            )
+            
+            return False
+            
+        except Exception as e:
+            self.node.get_logger().error(f'Error checking map completion: {str(e)}')
+            return False

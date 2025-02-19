@@ -71,7 +71,8 @@ class NavigationController(Node):
         self.goal_start_time = None
         self.consecutive_failures = 0
         self.max_consecutive_failures = 3
-        
+        self.previous_waypoint = None
+
         # Add state for Nav2 readiness
         self.nav2_ready = False
         self.nav2_check_timer = self.create_timer(1.0, self.check_nav2_ready)

@@ -71,9 +71,6 @@ class NavigationController(Node):
         self.goal_start_time = None
         self.consecutive_failures = 0
         self.max_consecutive_failures = 3
-        self.previous_waypoint = None
-        self.previous_robot_pose = None
-        self.previous_waypoint_count = 0
         
         # Add state for Nav2 readiness
         self.nav2_ready = False

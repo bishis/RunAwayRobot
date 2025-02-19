@@ -566,15 +566,7 @@ class WaypointGenerator:
         pass
 
     def get_furthest_waypoint(self):
-        """Generate a waypoint at the furthest reachable point from current position
-        This is used to escape from trapped situations
-        Not for Exploration only for Escape
-        """
-        # Don't generate new waypoint if we just reached one
-        if self.reached_waypoint:
-            self.reached_waypoint = False  # Reset flag
-            return None
-            
+        """Generate a waypoint at the furthest reachable point from current position"""
         if self.current_map is None:
             self.node.get_logger().warn('No map available for escape planning')
             return None

@@ -71,8 +71,6 @@ class NavigationController(Node):
         self.goal_start_time = None
         self.consecutive_failures = 0
         self.max_consecutive_failures = 3
-        self.previous_waypoint = None
-        self.previous_waypoint_count = 0
         
         # Add state for Nav2 readiness
         self.nav2_ready = False
@@ -174,15 +172,7 @@ class NavigationController(Node):
             if not self.is_navigating:
                 waypoint = self.waypoint_generator.generate_waypoint()
                 if waypoint:
-                    if self.previous_waypoint and self.waypoint_generator.is_same_waypoint(waypoint, self.previous_waypoint):
-                        self.get_logger().warn('Generated waypoint is the same as the previous one, skipping')
-                        self.waypoint_generator.force_waypoint_change()
-                        self.previous_waypoint_count += 1
-                        if self.previous_waypoint_count > 3:
-                            self.get_logger().warn('Too many consecutive same waypoints, resetting navigation')
-                            self.reset_navigation_state()
-                        return
-                    elif self.current_map and not self.waypoint_generator.is_near_wall(
+                    if self.current_map and not self.waypoint_generator.is_near_wall(
                         waypoint.pose.position.x,
                         waypoint.pose.position.y,
                         np.array(self.current_map.data).reshape(
@@ -193,13 +183,11 @@ class NavigationController(Node):
                         self.current_map.info.origin.position.x,
                         self.current_map.info.origin.position.y
                     ):
-                        self.previous_waypoint = waypoint
                         self.send_goal(waypoint)
                         # Green for exploration
                         markers = self.waypoint_generator.create_visualization_markers(waypoint, is_escape=False)
                         self.marker_pub.publish(markers)
                     else:
-                        self.previous_waypoint = waypoint
                         self.get_logger().warn('Generated waypoint too close to wall, skipping')
                         self.waypoint_generator.force_waypoint_change()
         

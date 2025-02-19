@@ -84,15 +84,6 @@ class WaypointGenerator:
         self.last_goal = None
         self.min_goal_distance = 0.3  # Minimum distance between consecutive goals
 
-        # Add map completion detection
-        self.map_completion_threshold = 0.85  # Consider map complete when 85% of accessible area is known
-        self.is_map_complete = False
-        self.origin_pose = PoseStamped()
-        self.origin_pose.header.frame_id = 'map'
-        self.origin_pose.pose.position.x = 0.0
-        self.origin_pose.pose.position.y = 0.0
-        self.origin_pose.pose.orientation.w = 1.0
-
     def map_callback(self, msg):
         """Process incoming map updates"""
         map_changed = False
@@ -563,49 +554,6 @@ class WaypointGenerator:
         # Implement the logic to republish updated waypoints
         pass
 
-    def check_map_completion(self, map_data):
-        """Check if the map is mostly complete"""
-        # Get known and free space
-        known_space = (map_data != -1)
-        free_space = (map_data < 50) & known_space
-        
-        # Calculate ratio of known to accessible space
-        total_accessible = np.sum(free_space)
-        total_known = np.sum(known_space)
-        
-        if total_accessible > 0:
-            completion_ratio = total_known / total_accessible
-            self.is_map_complete = completion_ratio > self.map_completion_threshold
-            if self.is_map_complete:
-                self.node.get_logger().info(
-                    f'Map appears complete (known/accessible ratio: {completion_ratio:.2f})'
-                )
-        return self.is_map_complete
-
-    def get_random_waypoint(self, robot_x, robot_y, min_x, max_x, min_y, max_y):
-        """Generate random waypoint in known free space"""
-        waypoint = PoseStamped()
-        waypoint.header.frame_id = 'map'
-        waypoint.header.stamp = self.node.get_clock().now().to_msg()
-        
-        # Randomly choose between origin and random point
-        if np.random.random() < 0.3:  # 30% chance to return to origin
-            self.node.get_logger().info('Returning to origin')
-            return self.origin_pose
-            
-        # Generate random position
-        waypoint.pose.position.x = np.random.uniform(min_x, max_x)
-        waypoint.pose.position.y = np.random.uniform(min_y, max_y)
-        
-        # Face away from robot
-        dx = waypoint.pose.position.x - robot_x
-        dy = waypoint.pose.position.y - robot_y
-        yaw = math.atan2(dy, dx)
-        waypoint.pose.orientation.z = math.sin(yaw / 2.0)
-        waypoint.pose.orientation.w = math.cos(yaw / 2.0)
-        
-        return waypoint
-
     def get_furthest_waypoint(self):
         """Generate a waypoint at the furthest reachable point from current position"""
         # Don't generate new waypoint if we just reached one
@@ -665,15 +613,6 @@ class WaypointGenerator:
             f'Map bounds: x=[{min_x:.2f}, {max_x:.2f}], y=[{min_y:.2f}, {max_y:.2f}]'
         )
         
-        # Check if map is complete
-        if self.check_map_completion(map_data):
-            self.node.get_logger().info('Map complete - switching to random waypoints')
-            return self.get_random_waypoint(
-                robot_x, robot_y,
-                min_x, max_x,
-                min_y, max_y
-            )
-            
         # Calculate distance transform from walls
         wall_distance = distance_transform_edt(map_data < 50) * resolution
         

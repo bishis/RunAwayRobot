@@ -277,6 +277,9 @@ class WaypointGenerator:
         """Get next waypoint, either existing or new"""
         current_time = self.node.get_clock().now()
         
+        # Add minimum distance between waypoints
+        MIN_WAYPOINT_SEPARATION = 0.4  # Minimum 0.4 meter between waypoints
+        
         # Check if minimum time has elapsed since last change
         if self.last_waypoint_change and not self.force_new_waypoint:
             time_since_change = (current_time - self.last_waypoint_change).nanoseconds / 1e9
@@ -368,35 +371,43 @@ class WaypointGenerator:
             x = origin_x + map_x * resolution
             y = origin_y + map_y * resolution
             
-            # Calculate scores with additional stability factors
+            # Calculate scores with additional distance check
             dist_to_robot = math.sqrt((map_x - robot_grid_x)**2 + (map_y - robot_grid_y)**2) * resolution
-            if dist_to_robot < self.min_distance:
+            
+            # Check minimum distance from previous waypoint
+            too_close_to_previous = False
+            if self.last_goal is not None:
+                prev_x = self.last_goal.pose.position.x
+                prev_y = self.last_goal.pose.position.y
+                dist_to_prev = math.sqrt(
+                    (x - prev_x)**2 + (y - prev_y)**2
+                )
+                if dist_to_prev < MIN_WAYPOINT_SEPARATION:
+                    too_close_to_previous = True
+                    continue  # Skip this point if too close to previous
+            
+            if dist_to_robot < self.min_distance or too_close_to_previous:
                 continue
             
-            # Score based on:
-            # 1. Distance to unknown areas (prefer closer to unknown)
+            # Score calculation with previous waypoint distance factor
             unknown_score = 1.0 / (unknown_distance[map_y, map_x] + 0.1)
-            
-            # 2. Distance from walls (prefer points away from walls)
             wall_score = min(wall_distance[map_y, map_x], 2.0) / 2.0
-            
-            # 3. Appropriate distance from robot
             distance_score = 1.0 - abs(dist_to_robot - self.preferred_distance) / self.preferred_distance
             
-            # 4. Stability score (prefer points similar to current waypoint if it exists)
-            stability_score = 0.0
-            if self.current_waypoint:
-                current_x = self.current_waypoint.pose.position.x
-                current_y = self.current_waypoint.pose.position.y
-                dist_to_current = math.sqrt((x - current_x)**2 + (y - current_y)**2)
-                stability_score = 1.0 / (1.0 + dist_to_current)
+            # Add separation score
+            separation_score = 1.0
+            if self.last_goal is not None:
+                dist_to_prev = math.sqrt(
+                    (x - prev_x)**2 + (y - prev_y)**2
+                )
+                separation_score = min(dist_to_prev / MIN_WAYPOINT_SEPARATION, 2.0)
             
-            # Combine scores with weights
+            # Updated score calculation
             total_score = (
-                3.0 * unknown_score +    # Prioritize exploring unknown areas
-                2.0 * wall_score +       # Prefer staying away from walls
-                1.0 * distance_score +   # Consider distance from robot
-                2.0 * stability_score    # Add stability preference
+                3.0 * unknown_score +     # Prioritize exploring unknown areas
+                2.0 * wall_score +         # Prefer staying away from walls
+                1.0 * distance_score +     # Consider distance from robot
+                2.0 * separation_score     # Prefer points far from previous waypoint
             )
             
             # Only accept new waypoint if score is significantly better
@@ -555,7 +566,10 @@ class WaypointGenerator:
         pass
 
     def get_furthest_waypoint(self):
-        """Generate a waypoint at the furthest reachable point from current position"""
+        """Generate a waypoint at the furthest reachable point from current position
+        This is used to escape from trapped situations
+        Not for Exploration only for Escape
+        """
         # Don't generate new waypoint if we just reached one
         if self.reached_waypoint:
             self.reached_waypoint = False  # Reset flag

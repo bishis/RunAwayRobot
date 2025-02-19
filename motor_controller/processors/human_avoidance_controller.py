@@ -45,7 +45,6 @@ class HumanAvoidanceController:
         # Add forward motion control
         self.forward_motion_start = 0.0
         self.forward_motion_duration = 0.5  # Forward motion duration in seconds
-        self.is_moving_forward = False
 
     def calculate_turn_command(self, image_x: float) -> float:
         """Calculate turn speed to face human."""
@@ -75,16 +74,6 @@ class HumanAvoidanceController:
         cmd = Twist()
         needs_escape = False
         
-        # Check if we're in forward motion mode
-        if self.is_moving_forward:
-            if time.time() - self.forward_motion_start < self.forward_motion_duration:
-                cmd.linear.x = 0.1
-                self.node.get_logger().info('Continuing forward motion')
-                return cmd, True
-            else:
-                self.is_moving_forward = False
-                self.node.get_logger().info('Forward motion complete - stopping')
-                return Twist(), True
         
         # Check rear 140° arc of robot using LIDAR
         if self.latest_scan is not None:
@@ -126,22 +115,6 @@ class HumanAvoidanceController:
                 # Check if we need to escape
                 if rear_distance < self.critical_distance:
                     needs_escape = True
-                    if rear_distance < 0.2:  # 20cm safety threshold
-                        self.node.get_logger().warn(
-                            f'Obstacle too close behind ({rear_distance:.2f}m) at '
-                            f'{math.degrees(closest_angle):.1f}°, starting forward motion'
-                        )
-                        # Start forward motion timer
-                        self.is_moving_forward = True
-                        self.forward_motion_start = time.time()
-                        
-                        # Adjust forward motion direction based on obstacle angle
-                        if closest_angle > math.pi:  # Obstacle on left side
-                            cmd.angular.z = -0.2  # Turn slightly right
-                        else:  # Obstacle on right side
-                            cmd.angular.z = 0.2   # Turn slightly left
-                            
-                        cmd.linear.x = 0.1
                     return cmd, needs_escape
         
         # Handle turning to face human

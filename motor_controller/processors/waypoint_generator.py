@@ -206,6 +206,10 @@ class WaypointGenerator:
             if reached:
                 self.node.get_logger().info(f'Reached waypoint (distance: {distance:.2f}m)')
                 self.reached_waypoint = True
+                # Force new waypoint when current one is reached
+                self.force_waypoint_change()
+                # Clear current waypoint to prevent re-sending
+                self.current_waypoint = None
             
             return reached
             
@@ -552,6 +556,11 @@ class WaypointGenerator:
 
     def get_furthest_waypoint(self):
         """Generate a waypoint at the furthest reachable point from current position"""
+        # Don't generate new waypoint if we just reached one
+        if self.reached_waypoint:
+            self.reached_waypoint = False  # Reset flag
+            return None
+            
         if self.current_map is None:
             self.node.get_logger().warn('No map available for escape planning')
             return None

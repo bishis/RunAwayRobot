@@ -71,9 +71,11 @@ controller_server:
     # Much looser goal tolerances
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.3
-      yaw_goal_tolerance: 0.5
-      stateful: true
+      xy_goal_tolerance: 0.5     # Increase from 0.3
+      yaw_goal_tolerance: 3.14   # 180 degrees
+      stateful: false            # Don't require stopping at goal
+      trans_stopped_velocity: 0.25  # Allow higher velocity at goal
+      theta_stopped_velocity: 0.25  # Allow higher rotation at goal
 
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
@@ -87,13 +89,13 @@ controller_server:
       max_vel_x: 0.08
       
       # Reduce path following strictness
-      path_distance_bias: 8.0       # Much lower - care less about exact path
+      path_distance_bias: 8.0       # Care less about exact path
       goal_distance_bias: 24.0      # Focus more on goal
       goal_align_bias: 4.0         # Much lower alignment priority
       
       # Very forgiving tolerances
-      xy_goal_tolerance: 0.5
-      yaw_goal_tolerance: 1.57      # About 90 degrees - much more forgiving
+      xy_goal_tolerance: 0.5       # Match goal checker
+      yaw_goal_tolerance: 1.57     # Match goal checker
       
       # Critics - reduce path alignment importance
       critics: ["Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "GoalDist"]

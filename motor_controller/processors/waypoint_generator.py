@@ -84,6 +84,12 @@ class WaypointGenerator:
         self.last_goal = None
         self.min_goal_distance = 0.3  # Minimum distance between consecutive goals
 
+        # Add map completion tracking
+        self.repeated_waypoint_count = 0
+        self.max_repeated_waypoints = 3  # Switch modes after this many repeats
+        self.is_exploring = False  # Track if we're in exploration mode
+        self.min_map_coverage = 0.85  # Consider map complete at 85% coverage
+
     def map_callback(self, msg):
         """Process incoming map updates"""
         map_changed = False
@@ -556,14 +562,19 @@ class WaypointGenerator:
 
     def get_furthest_waypoint(self):
         """Generate a waypoint at the furthest reachable point from current position"""
-        # Don't generate new waypoint if we just reached one
         if self.reached_waypoint:
-            self.reached_waypoint = False  # Reset flag
+            self.reached_waypoint = False
             return None
             
         if self.current_map is None:
             self.node.get_logger().warn('No map available for escape planning')
             return None
+            
+        # Check if we should switch to exploration mode
+        if self.check_map_completion() and self.repeated_waypoint_count >= self.max_repeated_waypoints:
+            self.is_exploring = True
+            self.node.get_logger().info('Switching to exploration mode - map appears complete')
+            return self.get_exploration_waypoint()
             
         try:
             # Get current robot position
@@ -708,3 +719,78 @@ class WaypointGenerator:
         )
         
         return waypoint
+
+    def check_map_completion(self):
+        """Check if the map appears to be complete"""
+        if self.current_map is None:
+            return False
+            
+        map_data = np.array(self.current_map.data)
+        known_cells = np.sum(map_data != -1)  # Count non-unknown cells
+        total_cells = len(map_data)
+        coverage = known_cells / total_cells
+        
+        self.node.get_logger().info(f'Map coverage: {coverage:.2%}')
+        return coverage > self.min_map_coverage
+
+    def get_exploration_waypoint(self):
+        """Generate random exploration waypoint in known free space"""
+        if self.current_map is None:
+            return None
+            
+        map_data = np.array(self.current_map.data).reshape(
+            self.current_map.info.height,
+            self.current_map.info.width
+        )
+        
+        # Get current robot position
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            robot_x = transform.transform.translation.x
+            robot_y = transform.transform.translation.y
+        except Exception:
+            return None
+            
+        resolution = self.current_map.info.resolution
+        origin_x = self.current_map.info.origin.position.x
+        origin_y = self.current_map.info.origin.position.y
+        
+        # Find free space cells
+        free_space = (map_data < 50) & (map_data != -1)  # Not occupied and not unknown
+        y_indices, x_indices = np.where(free_space)
+        
+        if len(x_indices) == 0:
+            return None
+            
+        # Try to find a point far enough from robot
+        for _ in range(50):  # Try 50 times
+            # Pick random free cell
+            idx = np.random.randint(len(x_indices))
+            world_x = origin_x + (x_indices[idx] * resolution)
+            world_y = origin_y + (y_indices[idx] * resolution)
+            
+            # Check distance from robot
+            dist = math.sqrt((world_x - robot_x)**2 + (world_y - robot_y)**2)
+            if dist > self.min_distance:
+                waypoint = PoseStamped()
+                waypoint.header.frame_id = 'map'
+                waypoint.header.stamp = self.node.get_clock().now().to_msg()
+                waypoint.pose.position.x = world_x
+                waypoint.pose.position.y = world_y
+                
+                # Random orientation
+                yaw = np.random.uniform(-math.pi, math.pi)
+                waypoint.pose.orientation.z = math.sin(yaw / 2.0)
+                waypoint.pose.orientation.w = math.cos(yaw / 2.0)
+                
+                self.last_goal = waypoint
+                self.node.get_logger().info(
+                    f'Generated exploration waypoint at ({world_x:.2f}, {world_y:.2f})'
+                )
+                return waypoint
+                
+        return None

@@ -150,12 +150,19 @@ class HumanAvoidanceController:
         
     def plan_escape(self):
         """Plan escape route when human is too close"""
-        # Use dedicated escape planner instead of regular waypoint generator
+        self.node.get_logger().info('Planning escape route...')
+        
+        # Ensure we have current map data
+        if not self.escape_planner.current_map:
+            self.node.get_logger().error('No map data available for escape planning!')
+            return None
+        
+        # Use dedicated escape planner
         escape_point = self.escape_planner.get_furthest_waypoint()
         
         if escape_point is not None:
-            self.node.get_logger().warn(
-                f'Planning escape to ({escape_point.pose.position.x:.2f}, '
+            self.node.get_logger().info(
+                f'Found escape point at ({escape_point.pose.position.x:.2f}, '
                 f'{escape_point.pose.position.y:.2f})'
             )
             return escape_point

@@ -4,6 +4,7 @@ import numpy as np
 import math
 from scipy.ndimage import distance_transform_edt
 from .waypoint_generator import WaypointGenerator
+import rclpy
 
 class HumanEscape(WaypointGenerator):
     """Specialized waypoint generator for escaping from humans"""
@@ -18,7 +19,7 @@ class HumanEscape(WaypointGenerator):
     def get_furthest_waypoint(self):
         """Generate a waypoint at the furthest reachable point from current position"""
         if self.current_map is None:
-            self.node.get_logger().warn('No map available for escape planning')
+            self.node.get_logger().error('No map available for escape planning')
             return None
             
         try:
@@ -31,114 +32,126 @@ class HumanEscape(WaypointGenerator):
             robot_x = transform.transform.translation.x
             robot_y = transform.transform.translation.y
             
-            self.node.get_logger().info(f'Robot position: ({robot_x:.2f}, {robot_y:.2f})')
+            self.node.get_logger().info(
+                f'Planning escape from position: ({robot_x:.2f}, {robot_y:.2f})'
+            )
             
+            # Debug map state
+            map_data = np.array(self.current_map.data).reshape(
+                self.current_map.info.height,
+                self.current_map.info.width
+            )
+            
+            free_cells = np.sum(map_data < 50)
+            self.node.get_logger().info(
+                f'Map status: {free_cells} free cells available for escape'
+            )
+            
+            resolution = self.current_map.info.resolution
+            origin_x = self.current_map.info.origin.position.x
+            origin_y = self.current_map.info.origin.position.y
+            
+            # Calculate distance transform from walls
+            wall_distance = distance_transform_edt(map_data < 50) * resolution
+            
+            valid_points = []
+            max_attempts = 200
+            min_wall_distance = self.safety_margin * 1.5
+            
+            # Convert robot position to grid coordinates
+            robot_grid_x = int((robot_x - origin_x) / resolution)
+            robot_grid_y = int((robot_y - origin_y) / resolution)
+            
+            # Search in expanding circles for escape points
+            for radius in np.linspace(self.min_escape_distance, self.escape_search_radius, 10):
+                angles = np.linspace(0, 2*np.pi, 16)  # Test 16 directions at each radius
+                
+                for angle in angles:
+                    # Calculate potential escape point
+                    world_x = robot_x + radius * np.cos(angle)
+                    world_y = robot_y + radius * np.sin(angle)
+                    
+                    # Convert to map coordinates
+                    map_x = int((world_x - origin_x) / resolution)
+                    map_y = int((world_y - origin_y) / resolution)
+                    
+                    # Validate point
+                    if (map_x < 0 or map_x >= map_data.shape[1] or 
+                        map_y < 0 or map_y >= map_data.shape[0] or
+                        map_data[map_y, map_x] == -1):  # Unknown space
+                        continue
+                    
+                    # Check if point is in free space and away from walls
+                    if map_data[map_y, map_x] >= 50:  # Occupied
+                        continue
+                        
+                    if wall_distance[map_y, map_x] <= min_wall_distance:  # Too close to walls
+                        continue
+                    
+                    # Check if point is reachable
+                    if not self.is_connected_to_robot(map_x, map_y, robot_grid_x, robot_grid_y, map_data):
+                        continue
+                    
+                    # Calculate score based on:
+                    # 1. Distance from robot (prefer points at desired escape distance)
+                    dist_score = 1.0 - abs(radius - self.escape_distance) / self.escape_distance
+                    
+                    # 2. Distance from walls
+                    wall_score = min(wall_distance[map_y, map_x], 2.0) / 2.0
+                    
+                    # 3. Clear path score (prefer points with clear paths)
+                    path_score = self.calculate_path_clearance(
+                        robot_grid_x, robot_grid_y, map_x, map_y, map_data
+                    )
+                    
+                    total_score = (
+                        2.0 * dist_score +    # Prioritize good escape distance
+                        1.5 * wall_score +    # Prefer points away from walls
+                        1.0 * path_score      # Consider path clearance
+                    )
+                    
+                    valid_points.append((world_x, world_y, radius, total_score))
+            
+            if not valid_points:
+                self.node.get_logger().error('No valid escape points found!')
+                return None
+            
+            # Take the point with highest score
+            best_point = max(valid_points, key=lambda p: p[3])
+            
+            # Create waypoint message
+            waypoint = PoseStamped()
+            waypoint.header.frame_id = 'map'
+            waypoint.header.stamp = self.node.get_clock().now().to_msg()
+            waypoint.pose.position.x = best_point[0]
+            waypoint.pose.position.y = best_point[1]
+            
+            # Face away from robot
+            dx = waypoint.pose.position.x - robot_x
+            dy = waypoint.pose.position.y - robot_y
+            yaw = math.atan2(dy, dx)
+            waypoint.pose.orientation.z = math.sin(yaw / 2.0)
+            waypoint.pose.orientation.w = math.cos(yaw / 2.0)
+            
+            # Mark this as an escape waypoint
+            waypoint.header.stamp.nanosec = 1  # Special flag for escape waypoints
+            
+            self.node.get_logger().warn(
+                f'Generated escape waypoint at ({waypoint.pose.position.x:.2f}, '
+                f'{waypoint.pose.position.y:.2f}), '
+                f'{best_point[2]:.2f}m from robot'
+            )
+            
+            if valid_points:
+                self.node.get_logger().info(
+                    f'Found {len(valid_points)} valid escape points'
+                )
+            
+            return waypoint
+        
         except Exception as e:
             self.node.get_logger().warn(f'Could not get robot position: {e}')
             return None
-            
-        # Convert map to numpy array
-        map_data = np.array(self.current_map.data).reshape(
-            self.current_map.info.height,
-            self.current_map.info.width
-        )
-        
-        resolution = self.current_map.info.resolution
-        origin_x = self.current_map.info.origin.position.x
-        origin_y = self.current_map.info.origin.position.y
-        
-        # Calculate distance transform from walls
-        wall_distance = distance_transform_edt(map_data < 50) * resolution
-        
-        valid_points = []
-        max_attempts = 200
-        min_wall_distance = self.safety_margin * 1.5
-        
-        # Convert robot position to grid coordinates
-        robot_grid_x = int((robot_x - origin_x) / resolution)
-        robot_grid_y = int((robot_y - origin_y) / resolution)
-        
-        # Search in expanding circles for escape points
-        for radius in np.linspace(self.min_escape_distance, self.escape_search_radius, 10):
-            angles = np.linspace(0, 2*np.pi, 16)  # Test 16 directions at each radius
-            
-            for angle in angles:
-                # Calculate potential escape point
-                world_x = robot_x + radius * np.cos(angle)
-                world_y = robot_y + radius * np.sin(angle)
-                
-                # Convert to map coordinates
-                map_x = int((world_x - origin_x) / resolution)
-                map_y = int((world_y - origin_y) / resolution)
-                
-                # Validate point
-                if (map_x < 0 or map_x >= map_data.shape[1] or 
-                    map_y < 0 or map_y >= map_data.shape[0] or
-                    map_data[map_y, map_x] == -1):  # Unknown space
-                    continue
-                
-                # Check if point is in free space and away from walls
-                if map_data[map_y, map_x] >= 50:  # Occupied
-                    continue
-                    
-                if wall_distance[map_y, map_x] <= min_wall_distance:  # Too close to walls
-                    continue
-                
-                # Check if point is reachable
-                if not self.is_connected_to_robot(map_x, map_y, robot_grid_x, robot_grid_y, map_data):
-                    continue
-                
-                # Calculate score based on:
-                # 1. Distance from robot (prefer points at desired escape distance)
-                dist_score = 1.0 - abs(radius - self.escape_distance) / self.escape_distance
-                
-                # 2. Distance from walls
-                wall_score = min(wall_distance[map_y, map_x], 2.0) / 2.0
-                
-                # 3. Clear path score (prefer points with clear paths)
-                path_score = self.calculate_path_clearance(
-                    robot_grid_x, robot_grid_y, map_x, map_y, map_data
-                )
-                
-                total_score = (
-                    2.0 * dist_score +    # Prioritize good escape distance
-                    1.5 * wall_score +    # Prefer points away from walls
-                    1.0 * path_score      # Consider path clearance
-                )
-                
-                valid_points.append((world_x, world_y, radius, total_score))
-        
-        if not valid_points:
-            self.node.get_logger().error('No valid escape points found!')
-            return None
-            
-        # Take the point with highest score
-        best_point = max(valid_points, key=lambda p: p[3])
-        
-        # Create waypoint message
-        waypoint = PoseStamped()
-        waypoint.header.frame_id = 'map'
-        waypoint.header.stamp = self.node.get_clock().now().to_msg()
-        waypoint.pose.position.x = best_point[0]
-        waypoint.pose.position.y = best_point[1]
-        
-        # Face away from robot
-        dx = waypoint.pose.position.x - robot_x
-        dy = waypoint.pose.position.y - robot_y
-        yaw = math.atan2(dy, dx)
-        waypoint.pose.orientation.z = math.sin(yaw / 2.0)
-        waypoint.pose.orientation.w = math.cos(yaw / 2.0)
-        
-        # Mark this as an escape waypoint
-        waypoint.header.stamp.nanosec = 1  # Special flag for escape waypoints
-        
-        self.node.get_logger().warn(
-            f'Generated escape waypoint at ({waypoint.pose.position.x:.2f}, '
-            f'{waypoint.pose.position.y:.2f}), '
-            f'{best_point[2]:.2f}m from robot'
-        )
-        
-        return waypoint
     
     def calculate_path_clearance(self, start_x, start_y, end_x, end_y, map_data):
         """Calculate average clearance along path between points"""

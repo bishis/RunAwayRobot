@@ -482,12 +482,21 @@ class NavigationController(Node):
                         # Mark human position in costmap
                         self.mark_human_position()
                         
+                        # Add debug logging
+                        self.get_logger().info('Requesting escape point from planner...')
                         escape_point = self.human_avoidance.plan_escape()
+                        
                         if escape_point is not None:
+                            self.get_logger().info(
+                                f'Got escape point at ({escape_point.pose.position.x:.2f}, '
+                                f'{escape_point.pose.position.y:.2f})'
+                            )
                             # Force tracking off BEFORE sending escape goal
                             self.is_tracking_human = False
                             self.send_goal(escape_point)
-                            return  # Exit immediately after sending escape goal
+                            return
+                        else:
+                            self.get_logger().error('Failed to get escape point!')
                     
                 self.get_logger().info(
                     f'Human tracking: dist={human_distance:.2f}m, '

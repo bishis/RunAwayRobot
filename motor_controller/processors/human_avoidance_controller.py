@@ -73,13 +73,16 @@ class HumanAvoidanceController:
         self.is_turning = True
         return turn_speed
 
-    def get_avoidance_command(self, human_distance, human_angle, image_x=None):
-        cmd = Twist()
-        needs_escape = False
+    def check_rear_safety(self) -> tuple[bool, float]:
+        """
+        Check if there's a critical distance behind the robot.
+        Returns (is_safe, min_distance)
+        """
+        if self.latest_scan is None:
+            self.node.get_logger().warn('No scan data available for rear monitoring')
+            return True, float('inf')  # Assume safe if no data
         
-        
-        # Check rear 140° arc of robot using LIDAR
-        if self.latest_scan is not None:
+        try:
             # Define rear arc from 110° to 250° for 140° total coverage
             rear_start_angle = 100 * math.pi/180  # 110 degrees
             rear_end_angle = 240 * math.pi/180    # 250 degrees
@@ -117,8 +120,25 @@ class HumanAvoidanceController:
                 
                 # Check if we need to escape
                 if rear_distance < self.critical_distance:
-                    needs_escape = True
-                    return cmd, needs_escape
+                    return False, rear_distance  # Not safe - critical distance detected
+            
+            return True, rear_distance  # Safe - return minimum distance
+        
+        except Exception as e:
+            self.node.get_logger().error(f'Error checking rear safety: {str(e)}')
+            return True, float('inf')  # Assume safe on error
+
+    def get_avoidance_command(self, human_distance, human_angle, image_x=None):
+        """Calculate avoidance command based on human position"""
+        cmd = Twist()
+        
+        # First check rear safety and get distance
+        rear_safe, rear_distance = self.check_rear_safety()
+        if not rear_safe:
+            # Emergency stop if critical rear distance
+            self.node.get_logger().error('EMERGENCY STOP - Critical rear distance!')
+            cmd = Twist()  # Zero velocity command
+            return cmd, True  # Return emergency stop and trigger escape
         
         # Handle turning to face human
         if image_x is not None:
@@ -131,15 +151,28 @@ class HumanAvoidanceController:
                 return cmd, False
             else:
                 # Human is centered - stop turning
-                stop_cmd = Twist()
+                cmd = Twist()
                 
                 # Only allow backup when human is centered
                 if human_distance < self.min_safe_distance:
-                    stop_cmd.linear.x = -self.max_backup_speed
-                    self.node.get_logger().info('Human centered - backing up')
+                    # Calculate backup speed based on rear distance
+                    # Scale from max_backup_speed to 0.02 as we get closer to wall
+                    min_speed = 0.02  # Minimum backup speed
+                    safe_distance = 1.0  # Distance for full speed backup
+                    
+                    # Linear interpolation between min and max speed
+                    speed_ratio = min(1.0, max(0.0, (rear_distance - self.critical_distance) / 
+                                            (safe_distance - self.critical_distance)))
+                    backup_speed = min_speed + (self.max_backup_speed - min_speed) * speed_ratio
+                    
+                    cmd.linear.x = -backup_speed
+                    self.node.get_logger().info(
+                        f'Human centered - backing up at {backup_speed:.2f} m/s '
+                        f'(wall distance: {rear_distance:.2f}m)'
+                    )
                 
-                return stop_cmd, False
-                
+                return cmd, False
+            
         else:  # No human detected
             # Stop all motion
             stop_cmd = Twist()
@@ -147,7 +180,6 @@ class HumanAvoidanceController:
             self.last_image_x = None
             return stop_cmd, False
 
-        
     def plan_escape(self):
         """Plan escape route when human is too close"""
         self.node.get_logger().info('Planning escape route...')
@@ -170,56 +202,4 @@ class HumanAvoidanceController:
             self.node.get_logger().error('Failed to find escape point!')
             return None
 
-    def monitor_rear_distance(self):
-        """Continuously monitor and log distance behind robot"""
-        if self.latest_scan is None:
-            self.node.get_logger().warn('No scan data available for rear monitoring')
-            return
-            
-        # Check rear LIDAR readings
-        rear_angles = [-math.pi, math.pi]  # Check both sides of rear
-        angle_tolerance = math.pi/6  # 30 degree cone behind robot
-        
-        self.node.get_logger().info('=== Rear Distance Monitor ===')
-        
-        min_rear_distance = float('inf')
-        distances = []
-        
-        for angle in rear_angles:
-            start_idx = int((angle - angle_tolerance - self.latest_scan.angle_min) / 
-                          self.latest_scan.angle_increment)
-            end_idx = int((angle + angle_tolerance - self.latest_scan.angle_min) / 
-                         self.latest_scan.angle_increment)
-            
-            # Get all readings (including invalid ones)
-            all_readings = self.latest_scan.ranges[start_idx:end_idx]
-            if len(all_readings) > 0:
-                self.node.get_logger().info(
-                    f'Raw readings at {math.degrees(angle):.1f}°: '
-                    f'min={min(all_readings):.2f}m, max={max(all_readings):.2f}m'
-                )
-            
-            # Get valid readings in rear arc
-            rear_readings = [r for r in all_readings
-                           if self.latest_scan.range_min <= r <= self.latest_scan.range_max]
-            
-            if rear_readings:
-                arc_min_distance = min(rear_readings)
-                distances.append(arc_min_distance)
-                min_rear_distance = min(min_rear_distance, arc_min_distance)
-                self.node.get_logger().info(
-                    f'Valid distance at {math.degrees(angle):.1f}°: {arc_min_distance:.2f}m'
-                )
-            else:
-                self.node.get_logger().warn(
-                    f'No valid readings at {math.degrees(angle):.1f}°'
-                )
-        
-        if distances:
-            self.node.get_logger().info(
-                f'Minimum wall distance behind robot: {min_rear_distance:.2f}m'
-            )
-        else:
-            self.node.get_logger().warn('No valid distances behind robot!')
-        
-        self.node.get_logger().info('===========================') 
+

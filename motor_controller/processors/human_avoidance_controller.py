@@ -135,18 +135,10 @@ class HumanAvoidanceController:
         # First check rear safety and get distance
         rear_safe, rear_distance = self.check_rear_safety()
         if not rear_safe:
-            # If we hit critical rear distance, we need to move forward slightly
+            # Emergency stop if critical rear distance
             self.node.get_logger().error('EMERGENCY STOP - Critical rear distance!')
-            
-            # Create small forward motion to get away from wall
-            cmd = Twist()
-            cmd.linear.x = 0.05  # Very slow forward motion
-            self.node.get_logger().warn('Moving forward slightly to clear wall...')
-            
-            # Only trigger escape if we're also too close to human
-            if human_distance < self.critical_distance:
-                return cmd, True  # Return forward motion and trigger escape
-            return cmd, True  # Just return forward motion
+            cmd = Twist()  # Zero velocity command
+            return cmd, True  # Return emergency stop and trigger escape
         
         # Handle turning to face human
         if image_x is not None:
@@ -161,9 +153,10 @@ class HumanAvoidanceController:
                 # Human is centered - stop turning
                 cmd = Twist()
                 
-                # Only allow backup when human is centered and we have room
-                if human_distance < self.min_safe_distance and rear_distance > self.critical_distance:
+                # Only allow backup when human is centered
+                if human_distance < self.min_safe_distance:
                     # Calculate backup speed based on rear distance
+                    # Scale from max_backup_speed to 0.02 as we get closer to wall
                     min_speed = 0.02  # Minimum backup speed
                     safe_distance = 1.0  # Distance for full speed backup
                     

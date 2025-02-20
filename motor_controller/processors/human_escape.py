@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Marker, MarkerArray
 import numpy as np
 import math
 from scipy.ndimage import distance_transform_edt
@@ -18,6 +18,9 @@ class HumanEscape(WaypointGenerator):
         
     def get_furthest_waypoint(self):
         """Generate a waypoint at the furthest reachable point from current position"""
+        # Clear existing waypoints first
+        self.clear_visualization()  # Clear any existing waypoint markers
+        
         if self.current_map is None:
             self.node.get_logger().error('No map available for escape planning')
             return None
@@ -134,6 +137,10 @@ class HumanEscape(WaypointGenerator):
             # Mark this as an escape waypoint
             waypoint.header.stamp.nanosec = 1  # Special flag for escape waypoints
             
+            # Create red visualization for escape waypoint
+            markers = self.create_visualization_markers(waypoint, is_escape=True)
+            self.node.marker_pub.publish(markers)
+            
             self.node.get_logger().warn(
                 f'Generated escape waypoint at ({waypoint.pose.position.x:.2f}, '
                 f'{waypoint.pose.position.y:.2f}), '
@@ -202,3 +209,47 @@ class HumanEscape(WaypointGenerator):
                 
         cells.append((x, y))
         return cells
+
+    def clear_visualization(self):
+        """Clear all visualization markers"""
+        empty_markers = MarkerArray()
+        marker = Marker()
+        marker.header.frame_id = 'map'
+        marker.header.stamp = self.node.get_clock().now().to_msg()
+        marker.ns = 'waypoints'
+        marker.id = 0
+        marker.action = Marker.DELETE
+        empty_markers.markers.append(marker)
+        self.node.marker_pub.publish(empty_markers)
+
+    def create_visualization_markers(self, waypoint, is_escape=False):
+        """Create visualization markers for waypoint"""
+        markers = MarkerArray()
+        
+        # Waypoint marker
+        marker = Marker()
+        marker.header.frame_id = 'map'
+        marker.header.stamp = self.node.get_clock().now().to_msg()
+        marker.ns = 'waypoints'
+        marker.id = 0
+        marker.type = Marker.SPHERE
+        marker.action = Marker.ADD
+        
+        marker.pose = waypoint.pose
+        marker.scale.x = 0.3
+        marker.scale.y = 0.3
+        marker.scale.z = 0.3
+        
+        # Red color for escape waypoints
+        if is_escape:
+            marker.color.r = 1.0
+            marker.color.g = 0.0
+            marker.color.b = 0.0
+        else:
+            marker.color.r = 0.0
+            marker.color.g = 1.0
+            marker.color.b = 0.0
+        marker.color.a = 1.0
+        
+        markers.markers.append(marker)
+        return markers

@@ -477,6 +477,10 @@ class NavigationController(Node):
                     if needs_escape:
                         self.get_logger().warn('Critical distance detected - initiating escape!')
                         
+                        # Cancel current navigation goal and waypoints
+                        self.cancel_current_goal()
+                        self.waypoint_generator.cancel_waypoint()  # Clear any exploration waypoints
+                        
                         # Mark human position in costmap
                         self.mark_human_position()
                         

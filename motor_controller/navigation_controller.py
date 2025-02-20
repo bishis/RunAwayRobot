@@ -476,8 +476,6 @@ class NavigationController(Node):
                     # Check for escape BEFORE any other processing
                     if needs_escape:
                         self.get_logger().warn('Critical distance detected - initiating escape!')
-                        # Clear costmaps before planning escape
-                        self.clear_costmaps()
                         
                         # Mark human position in costmap
                         self.mark_human_position()
@@ -506,21 +504,6 @@ class NavigationController(Node):
             except Exception as e:
                 self.get_logger().error(f'Error in tracking cmd callback: {str(e)}')
                 self.wheel_speeds_pub.publish(Twist())  # Stop on error
-
-    def clear_costmaps(self):
-        """Clear local and global costmaps"""
-        try:
-            # Create service client for clearing costmaps
-            clear_client = self.create_client(Empty, '/global_costmap/clear_entirely_global_costmap')
-            while not clear_client.wait_for_service(timeout_sec=1.0):
-                self.get_logger().info('Waiting for clear costmap service...')
-            
-            # Send request to clear costmaps
-            clear_client.call_async(Empty.Request())
-            self.get_logger().info('Cleared costmaps for escape planning')
-            
-        except Exception as e:
-            self.get_logger().error(f'Failed to clear costmaps: {str(e)}')
 
     def mark_human_position(self):
         """Mark human position as obstacle in map and costmap"""

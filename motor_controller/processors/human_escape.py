@@ -56,15 +56,15 @@ class HumanEscape(WaypointGenerator):
             
             valid_points = []
             max_attempts = 200
-            min_wall_distance = self.safety_margin * 1.5
+            min_wall_distance = self.safety_margin  # Reduced from 1.5x
             
             # Convert robot position to grid coordinates
             robot_grid_x = int((robot_x - origin_x) / resolution)
             robot_grid_y = int((robot_y - origin_y) / resolution)
             
             # Search in expanding circles for escape points
-            for radius in np.linspace(self.min_escape_distance, self.escape_search_radius, 10):
-                angles = np.linspace(0, 2*np.pi, 16)  # Test 16 directions at each radius
+            for radius in np.linspace(self.min_escape_distance, self.escape_search_radius, 20):  # More points
+                angles = np.linspace(0, 2*np.pi, 32)  # More angles to test
                 
                 for angle in angles:
                     # Calculate potential escape point
@@ -75,42 +75,40 @@ class HumanEscape(WaypointGenerator):
                     map_x = int((world_x - origin_x) / resolution)
                     map_y = int((world_y - origin_y) / resolution)
                     
-                    # Validate point
+                    # Basic validation
                     if (map_x < 0 or map_x >= map_data.shape[1] or 
-                        map_y < 0 or map_y >= map_data.shape[0] or
-                        map_data[map_y, map_x] == -1):  # Unknown space
+                        map_y < 0 or map_y >= map_data.shape[0]):
                         continue
                     
-                    # Check if point is in free space and away from walls
+                    # Allow unknown space but with lower score
+                    unknown_penalty = 0.5 if map_data[map_y, map_x] == -1 else 1.0
+                    
+                    # Check if point is in free space
                     if map_data[map_y, map_x] >= 50:  # Occupied
                         continue
-                        
-                    if wall_distance[map_y, map_x] <= min_wall_distance:  # Too close to walls
+                    
+                    # Relaxed wall distance check
+                    if wall_distance[map_y, map_x] < min_wall_distance:  # Too close to walls
                         continue
                     
-                    # Check if point is reachable
-                    if not self.is_connected_to_robot(map_x, map_y, robot_grid_x, robot_grid_y, map_data):
-                        continue
-                    
-                    # Calculate score based on:
-                    # 1. Distance from robot (prefer points at desired escape distance)
+                    # Calculate scores
                     dist_score = 1.0 - abs(radius - self.escape_distance) / self.escape_distance
-                    
-                    # 2. Distance from walls
                     wall_score = min(wall_distance[map_y, map_x], 2.0) / 2.0
                     
-                    # 3. Clear path score (prefer points with clear paths)
-                    path_score = self.calculate_path_clearance(
-                        robot_grid_x, robot_grid_y, map_x, map_y, map_data
-                    )
-                    
                     total_score = (
-                        2.0 * dist_score +    # Prioritize good escape distance
-                        1.5 * wall_score +    # Prefer points away from walls
-                        1.0 * path_score      # Consider path clearance
+                        2.0 * dist_score +      # Prioritize good escape distance
+                        1.5 * wall_score +      # Prefer points away from walls
+                        1.0 * unknown_penalty   # Slight penalty for unknown space
                     )
                     
                     valid_points.append((world_x, world_y, radius, total_score))
+                    
+                    if len(valid_points) >= 1:  # Take first valid point in emergency
+                        self.node.get_logger().info(f'Found escape point at radius {radius:.2f}m')
+                        break
+                
+                if valid_points:  # Exit after finding points at this radius
+                    break
             
             if not valid_points:
                 self.node.get_logger().error('No valid escape points found!')

@@ -6,6 +6,7 @@ from sensor_msgs.msg import LaserScan
 import math
 import numpy as np
 import time
+from .human_escape import HumanEscape
 
 class HumanAvoidanceController:
     def __init__(self, node, waypoint_generator):
@@ -14,10 +15,12 @@ class HumanAvoidanceController:
         
         Args:
             node: The ROS node to use for logging and parameters
-            waypoint_generator: WaypointGenerator instance for escape planning
+            waypoint_generator: WaypointGenerator instance for exploration
         """
         self.node = node
         self.waypoint_generator = waypoint_generator
+        # Add escape planner
+        self.escape_planner = HumanEscape(node)
         
         # Distance thresholds
         self.min_safe_distance = 1.5  # Start backing up at 1m
@@ -146,33 +149,19 @@ class HumanAvoidanceController:
 
         
     def plan_escape(self):
-        """Plan escape waypoint furthest from current position"""
-        self.node.get_logger().warn('Planning escape')
+        """Plan escape route when human is too close"""
+        # Use dedicated escape planner instead of regular waypoint generator
+        escape_point = self.escape_planner.get_furthest_waypoint()
         
-        self.waypoint_generator.force_waypoint_change()
-        waypoint = self.waypoint_generator.get_furthest_waypoint()
-        
-        if waypoint is not None:
-            distance = math.sqrt(
-                waypoint.pose.position.x**2 + 
-                waypoint.pose.position.y**2
+        if escape_point is not None:
+            self.node.get_logger().warn(
+                f'Planning escape to ({escape_point.pose.position.x:.2f}, '
+                f'{escape_point.pose.position.y:.2f})'
             )
-            if distance > 1.0:  # Minimum escape distance
-                waypoint.header.frame_id = 'map'
-                waypoint.header.stamp.nanosec = 1  # Special marker for escape
-                
-                # Create red visualization for escape waypoint
-                markers = self.waypoint_generator.create_visualization_markers(waypoint, is_escape=True)
-                self.node.marker_pub.publish(markers)
-                
-                self.node.get_logger().warn(
-                    f'ESCAPE PLAN: Moving to ({waypoint.pose.position.x:.2f}, '
-                    f'{waypoint.pose.position.y:.2f}), ignoring humans until reached'
-                )
-                return waypoint
-            
-        self.node.get_logger().warn('Could not find suitable escape waypoint')
-        return None
+            return escape_point
+        else:
+            self.node.get_logger().error('Failed to find escape point!')
+            return None
 
     def monitor_rear_distance(self):
         """Continuously monitor and log distance behind robot"""

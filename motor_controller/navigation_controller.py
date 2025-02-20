@@ -473,8 +473,9 @@ class NavigationController(Node):
                     # IMPORTANT: Always publish the avoidance command
                     self.wheel_speeds_pub.publish(avoidance_cmd)
                     
-                    # Only check for escape after publishing command
+                    # Check for escape BEFORE any other processing
                     if needs_escape:
+                        self.get_logger().warn('Critical distance detected - initiating escape!')
                         # Clear costmaps before planning escape
                         self.clear_costmaps()
                         
@@ -483,9 +484,10 @@ class NavigationController(Node):
                         
                         escape_point = self.human_avoidance.plan_escape()
                         if escape_point is not None:
-                            self.send_goal(escape_point)
-                            # Force tracking off when starting escape
+                            # Force tracking off BEFORE sending escape goal
                             self.is_tracking_human = False
+                            self.send_goal(escape_point)
+                            return  # Exit immediately after sending escape goal
                     
                 self.get_logger().info(
                     f'Human tracking: dist={human_distance:.2f}m, '

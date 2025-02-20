@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-from geometry_msgs.msg import PoseStamped, Marker, MarkerArray
+from geometry_msgs.msg import PoseStamped
+from visualization_msgs.msg import MarkerArray, Marker
 import numpy as np
 import math
 from scipy.ndimage import distance_transform_edt

@@ -157,7 +157,7 @@ class HumanAvoidanceController:
                 if human_distance < self.min_safe_distance:
                     # Calculate backup speed based on rear distance
                     # Scale from max_backup_speed to 0.02 as we get closer to wall
-                    min_speed = 0.02  # Minimum backup speed
+                    min_speed = 0.001  # Minimum backup speed
                     safe_distance = 1.0  # Distance for full speed backup
                     
                     # Linear interpolation between min and max speed

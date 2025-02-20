@@ -20,6 +20,10 @@ class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
+        # Initialize tf2 buffer and listener FIRST
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)  # Pass 'self' as the node
+        
         # Parameters
         self.declare_parameter('robot_radius', 0.16)
         self.declare_parameter('safety_margin', 0.3)
@@ -36,7 +40,7 @@ class NavigationController(Node):
         self.min_rotation_speed = self.get_parameter('min_rotation_speed').value
         self.goal_timeout = self.get_parameter('goal_timeout').value
         
-        # Initialize waypoint generator
+        # Initialize waypoint generator AFTER tf setup
         self.waypoint_generator = WaypointGenerator(
             node=self,
             min_distance=0.5,
@@ -121,10 +125,6 @@ class NavigationController(Node):
         # Add storage for last seen human position
         self.last_human_position = None
         self.last_human_timestamp = None
-        
-        # Initialize tf2 buffer and listener
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer)
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""

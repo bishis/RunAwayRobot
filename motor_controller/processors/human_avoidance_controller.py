@@ -146,7 +146,7 @@ class HumanAvoidanceController:
             # Only trigger escape if we're also too close to human
             if human_distance < self.critical_distance:
                 return cmd, True  # Return forward motion and trigger escape
-            return cmd, False  # Just return forward motion
+            return cmd, True  # Just return forward motion
         
         # Handle turning to face human
         if image_x is not None:

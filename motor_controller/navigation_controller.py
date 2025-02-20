@@ -14,6 +14,7 @@ from .processors.waypoint_generator import WaypointGenerator
 from std_msgs.msg import Bool
 from .processors.human_avoidance_controller import HumanAvoidanceController
 from std_srvs.srv import Empty
+from tf2_ros import TransformException, Buffer, TransformListener
 
 class NavigationController(Node):
     def __init__(self):
@@ -116,6 +117,14 @@ class NavigationController(Node):
         self.escape_timeout = 45.0  # Longer timeout for escape attempts
         self.max_escape_attempts = 3  # Number of retry attempts for escape
         self.escape_attempts = 0  # Counter for escape attempts
+        
+        # Add storage for last seen human position
+        self.last_human_position = None
+        self.last_human_timestamp = None
+        
+        # Initialize tf2 buffer and listener
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer)
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -375,10 +384,19 @@ class NavigationController(Node):
     def cancel_current_goal(self):
         """Cancel the current navigation goal if one exists"""
         if self._current_goal_handle is not None:
-            self.get_logger().info('Canceling current navigation goal')
+            if self.is_escape_waypoint(self.current_goal):
+                self.get_logger().info('Canceling escape goal')
+                # Reset escape-specific state
+                self.escape_attempts = 0
+                self.is_tracking_human = False  # Ensure tracking stays off
+            else:
+                self.get_logger().info('Canceling exploration goal')
+            
             cancel_future = self._current_goal_handle.cancel_goal_async()
             cancel_future.add_done_callback(self.cancel_done_callback)
             self._current_goal_handle = None
+            self.current_goal = None
+            self.is_navigating = False
 
     def cancel_done_callback(self, future):
         """Handle goal cancellation result"""
@@ -389,42 +407,123 @@ class NavigationController(Node):
             self.get_logger().warn('Goal cancellation failed')
 
     def check_goal_progress(self):
-        """Check if current goal is taking too long or stuck"""
-        if not self.is_navigating or not self.goal_start_time:
+        """Monitor progress of current navigation goal"""
+        if not self.is_navigating or self.current_goal is None:
             return
-            
-        # Check if we've exceeded the timeout
-        current_time = self.get_clock().now()
-        time_navigating = (current_time - self.goal_start_time).nanoseconds / 1e9
         
-        # Use longer timeout for escape waypoints
-        timeout = self.escape_timeout if self.is_escape_waypoint(self.current_goal) else self.goal_timeout
-        
-        if time_navigating > timeout:
-            self.get_logger().warn(f'Goal taking too long ({time_navigating:.1f}s), cancelling...')
-            self.cancel_current_goal()
-            
+        try:
+            # Check if this is an escape goal
             if self.is_escape_waypoint(self.current_goal):
-                self.escape_attempts += 1
-                if self.escape_attempts < self.max_escape_attempts:
-                    self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
-                    self.send_goal(self.current_goal)  # Retry same escape point
-                    return
-                else:
-                    self.get_logger().error('Max escape attempts reached, giving up escape plan')
-                    self.escape_attempts = 0  # Reset for next time
+                # Check if we've reached the goal
+                transform = self.tf_buffer.lookup_transform(
+                    'map',
+                    'base_link',
+                    rclpy.time.Time()
+                )
+                
+                current_x = transform.transform.translation.x
+                current_y = transform.transform.translation.y
+                goal_x = self.current_goal.pose.position.x
+                goal_y = self.current_goal.pose.position.y
+                
+                # Calculate distance to goal
+                dist_to_goal = math.sqrt(
+                    (current_x - goal_x)**2 + 
+                    (current_y - goal_y)**2
+                )
+                
+                if dist_to_goal < 0.3:  # Within goal tolerance
+                    self.get_logger().info('Reached escape point - turning to face human')
+                    
+                    # Cancel the navigation goal properly
+                    self.cancel_current_goal()
+                    
+                    # If we have the last human position, turn to face it
+                    if self.last_human_position is not None:
+                        # Calculate angle to human
+                        human_x, human_y = self.last_human_position
+                        dx = human_x - current_x
+                        dy = human_y - current_y
+                        angle_to_human = math.atan2(dy, dx)
+                        
+                        # Create turn command
+                        turn_cmd = Twist()
+                        turn_cmd.angular.z = 0.5  # Moderate turn speed
+                        
+                        # Keep turning until we face the human
+                        while True:
+                            # Get current robot orientation
+                            current_transform = self.tf_buffer.lookup_transform(
+                                'map',
+                                'base_link',
+                                rclpy.time.Time()
+                            )
+                            # Extract yaw from quaternion
+                            q = current_transform.transform.rotation
+                            current_yaw = math.atan2(2.0*(q.w*q.z + q.x*q.y), 
+                                                   1.0 - 2.0*(q.y*q.y + q.z*q.z))
+                            
+                            # Calculate angle difference
+                            angle_diff = abs(current_yaw - angle_to_human)
+                            angle_diff = min(angle_diff, 2*math.pi - angle_diff)
+                            
+                            if angle_diff < 0.1:  # Within ~5 degrees
+                                break
+                                
+                            # Determine turn direction
+                            if (angle_to_human - current_yaw + math.pi) % (2*math.pi) - math.pi > 0:
+                                turn_cmd.angular.z = abs(turn_cmd.angular.z)
+                            else:
+                                turn_cmd.angular.z = -abs(turn_cmd.angular.z)
+                                
+                            self.wheel_speeds_pub.publish(turn_cmd)
+                            rclpy.spin_once(self, timeout_sec=0.1)
+                        
+                        # Stop turning
+                        self.wheel_speeds_pub.publish(Twist())
+                        self.get_logger().info('Facing human position')
+                    
+                    # Clear navigation state
+                    self.current_goal = None
+                    self.is_navigating = False
+                    self._current_goal_handle = None  # Ensure goal handle is cleared
+                    self.escape_attempts = 0  # Reset escape attempts counter
+                
+            # Check if we've exceeded the timeout
+            current_time = self.get_clock().now()
+            time_navigating = (current_time - self.goal_start_time).nanoseconds / 1e9
             
-            # Normal waypoint handling
-            self.planning_attempts += 1
-            if self.planning_attempts >= self.max_planning_attempts:
-                self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
-                self.planning_attempts = 0
-                self.waypoint_generator.force_waypoint_change()
-                self.reset_navigation_state()
-            else:
-                self.get_logger().info('Retrying current waypoint')
-                if self.current_goal:
-                    self.send_goal(self.current_goal)
+            # Use longer timeout for escape waypoints
+            timeout = self.escape_timeout if self.is_escape_waypoint(self.current_goal) else self.goal_timeout
+            
+            if time_navigating > timeout:
+                self.get_logger().warn(f'Goal taking too long ({time_navigating:.1f}s), cancelling...')
+                self.cancel_current_goal()
+                
+                if self.is_escape_waypoint(self.current_goal):
+                    self.escape_attempts += 1
+                    if self.escape_attempts < self.max_escape_attempts:
+                        self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
+                        self.send_goal(self.current_goal)  # Retry same escape point
+                        return
+                    else:
+                        self.get_logger().error('Max escape attempts reached, giving up escape plan')
+                        self.escape_attempts = 0  # Reset for next time
+                
+                # Normal waypoint handling
+                self.planning_attempts += 1
+                if self.planning_attempts >= self.max_planning_attempts:
+                    self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
+                    self.planning_attempts = 0
+                    self.waypoint_generator.force_waypoint_change()
+                    self.reset_navigation_state()
+                else:
+                    self.get_logger().info('Retrying current waypoint')
+                    if self.current_goal:
+                        self.send_goal(self.current_goal)
+            
+        except Exception as e:
+            self.get_logger().error(f'Error checking goal progress: {str(e)}')
 
     def tracking_active_callback(self, msg):
         """Handle changes in tracking status"""
@@ -458,6 +557,34 @@ class NavigationController(Node):
                 # Extract human position from tracking command
                 human_angle = -msg.angular.z  # Invert because cmd is opposite
                 human_distance = msg.linear.y  # Get real distance measurement
+                
+                # Store human position whenever we see them
+                if human_distance > 0:
+                    # Convert polar to cartesian coordinates relative to robot
+                    human_x = human_distance * math.cos(human_angle)
+                    human_y = human_distance * math.sin(human_angle)
+                    
+                    try:
+                        # Get robot's position in map frame
+                        transform = self.tf_buffer.lookup_transform(
+                            'map',
+                            'base_link',
+                            rclpy.time.Time()
+                        )
+                        
+                        # Transform human position to map coordinates
+                        human_map_x = transform.transform.translation.x + human_x
+                        human_map_y = transform.transform.translation.y + human_y
+                        
+                        # Store position with timestamp
+                        self.last_human_position = (human_map_x, human_map_y)
+                        self.last_human_timestamp = self.get_clock().now()
+                        
+                        self.get_logger().info(
+                            f'Updated human position: ({human_map_x:.2f}, {human_map_y:.2f})'
+                        )
+                    except Exception as e:
+                        self.get_logger().warn(f'Could not transform human position: {e}')
                 
                 # Calculate normalized image position from angular command
                 image_x = ((-human_angle / self.max_angular_speed) + 1) * 320

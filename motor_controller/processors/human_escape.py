@@ -134,6 +134,10 @@ class HumanEscape(WaypointGenerator):
             # Mark this as an escape waypoint
             waypoint.header.stamp.nanosec = 1  # Special flag for escape waypoints
             
+            # Create red visualization for escape waypoint
+            markers = self.create_visualization_markers(waypoint, is_escape=True)
+            self.node.marker_pub.publish(markers)
+            
             self.node.get_logger().warn(
                 f'Generated escape waypoint at ({waypoint.pose.position.x:.2f}, '
                 f'{waypoint.pose.position.y:.2f}), '

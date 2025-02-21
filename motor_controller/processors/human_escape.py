@@ -17,7 +17,7 @@ class HumanEscape(WaypointGenerator):
         self.escape_search_radius = 3.0  # Maximum radius to search for escape points
         
     def get_furthest_waypoint(self):
-        """Generate a waypoint at the furthest reachable point from current position"""
+        """Generate a waypoint at the furthest reachable point from current position and human position"""
         if self.current_map is None:
             self.node.get_logger().error('No map available for escape planning')
             return None
@@ -36,6 +36,13 @@ class HumanEscape(WaypointGenerator):
                 f'Planning escape from position: ({robot_x:.2f}, {robot_y:.2f})'
             )
             
+            # Get human position
+            if hasattr(self.node, 'last_human_position') and self.node.last_human_position is not None:
+                human_x, human_y = self.node.last_human_position
+            else:
+                self.node.get_logger().warn(' ahmed No human position available for escape planning')
+                return None
+            
             # Get map data
             map_data = np.array(self.current_map.data).reshape(
                 self.current_map.info.height,
@@ -51,10 +58,6 @@ class HumanEscape(WaypointGenerator):
             
             valid_points = []
             min_wall_distance = self.safety_margin
-            
-            # Convert robot position to grid coordinates
-            robot_grid_x = int((robot_x - origin_x) / resolution)
-            robot_grid_y = int((robot_y - origin_y) / resolution)
             
             # Search in expanding circles for escape points
             for radius in np.linspace(self.min_escape_distance, self.escape_search_radius, 20):
@@ -82,22 +85,12 @@ class HumanEscape(WaypointGenerator):
                     if wall_distance[map_y, map_x] < min_wall_distance:
                         continue
                     
-                    # Check path to point is clear
-                    path_clearance = self.calculate_path_clearance(
-                        robot_grid_x, robot_grid_y, map_x, map_y, map_data
-                    )
-                    if path_clearance < 0.8:  # Require mostly clear path
-                        continue
+                    # Calculate distances to both robot and human
+                    dist_to_robot = math.sqrt((robot_x - world_x) ** 2 + (robot_y - world_y) ** 2)
+                    dist_to_human = math.sqrt((human_x - world_x) ** 2 + (human_y - world_y) ** 2)
                     
-                    # Calculate scores
-                    dist_score = 1.0 - abs(radius - self.escape_distance) / self.escape_distance
-                    wall_score = min(wall_distance[map_y, map_x], 2.0) / 2.0
-                    
-                    total_score = (
-                        2.0 * dist_score +    # Prioritize good escape distance
-                        1.5 * wall_score +    # Prefer points away from walls
-                        1.0 * path_clearance  # Prefer clear paths
-                    )
+                    # Calculate scores based on distances
+                    total_score = dist_to_robot + dist_to_human  # Maximize distance from both
                     
                     valid_points.append((world_x, world_y, radius, total_score))
                 
@@ -108,7 +101,7 @@ class HumanEscape(WaypointGenerator):
                 self.node.get_logger().error('No valid escape points found!')
                 return None
             
-            # Take the point with highest score
+            # Take the point with the highest score
             best_point = max(valid_points, key=lambda p: p[3])
             
             # Create waypoint message
@@ -137,11 +130,6 @@ class HumanEscape(WaypointGenerator):
                 f'{waypoint.pose.position.y:.2f}), '
                 f'{best_point[2]:.2f}m from robot'
             )
-            
-            if valid_points:
-                self.node.get_logger().info(
-                    f'Found {len(valid_points)} valid escape points'
-                )
             
             return waypoint
         

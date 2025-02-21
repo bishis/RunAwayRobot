@@ -610,8 +610,8 @@ class NavigationController(Node):
                         self.cancel_current_goal()
                         self.waypoint_generator.cancel_waypoint()  # Clear any exploration waypoints
                         
-                        # Mark human position in costmap
-                        self.mark_human_position()
+                        # # Mark human position in costmap
+                        # self.mark_human_position()
                         
                         # Add debug logging
                         self.get_logger().info('Requesting escape point from planner...')

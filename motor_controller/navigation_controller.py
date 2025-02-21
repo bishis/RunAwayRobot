@@ -15,6 +15,7 @@ from std_msgs.msg import Bool
 from .processors.human_avoidance_controller import HumanAvoidanceController
 from std_srvs.srv import Empty
 from tf2_ros import TransformException, Buffer, TransformListener
+import time
 
 class NavigationController(Node):
     def __init__(self):
@@ -226,6 +227,15 @@ class NavigationController(Node):
             # Create the goal
             nav_goal = NavigateToPose.Goal()
             nav_goal.pose = goal_msg
+            
+            # Add check for escape goal and clear emergency stop
+            if self.is_escape_waypoint(goal_msg):
+                self.get_logger().info('Escape goal detected - clearing emergency stop state')
+                # Give the robot a moment to stabilize after emergency stop
+                time.sleep(0.5)  # Short delay
+                # Clear any velocity commands
+                stop_cmd = Twist()
+                self.wheel_speeds_pub.publish(stop_cmd)
             
             self.get_logger().info('Sending navigation goal:')
             self.get_logger().info(f'    Position: ({goal_msg.pose.position.x:.2f}, {goal_msg.pose.position.y:.2f})')

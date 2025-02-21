@@ -83,16 +83,16 @@ class NavigationController(Node):
         self.nav2_ready = False
         self.nav2_check_timer = self.create_timer(1.0, self.check_nav2_ready)
         
-        # Create timer for exploration control
-        self.create_timer(1.0, self.exploration_loop)
+        # Create timer for exploration control every 0.1 seconds
+        self.create_timer(0.1, self.exploration_loop) 
         
         # Add timeout parameters
         self.goal_timeout = 15.0  # Shorter timeout for unreachable goals
         self.planning_attempts = 0
         self.max_planning_attempts = 2  # Max attempts before giving up
         
-        # Add timer to check goal progress
-        self.goal_check_timer = self.create_timer(1.0, self.check_goal_progress)
+        # Add timer to check goal progress every 0.1 seconds
+        self.goal_check_timer = self.create_timer(0.1, self.check_goal_progress)  
         
         # Add human tracking subscribers
         self.tracking_active_sub = self.create_subscription(
@@ -450,7 +450,7 @@ class NavigationController(Node):
                         
                         # Create turn command
                         turn_cmd = Twist()
-                        turn_cmd.angular.z = 0.5  # Moderate turn speed
+                        turn_cmd.angular.z = 0.3  # Moderate turn speed
                         
                         # Keep turning until we face the human
                         while True:
@@ -469,7 +469,7 @@ class NavigationController(Node):
                             angle_diff = abs(current_yaw - angle_to_human)
                             angle_diff = min(angle_diff, 2*math.pi - angle_diff)
                             
-                            if angle_diff < 0.1:  # Within ~5 degrees
+                            if angle_diff < 0.2:  # Within ~10 degrees
                                 break
                                 
                             # Determine turn direction
@@ -490,7 +490,7 @@ class NavigationController(Node):
                     self.is_navigating = False
                     self._current_goal_handle = None  # Ensure goal handle is cleared
                     self.escape_attempts = 0  # Reset escape attempts counter
-                
+            
             # Check if we've exceeded the timeout
             current_time = self.get_clock().now()
             time_navigating = (current_time - self.goal_start_time).nanoseconds / 1e9

@@ -474,9 +474,9 @@ class NavigationController(Node):
                                 
                             # Determine turn direction
                             if (angle_to_human - current_yaw + math.pi) % (2*math.pi) - math.pi > 0:
-                                turn_cmd.angular.z = abs(turn_cmd.angular.z)
-                            else:
                                 turn_cmd.angular.z = -abs(turn_cmd.angular.z)
+                            else:
+                                turn_cmd.angular.z = abs(turn_cmd.angular.z)
                                 
                             self.wheel_speeds_pub.publish(turn_cmd)
                             rclpy.spin_once(self, timeout_sec=0.1)

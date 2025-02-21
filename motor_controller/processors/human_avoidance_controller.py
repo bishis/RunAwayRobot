@@ -23,8 +23,9 @@ class HumanAvoidanceController:
         self.escape_planner = HumanEscape(node)
         
         # Distance thresholds
-        self.min_safe_distance = 1.5  # Start backing up at 1m
-        self.critical_distance = 0.35   # Request escape at 0.3m
+        self.min_safe_distance = 1.25  # Start backing up at 1m
+        self.critical_distance = 0.4   # Request escape at 0.3m
+        self.ready_to_flee_distance = 0.5  # Distance to enter ready-to-flee mode
         self.max_backup_speed = 0.15   # Increase backup speed
         
         # Tracking parameters
@@ -73,14 +74,17 @@ class HumanAvoidanceController:
         self.is_turning = True
         return turn_speed
 
-    def check_rear_safety(self) -> tuple[bool, float]:
+    def check_rear_safety(self) -> tuple[str, float]:
         """
         Check if there's a critical distance behind the robot.
-        Returns (is_safe, min_distance)
+        Returns (status, min_distance) where status is:
+        - 'safe': Normal operation
+        - 'ready': Ready to flee (close to wall)
+        - 'critical': Critical distance detected
         """
         if self.latest_scan is None:
             self.node.get_logger().warn('No scan data available for rear monitoring')
-            return True, float('inf')  # Assume safe if no data
+            return 'safe', float('inf')  # Assume safe if no data
         
         try:
             # Define rear arc from 110° to 250° for 140° total coverage
@@ -118,24 +122,29 @@ class HumanAvoidanceController:
                     f'Rear distance: {rear_distance:.2f}m at angle: {math.degrees(closest_angle):.1f}°'
                 )
                 
-                # Check if we need to escape
+                # Check distances
                 if rear_distance < self.critical_distance:
-                    return False, rear_distance  # Not safe - critical distance detected
+                    return 'critical', rear_distance
+                elif rear_distance < self.ready_to_flee_distance:
+                    return 'ready', rear_distance
+                
+                return 'safe', rear_distance
             
-            return True, rear_distance  # Safe - return minimum distance
+            return 'safe', float('inf')
         
         except Exception as e:
             self.node.get_logger().error(f'Error checking rear safety: {str(e)}')
-            return True, float('inf')  # Assume safe on error
+            return 'safe', float('inf')
 
     def get_avoidance_command(self, human_distance, human_angle, image_x=None):
         """Calculate avoidance command based on human position"""
         cmd = Twist()
         
         # First check rear safety and get distance
-        rear_safe, rear_distance = self.check_rear_safety()
-        if not rear_safe:
-            # Emergency stop if critical rear distance
+        rear_status, rear_distance = self.check_rear_safety()
+        
+        # Handle critical rear distance
+        if rear_status == 'critical':
             self.node.get_logger().error('EMERGENCY STOP - Critical rear distance!')
             cmd = Twist()  # Zero velocity command
             return cmd, True  # Return emergency stop and trigger escape
@@ -153,23 +162,29 @@ class HumanAvoidanceController:
                 # Human is centered - stop turning
                 cmd = Twist()
                 
-                # Only allow backup when human is centered
-                if human_distance < self.min_safe_distance:
-                    # Calculate backup speed based on rear distance
-                    # Scale from max_backup_speed to 0.02 as we get closer to wall
-                    min_speed = 0.001  # Minimum backup speed
-                    safe_distance = 1.0  # Distance for full speed backup
+                # Check if we need to escape when in ready-to-flee mode
+                if rear_status == 'ready' and human_distance < self.min_safe_distance:
+                    self.node.get_logger().warn('Ready to flee and human too close - initiating escape!')
+                    return cmd, True  # Trigger escape
+                
+                # Only allow backup when human is centered and we're not too close to wall
+                if human_distance < self.min_safe_distance and rear_distance > self.ready_to_flee_distance:
+                    # Calculate backup speed to maintain 0.5m from wall
+                    target_distance = self.ready_to_flee_distance  # Stop at 0.5m from wall
+                    distance_to_target = rear_distance - target_distance
                     
-                    # Linear interpolation between min and max speed
-                    speed_ratio = min(1.0, max(0.0, (rear_distance - self.critical_distance) / 
-                                            (safe_distance - self.critical_distance)))
-                    backup_speed = min_speed + (self.max_backup_speed - min_speed) * speed_ratio
-                    
-                    cmd.linear.x = -backup_speed
-                    self.node.get_logger().info(
-                        f'Human centered - backing up at {backup_speed:.2f} m/s '
-                        f'(wall distance: {rear_distance:.2f}m)'
-                    )
+                    if distance_to_target > 0:  # Only back up if we have room
+                        # Scale speed based on distance to target
+                        speed_ratio = min(1.0, distance_to_target / 0.5)  # Full speed when >0.5m from target
+                        backup_speed = self.max_backup_speed * speed_ratio
+                        
+                        cmd.linear.x = -backup_speed
+                        self.node.get_logger().info(
+                            f'Human centered - backing up at {backup_speed:.2f} m/s '
+                            f'(wall distance: {rear_distance:.2f}m, target: {target_distance:.2f}m)'
+                        )
+                    else:
+                        self.node.get_logger().info('At target distance from wall - holding position')
                 
                 return cmd, False
             

@@ -450,7 +450,7 @@ class NavigationController(Node):
                         
                         # Create turn command
                         turn_cmd = Twist()
-                        turn_cmd.angular.z = 0.3  # Moderate turn speed
+                        turn_cmd.angular.z = 0.5  # Moderate turn speed
                         
                         # Keep turning until we face the human
                         while True:

@@ -172,14 +172,6 @@ class NavigationController(Node):
         try:
             if not self.nav2_ready:
                 return
-
-            # Check if map is complete
-            if self.waypoint_generator.is_map_complete():
-                self.get_logger().info('Map exploration complete!')
-                # Optional: Stop the exploration loop
-                # self.create_timer(1.0, self.exploration_loop).cancel()
-                return
-
             if not self.is_navigating:
                 # Store current waypoint before generating new one
                 self.previous_waypoint = self.current_goal

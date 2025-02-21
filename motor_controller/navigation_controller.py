@@ -16,6 +16,7 @@ from .processors.human_avoidance_controller import HumanAvoidanceController
 from std_srvs.srv import Empty
 from tf2_ros import TransformException, Buffer, TransformListener
 import time
+from slam_toolbox.srv import TriggerUpdate  # Import the service
 
 class NavigationController(Node):
     def __init__(self):
@@ -126,6 +127,11 @@ class NavigationController(Node):
         # Add storage for last seen human position
         self.last_human_position = None
         self.last_human_timestamp = None
+
+        # Create a service client for the SLAM update
+        self.slam_update_client = self.create_client(TriggerUpdate, '/slam_toolbox/trigger_update')
+        while not self.slam_update_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Waiting for SLAM update service...')
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -606,15 +612,19 @@ class NavigationController(Node):
                     if needs_escape:
                         self.get_logger().warn('Critical distance detected - initiating escape!')
                         
-                        # Cancel current navigation goal and waypoints
+                        # Call the SLAM update service
+                        request = TriggerUpdate.Request()
+                        future = self.slam_update_client.call_async(request)
+                        rclpy.spin_until_future_complete(self, future)
+                        
+                        if future.result() is not None:
+                            self.get_logger().info('SLAM map updated successfully.')
+                        else:
+                            self.get_logger().error('Failed to update SLAM map.')
+                        
+                        # Proceed with escape plan
                         self.cancel_current_goal()
                         self.waypoint_generator.cancel_waypoint()  # Clear any exploration waypoints
-                        
-                        # # Mark human position in costmap
-                        # self.mark_human_position()
-                        
-                        # Add debug logging
-                        self.get_logger().info('Requesting escape point from planner...')
                         escape_point = self.human_avoidance.plan_escape()
                         
                         if escape_point is not None:

@@ -216,9 +216,6 @@ class NavigationController(Node):
             # Cancel any existing goal
             self.cancel_current_goal()
             
-            # Trigger map update before navigation
-            self.update_slam_map()
-            
             # Create the goal
             nav_goal = NavigateToPose.Goal()
             nav_goal.pose = goal_msg
@@ -252,36 +249,6 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error sending navigation goal: {str(e)}')
             self.reset_navigation_state()
-
-    def update_slam_map(self):
-        """Trigger SLAM map update before navigation"""
-        try:
-            # Trigger a manual loop closure in SLAM Toolbox
-            loop_closure_service = '/slam_toolbox/manual_loop_closure'
-            loop_closure_client = self.create_client(Empty, loop_closure_service)
-            
-            if not loop_closure_client.wait_for_service(timeout_sec=1.0):
-                self.get_logger().warn('Loop closure service not available - proceeding with current map')
-                return
-            
-            # Create and send request
-            request = Empty.Request()
-            future = loop_closure_client.call_async(request)
-            
-            # Wait briefly for response
-            timeout = 2.0  # seconds
-            start_time = self.get_clock().now()
-            
-            while (self.get_clock().now() - start_time).nanoseconds / 1e9 < timeout:
-                if future.done():
-                    self.get_logger().info('SLAM map update completed')
-                    return
-                rclpy.spin_once(self, timeout_sec=0.1)
-            
-            self.get_logger().warn('SLAM map update timed out - proceeding with current map')
-            
-        except Exception as e:
-            self.get_logger().error(f'Error updating SLAM map: {str(e)}')
 
     def goal_response_callback(self, future):
         """Handle the goal response with proper error handling"""

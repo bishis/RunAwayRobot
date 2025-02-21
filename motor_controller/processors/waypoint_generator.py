@@ -562,59 +562,69 @@ class WaypointGenerator:
         return None
 
     def publish_waypoints(self):
-        # Implement the logic to republish updated waypoints
-        pass
-
-    def is_map_complete(self) -> bool:
-        """
-        Check if the map is sufficiently complete.
-        Returns True if most of the accessible area has been mapped.
-        """
-        if self.current_map is None:
-            return False
+        """Publish visualization markers for current waypoints"""
+        markers = MarkerArray()
+        
+        # Create marker for each waypoint
+        for i, waypoint in enumerate(self.waypoints):
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.header.stamp = self.node.get_clock().now().to_msg()
+            marker.ns = 'waypoints'
+            marker.id = i
+            marker.type = Marker.SPHERE
+            marker.action = Marker.ADD
             
-        try:
-            # Convert map to numpy array
-            map_data = np.array(self.current_map.data).reshape(
-                self.current_map.info.height,
-                self.current_map.info.width
-            )
+            # Set position from waypoint
+            marker.pose = waypoint.pose
             
-            # Count cells in different states
-            total_cells = map_data.size
-            unknown_cells = np.sum(map_data == -1)  # Unknown space
-            occupied_cells = np.sum(map_data > 50)   # Walls/obstacles
-            free_cells = np.sum((map_data >= 0) & (map_data <= 50))  # Free space
+            # Set scale (size)
+            marker.scale.x = self.waypoint_size
+            marker.scale.y = self.waypoint_size
+            marker.scale.z = self.waypoint_size
             
-            # Calculate exploration ratio
-            explored_cells = free_cells + occupied_cells
-            exploration_ratio = explored_cells / total_cells
+            # Set color (blue for normal waypoints)
+            marker.color.r = 0.0
+            marker.color.g = 0.0
+            marker.color.b = 1.0
+            marker.color.a = 0.6  # Semi-transparent
             
-            # Calculate the rate of change in exploration
-            if hasattr(self, 'last_explored_ratio'):
-                change_rate = abs(exploration_ratio - self.last_explored_ratio)
-                self.last_explored_ratio = exploration_ratio
+            markers.markers.append(marker)
+            
+            # Add line connecting waypoints
+            if i > 0:
+                line = Marker()
+                line.header.frame_id = 'map'
+                line.header.stamp = self.node.get_clock().now().to_msg()
+                line.ns = 'waypoint_connections'
+                line.id = i + 1000  # Offset IDs for lines
+                line.type = Marker.LINE_STRIP
+                line.action = Marker.ADD
                 
-                # If exploration has stagnated and we've explored enough
-                if change_rate < 0.01 and exploration_ratio > 0.85:
-                    self.node.get_logger().info(
-                        f'Map complete: {exploration_ratio:.1%} explored, '
-                        f'change rate: {change_rate:.3f}'
-                    )
-                    return True
-            else:
-                self.last_explored_ratio = exploration_ratio
-            
-            # Log exploration progress
-            self.node.get_logger().debug(
-                f'Map exploration: {exploration_ratio:.1%} '
-                f'(Free: {free_cells/total_cells:.1%}, '
-                f'Occupied: {occupied_cells/total_cells:.1%}, '
-                f'Unknown: {unknown_cells/total_cells:.1%})'
-            )
-            
-            return False
-            
-        except Exception as e:
-            self.node.get_logger().error(f'Error checking map completion: {str(e)}')
-            return False
+                # Create line between current and previous waypoint
+                prev_point = Point()
+                prev_point.x = self.waypoints[i-1].pose.position.x
+                prev_point.y = self.waypoints[i-1].pose.position.y
+                prev_point.z = 0.0
+                
+                curr_point = Point()
+                curr_point.x = waypoint.pose.position.x
+                curr_point.y = waypoint.pose.position.y
+                curr_point.z = 0.0
+                
+                line.points = [prev_point, curr_point]
+                
+                # Set line properties
+                line.scale.x = 0.05  # Line width
+                line.color.r = 0.0
+                line.color.g = 0.5
+                line.color.b = 1.0
+                line.color.a = 0.4
+                
+                markers.markers.append(line)
+        
+        # Publish markers
+        if hasattr(self.node, 'marker_pub'):
+            self.node.marker_pub.publish(markers)
+
+

@@ -216,6 +216,9 @@ class NavigationController(Node):
             # Cancel any existing goal
             self.cancel_current_goal()
             
+            # Trigger map update before navigation
+            self.update_slam_map()
+            
             # Create the goal
             nav_goal = NavigateToPose.Goal()
             nav_goal.pose = goal_msg
@@ -249,6 +252,36 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error sending navigation goal: {str(e)}')
             self.reset_navigation_state()
+
+    def update_slam_map(self):
+        """Trigger SLAM map update before navigation"""
+        try:
+            # Trigger a manual loop closure in SLAM Toolbox
+            loop_closure_service = '/slam_toolbox/manual_loop_closure'
+            loop_closure_client = self.create_client(Empty, loop_closure_service)
+            
+            if not loop_closure_client.wait_for_service(timeout_sec=1.0):
+                self.get_logger().warn('Loop closure service not available - proceeding with current map')
+                return
+            
+            # Create and send request
+            request = Empty.Request()
+            future = loop_closure_client.call_async(request)
+            
+            # Wait briefly for response
+            timeout = 2.0  # seconds
+            start_time = self.get_clock().now()
+            
+            while (self.get_clock().now() - start_time).nanoseconds / 1e9 < timeout:
+                if future.done():
+                    self.get_logger().info('SLAM map update completed')
+                    return
+                rclpy.spin_once(self, timeout_sec=0.1)
+            
+            self.get_logger().warn('SLAM map update timed out - proceeding with current map')
+            
+        except Exception as e:
+            self.get_logger().error(f'Error updating SLAM map: {str(e)}')
 
     def goal_response_callback(self, future):
         """Handle the goal response with proper error handling"""
@@ -638,66 +671,6 @@ class NavigationController(Node):
                 self.get_logger().error(f'Error in tracking cmd callback: {str(e)}')
                 self.wheel_speeds_pub.publish(Twist())  # Stop on error
 
-    def mark_human_position(self):
-        """Mark human position as obstacle in map and costmap"""
-        try:
-            # Subscribe to human coordinates
-            human_pose = None
-            human_sub = self.create_subscription(
-                PoseStamped,
-                '/human_coords',
-                lambda msg: setattr(self, 'latest_human_pose', msg),
-                1
-            )
-            
-            # Wait briefly for human position
-            rclpy.spin_once(self, timeout_sec=0.1)
-            human_pose = getattr(self, 'latest_human_pose', None)
-            
-            if human_pose and self.current_map:
-                # Create map update
-                map_update = OccupancyGrid()
-                map_update.header = self.current_map.header
-                map_update.info = self.current_map.info
-                map_update.data = list(self.current_map.data)  # Copy current map
-                
-                # Convert human position to map coordinates
-                resolution = self.current_map.info.resolution
-                origin_x = self.current_map.info.origin.position.x
-                origin_y = self.current_map.info.origin.position.y
-                
-                # Calculate map indices for human position
-                map_x = int((human_pose.pose.position.x - origin_x) / resolution)
-                map_y = int((human_pose.pose.position.y - origin_y) / resolution)
-                
-                # Create a circular obstacle around human
-                radius_cells = int(0.5 / resolution)  # 50cm radius
-                for dx in range(-radius_cells, radius_cells + 1):
-                    for dy in range(-radius_cells, radius_cells + 1):
-                        # Check if point is within circle
-                        if dx*dx + dy*dy <= radius_cells*radius_cells:
-                            x = map_x + dx
-                            y = map_y + dy
-                            
-                            # Ensure within map bounds
-                            if (0 <= x < self.current_map.info.width and 
-                                0 <= y < self.current_map.info.height):
-                                # Calculate 1D index from 2D coordinates
-                                idx = y * self.current_map.info.width + x
-                                map_update.data[idx] = 100  # Mark as occupied
-                
-                # Create publisher for map updates
-                map_pub = self.create_publisher(OccupancyGrid, '/map', 1)
-                
-                # Publish updated map
-                map_pub.publish(map_update)
-                self.get_logger().info('Updated SLAM map with human position')
-                
-                # Clear costmaps to force update from new map
-                self.clear_costmaps()
-                
-        except Exception as e:
-            self.get_logger().error(f'Failed to mark human position: {str(e)}')
 
     def is_escape_waypoint(self, waypoint):
         """Check if waypoint is an escape waypoint"""

@@ -22,6 +22,10 @@ class HumanAvoidanceController:
         # Add escape planner
         self.escape_planner = HumanEscape(node)
         
+        # Get tf_buffer from node
+        self.tf_buffer = self.node.tf_buffer
+        self.wheel_speeds_pub = self.node.wheel_speeds_pub
+        
         # Distance thresholds
         self.min_safe_distance = 1.25  # Start backing up at 1m
         self.critical_distance = 0.4   # Request escape at 0.3m

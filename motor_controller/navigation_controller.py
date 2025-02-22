@@ -75,8 +75,6 @@ class NavigationController(Node):
         self.current_goal = None
         self.is_navigating = False
         self.goal_start_time = None
-        self.consecutive_failures = 0
-        self.max_consecutive_failures = 3
         self.previous_waypoint = None
 
         # Add state for Nav2 readiness
@@ -276,6 +274,7 @@ class NavigationController(Node):
         try:
             result = future.result()
             status = result.status
+            self.get_logger().info(f'Navigation result status: {status}')
             
             if status != GoalStatus.STATUS_SUCCEEDED:
                 # Check for specific failure messages
@@ -290,35 +289,32 @@ class NavigationController(Node):
                     self.escape_attempts += 1
                     if self.escape_attempts < self.max_escape_attempts:
                         self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
-                        self.send_goal(self.current_goal)  # Retry same escape point
+                        escape_point = self.human_avoidance.plan_escape()
+                        if escape_point is not None:
+                            self.send_goal(escape_point)  # Retry same escape point
                         return
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
                         self.escape_attempts = 0  # Reset for next time
                         self.get_logger().warn('Escape plan failed - resuming normal operation')
+                        if self.last_human_position is not None:
+                            self.human_avoidance.turn_to_face_human(self.last_human_position)
+                        self.reset_navigation_state()
+                        return
                 
                 # Normal failure handling
-                self.consecutive_failures += 1
                 self.planning_attempts += 1
                 
                 if self.planning_attempts >= self.max_planning_attempts:
                     self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
                     self.planning_attempts = 0
                     self.waypoint_generator.force_waypoint_change()
-                    
-                if self.consecutive_failures >= self.max_consecutive_failures:
-                    self.get_logger().warn('Too many consecutive failures, waiting before continuing...')
-                    if not hasattr(self, '_reset_timer') or self._reset_timer is None:
-                        self._reset_timer = self.create_timer(5.0, self.reset_with_timer)
-                else:
-                    self.reset_navigation_state()
             else:
                 self.get_logger().info('Navigation succeeded')
                 if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
                     self.get_logger().info('Escape plan succeeded - resuming normal operation')
                     self.escape_attempts = 0  # Reset escape attempts counter
                 
-                self.consecutive_failures = 0
                 self.planning_attempts = 0
                 self.reset_navigation_state()
                 
@@ -328,18 +324,9 @@ class NavigationController(Node):
 
     def handle_goal_failure(self):
         """Handle navigation failures"""
-        self.consecutive_failures += 1
-        if self.consecutive_failures >= self.max_consecutive_failures:
-            self.get_logger().warn('Too many consecutive failures, waiting before continuing...')
-            self.consecutive_failures = 0
-            # Create a timer that will only fire once
-            timer = self.create_timer(2.0, self.reset_with_timer)
-            # Store timer to prevent garbage collection
-            self._reset_timer = timer
-        else:
-            # Force waypoint generator to pick new point
-            self.waypoint_generator.force_waypoint_change()
-            self.reset_navigation_state()
+        # Force waypoint generator to pick new point
+        self.waypoint_generator.force_waypoint_change()
+        self.reset_navigation_state()
 
     def reset_with_timer(self):
         """Callback for reset timer"""
@@ -414,39 +401,6 @@ class NavigationController(Node):
             return
         
         try:
-            # Check if this is an escape goal
-            if self.is_escape_waypoint(self.current_goal):
-                # Check if we've reached the goal
-                transform = self.tf_buffer.lookup_transform(
-                    'map',
-                    'base_link',
-                    rclpy.time.Time()
-                )
-                
-                current_x = transform.transform.translation.x
-                current_y = transform.transform.translation.y
-                goal_x = self.current_goal.pose.position.x
-                goal_y = self.current_goal.pose.position.y
-                
-                # Calculate distance to goal
-                dist_to_goal = math.sqrt(
-                    (current_x - goal_x)**2 + 
-                    (current_y - goal_y)**2
-                )
-                
-                if dist_to_goal < 0.3:  # Within goal tolerance
-                    self.get_logger().info('Reached escape point - turning to face human')
-                    
-                    # Cancel the navigation goal properly
-                    self.cancel_current_goal()
-
-                    # Clear navigation state
-                    self.current_goal = None
-                    self.is_navigating = False
-                    self._current_goal_handle = None  # Ensure goal handle is cleared
-                    self.escape_attempts = 0  # Reset escape attempts counter
-            
-            # Check if we've exceeded the timeout
             current_time = self.get_clock().now()
             time_navigating = (current_time - self.goal_start_time).nanoseconds / 1e9
             
@@ -461,23 +415,30 @@ class NavigationController(Node):
                     self.escape_attempts += 1
                     if self.escape_attempts < self.max_escape_attempts:
                         self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
-                        self.send_goal(self.current_goal)  # Retry same escape point
-                        return
+                        escape_point = self.human_avoidance.plan_escape()
+                        if escape_point is not None:
+                            self.send_goal(escape_point)  # Retry same escape point
+                            return
+                        else:
+                            self.get_logger().error('Failed to find escape point!')
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
+                        if self.last_human_position is not None:
+                            self.human_avoidance.turn_to_face_human(self.last_human_position)
                         self.escape_attempts = 0  # Reset for next time
                 
                 # Normal waypoint handling
-                self.planning_attempts += 1
-                if self.planning_attempts >= self.max_planning_attempts:
-                    self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
-                    self.planning_attempts = 0
-                    self.waypoint_generator.force_waypoint_change()
-                    self.reset_navigation_state()
                 else:
-                    self.get_logger().info('Retrying current waypoint')
-                    if self.current_goal:
-                        self.send_goal(self.current_goal)
+                    self.planning_attempts += 1
+                    if self.planning_attempts >= self.max_planning_attempts:
+                        self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
+                        self.planning_attempts = 0
+                        self.waypoint_generator.force_waypoint_change()
+                        self.reset_navigation_state()
+                    else:
+                        self.get_logger().info('Retrying current waypoint')
+                        if self.current_goal:
+                            self.send_goal(self.current_goal)
             
         except Exception as e:
             self.get_logger().error(f'Error checking goal progress: {str(e)}')
@@ -561,7 +522,6 @@ class NavigationController(Node):
                     if needs_escape:
                         self.get_logger().warn('Critical distance detected - initiating escape!')
                         
-                        
                         # Proceed with escape plan
                         self.cancel_current_goal()
                         self.waypoint_generator.cancel_waypoint()  # Clear any exploration waypoints
@@ -575,11 +535,7 @@ class NavigationController(Node):
                             # Force tracking off BEFORE sending escape goal
                             self.is_tracking_human = False
                             self.send_goal(escape_point)
-                            # After sending the escape goal, turn to face the last known human position
-                            #self.human_avoidance.turn_to_face_human(self.last_human_position)
                             
-                            # Wait for 10 seconds
-                            time.sleep(10)
                             return
                         else:
                             self.get_logger().error('Failed to get escape point!')

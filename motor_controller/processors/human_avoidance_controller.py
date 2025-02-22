@@ -215,10 +215,10 @@ class HumanAvoidanceController:
             self.node.get_logger().error('Failed to find escape point!')
             return None
 
-    def turn_to_face_human(self):
+    def turn_to_face_human(self, last_human_position):
         """Turn the robot to face the last known position of the human"""
-        if self.last_human_position is not None:
-            human_x, human_y = self.last_human_position
+        if last_human_position is not None:
+            human_x, human_y = last_human_position
             
             # Get current robot position
             transform = self.tf_buffer.lookup_transform(

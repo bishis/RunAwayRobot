@@ -439,52 +439,7 @@ class NavigationController(Node):
                     
                     # Cancel the navigation goal properly
                     self.cancel_current_goal()
-                    
-                    # If we have the last human position, turn to face it
-                    if self.last_human_position is not None:
-                        # Calculate angle to human
-                        human_x, human_y = self.last_human_position
-                        dx = human_x - current_x
-                        dy = human_y - current_y
-                        angle_to_human = math.atan2(dy, dx)
-                        
-                        # Create turn command
-                        turn_cmd = Twist()
-                        turn_cmd.angular.z = 0.8  # Moderate turn speed
-                        
-                        # Keep turning until we face the human
-                        while True:
-                            # Get current robot orientation
-                            current_transform = self.tf_buffer.lookup_transform(
-                                'map',
-                                'base_link',
-                                rclpy.time.Time()
-                            )
-                            # Extract yaw from quaternion
-                            q = current_transform.transform.rotation
-                            current_yaw = math.atan2(2.0*(q.w*q.z + q.x*q.y), 
-                                                   1.0 - 2.0*(q.y*q.y + q.z*q.z))
-                            
-                            # Calculate angle difference
-                            angle_diff = abs(current_yaw - angle_to_human)
-                            angle_diff = min(angle_diff, 2*math.pi - angle_diff)
-                            
-                            if angle_diff < 0.2:  # Within ~10 degrees
-                                break
-                                
-                            # Determine turn direction
-                            if (angle_to_human - current_yaw + math.pi) % (2*math.pi) - math.pi > 0:
-                                turn_cmd.angular.z = -abs(turn_cmd.angular.z)
-                            else:
-                                turn_cmd.angular.z = abs(turn_cmd.angular.z)
-                                
-                            self.wheel_speeds_pub.publish(turn_cmd)
-                            rclpy.spin_once(self, timeout_sec=0.1)
-                        
-                        # Stop turning
-                        self.wheel_speeds_pub.publish(Twist())
-                        self.get_logger().info('Facing human position')
-                    
+
                     # Clear navigation state
                     self.current_goal = None
                     self.is_navigating = False
@@ -620,6 +575,11 @@ class NavigationController(Node):
                             # Force tracking off BEFORE sending escape goal
                             self.is_tracking_human = False
                             self.send_goal(escape_point)
+                            # After sending the escape goal, turn to face the last known human position
+                            self.turn_to_face_human()
+                            
+                            # Wait for 10 seconds
+                            time.sleep(10)
                             return
                         else:
                             self.get_logger().error('Failed to get escape point!')

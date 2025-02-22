@@ -215,4 +215,55 @@ class HumanAvoidanceController:
             self.node.get_logger().error('Failed to find escape point!')
             return None
 
+    def turn_to_face_human(self):
+        """Turn the robot to face the last known position of the human"""
+        if self.last_human_position is not None:
+            human_x, human_y = self.last_human_position
+            
+            # Get current robot position
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            robot_x = transform.transform.translation.x
+            robot_y = transform.transform.translation.y
+            
+            # Calculate angle to human
+            dx = human_x - robot_x
+            dy = human_y - robot_y
+            angle_to_human = math.atan2(dy, dx)
+            
+            # Create a turn command
+            turn_cmd = Twist()
+            turn_cmd.angular.z = self.max_rotation_speed  # Set a constant turn speed
+            
+            # Keep turning until facing the human
+            while True:
+                # Get current robot orientation
+                current_transform = self.tf_buffer.lookup_transform(
+                    'map',
+                    'base_link',
+                    rclpy.time.Time()
+                )
+                q = current_transform.transform.rotation
+                current_yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 
+                                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+                
+                # Calculate angle difference
+                angle_diff = abs(current_yaw - angle_to_human)
+                angle_diff = min(angle_diff, 2 * math.pi - angle_diff)
+                
+                if angle_diff < 0.1:  # Within ~5 degrees
+                    self.node.get_logger().info('Aligned with human position')
+                    break
+                
+                # Publish turn command
+                self.wheel_speeds_pub.publish(turn_cmd)
+                rclpy.spin_once(self.node, timeout_sec=0.1)
+            
+            # Stop turning
+            self.wheel_speeds_pub.publish(Twist())
+            self.node.get_logger().info('Stopped turning, ready to explore again')
+
 

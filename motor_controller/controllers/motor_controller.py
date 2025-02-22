@@ -59,11 +59,6 @@ class MotorController:
         Returns:
             tuple[float, float]: Scaled (left_speed, right_speed)
         """
-        # Normalize speeds if they exceed [-1, 1]
-        max_speed = max(abs(left_speed), abs(right_speed))
-        if max_speed > 1.0:
-            left_speed /= max_speed
-            right_speed /= max_speed
             
         # Scale the entire range from MIN_SPEED to 1.0
         MIN_SPEED = 0.65
@@ -78,6 +73,11 @@ class MotorController:
             
         left_speed = scale_to_min_speed(left_speed)
         right_speed = scale_to_min_speed(right_speed)
+        # Normalize speeds if they exceed [-1, 1]
+        max_speed = max(abs(left_speed), abs(right_speed))
+        if max_speed > 1.0:
+            left_speed /= max_speed
+            right_speed /= max_speed
                 
         return left_speed, right_speed
 

@@ -8,6 +8,14 @@ import numpy as np
 import time
 from .human_escape import HumanEscape
 
+def normalize_angle(angle):
+    """Normalize an angle to the range [-pi, pi]."""
+    while angle > math.pi:
+        angle -= 2 * math.pi
+    while angle < -math.pi:
+        angle += 2 * math.pi
+    return angle
+
 class HumanAvoidanceController:
     def __init__(self, node, waypoint_generator):
         """
@@ -222,6 +230,9 @@ class HumanAvoidanceController:
     def turn_to_face_human(self, last_human_position):
         """Turn the robot to face the last known position of the human"""
         if last_human_position is not None:
+            
+            self.node.get_logger().info('Turning to face human...')
+
             human_x, human_y = last_human_position
             
             # Get current robot position
@@ -240,7 +251,6 @@ class HumanAvoidanceController:
             
             # Create a turn command
             turn_cmd = Twist()
-            turn_cmd.angular.z = self.max_rotation_speed  # Set a constant turn speed
             
             # Keep turning until facing the human
             while True:
@@ -255,18 +265,15 @@ class HumanAvoidanceController:
                                           1.0 - 2.0 * (q.y * q.y + q.z * q.z))
                 
                 # Calculate angle difference
-                angle_diff = abs(current_yaw - angle_to_human)
-                angle_diff = min(angle_diff, 2 * math.pi - angle_diff)
+                angle_diff = normalize_angle(current_yaw - angle_to_human)
                 
-                if angle_diff < 0.1:  # Within ~5 degrees
+                if abs(angle_diff) < 0.2:  # Adjust threshold
                     self.node.get_logger().info('Aligned with human position')
                     break
                 
-                # Determine turn direction
-                if (angle_to_human - current_yaw + math.pi) % (2 * math.pi) - math.pi > 0:
-                    turn_cmd.angular.z = -abs(turn_cmd.angular.z)  # Turn left
-                else:
-                    turn_cmd.angular.z = abs(turn_cmd.angular.z)   # Turn right
+                # Proportional control for turn speed
+                turn_speed = min(abs(angle_diff), self.max_rotation_speed)
+                turn_cmd.angular.z = turn_speed if angle_diff > 0 else -turn_speed
                 
                 # Publish turn command
                 self.wheel_speeds_pub.publish(turn_cmd)

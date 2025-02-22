@@ -258,6 +258,12 @@ class HumanAvoidanceController:
                     self.node.get_logger().info('Aligned with human position')
                     break
                 
+                # Determine turn direction
+                if (angle_to_human - current_yaw + math.pi) % (2 * math.pi) - math.pi > 0:
+                    turn_cmd.angular.z = -abs(turn_cmd.angular.z)  # Turn left
+                else:
+                    turn_cmd.angular.z = abs(turn_cmd.angular.z)   # Turn right
+                
                 # Publish turn command
                 self.wheel_speeds_pub.publish(turn_cmd)
                 rclpy.spin_once(self.node, timeout_sec=0.1)

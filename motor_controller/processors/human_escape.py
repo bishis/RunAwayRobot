@@ -42,6 +42,14 @@ class HumanEscape(WaypointGenerator):
                 self.node.get_logger().warn('No human position available for escape planning')
                 return None
             
+            # Calculate current distance from human
+            current_dist_to_human = math.sqrt(
+                (robot_x - human_x) ** 2 + 
+                (robot_y - human_y) ** 2
+            )
+            
+            self.node.get_logger().info(f'Current distance from human: {current_dist_to_human:.2f}m')
+            
             # Get map data
             map_data = np.array(self.current_map.data).reshape(
                 self.current_map.info.height,
@@ -57,6 +65,8 @@ class HumanEscape(WaypointGenerator):
             
             valid_points = []
             min_wall_distance = self.safety_margin
+            best_point = None
+            best_score = float('-inf')
             
             # Search in expanding circles for escape points
             for radius in np.linspace(self.min_escape_distance, self.escape_search_radius, 20):
@@ -66,6 +76,20 @@ class HumanEscape(WaypointGenerator):
                     # Calculate potential escape point
                     world_x = robot_x + radius * np.cos(angle)
                     world_y = robot_y + radius * np.sin(angle)
+                    
+                    # Calculate distance to human for this point
+                    dist_to_human = math.sqrt(
+                        (world_x - human_x) ** 2 + 
+                        (world_y - human_y) ** 2
+                    )
+                    
+                    # Skip points that are closer to human than current position
+                    if dist_to_human <= current_dist_to_human:
+                        self.node.get_logger().debug(
+                            f'Skipping point ({world_x:.2f}, {world_y:.2f}) - '
+                            f'closer to human ({dist_to_human:.2f}m) than current position'
+                        )
+                        continue
                     
                     # Convert to map coordinates
                     map_x = int((world_x - origin_x) / resolution)
@@ -87,15 +111,9 @@ class HumanEscape(WaypointGenerator):
                         self.node.get_logger().warn(f'Point too close to wall: ({map_x}, {map_y})')
                         continue
                     
-                    # Calculate distances
-                    dist_to_human = math.sqrt(
-                        (world_x - human_x) ** 2 + 
-                        (world_y - human_y) ** 2
-                    )
-                    
-                    # Calculate score based primarily on distance from human
+                    # Update scoring to heavily weight distance from human
                     total_score = (
-                        3.0 * dist_to_human +           # Heavily weight distance from human
+                        5.0 * dist_to_human +           # Heavily prioritize distance from human
                         1.0 * wall_distance[map_y, map_x]  # Consider wall clearance as secondary
                     )
                     
@@ -105,7 +123,7 @@ class HumanEscape(WaypointGenerator):
                     break
             
             if not valid_points:
-                self.node.get_logger().error('No valid escape points found!')
+                self.node.get_logger().error('No valid escape points found that increase distance from human!')
                 return None
             
             # Take the point with the highest score (furthest from human)

@@ -80,6 +80,14 @@ controller_server:
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       
+      # Angular velocity limits
+      min_vel_theta: 0.2      # Lower minimum to allow gentler turns
+      max_vel_theta: 1.3     # Match motor controller max
+      
+      # Forward motion limits
+      min_vel_x: -0.05
+      max_vel_x: 0.1
+      
       # Reduce path following strictness
       path_distance_bias: 8.0       # Care less about exact path
       goal_distance_bias: 24.0      # Focus more on goal
@@ -187,9 +195,9 @@ controller_server:
 
     # Make controller more robust near obstacles
     min_vel_x: -0.05
-    max_vel_x: 0.07
+    max_vel_x: 1.3
     min_vel_theta: 0.1
-    max_vel_theta: 1.3
+    max_vel_theta: 0.5
     min_speed_xy: 0.025
     
     # Increase clearance checking

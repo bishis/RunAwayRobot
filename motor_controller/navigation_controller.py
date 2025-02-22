@@ -576,7 +576,7 @@ class NavigationController(Node):
                             self.is_tracking_human = False
                             self.send_goal(escape_point)
                             # After sending the escape goal, turn to face the last known human position
-                            self.human_avoidance.turn_to_face_human(self.last_human_position)
+                            #self.human_avoidance.turn_to_face_human(self.last_human_position)
                             
                             # Wait for 10 seconds
                             time.sleep(10)

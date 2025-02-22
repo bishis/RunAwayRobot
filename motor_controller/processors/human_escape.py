@@ -17,7 +17,7 @@ class HumanEscape(WaypointGenerator):
         self.escape_search_radius = 3.0  # Maximum radius to search for escape points
         
     def get_furthest_waypoint(self):
-        """Generate a waypoint at the furthest reachable point from current position and human position"""
+        """Generate a waypoint at the furthest reachable point from human position"""
         if self.current_map is None:
             self.node.get_logger().error('No map available for escape planning')
             return None
@@ -32,15 +32,14 @@ class HumanEscape(WaypointGenerator):
             robot_x = transform.transform.translation.x
             robot_y = transform.transform.translation.y
             
-            self.node.get_logger().info(
-                f'Planning escape from position: ({robot_x:.2f}, {robot_y:.2f})'
-            )
-            
             # Get human position
             if hasattr(self.node, 'last_human_position') and self.node.last_human_position is not None:
                 human_x, human_y = self.node.last_human_position
+                self.node.get_logger().info(
+                    f'Planning escape from human at ({human_x:.2f}, {human_y:.2f})'
+                )
             else:
-                self.node.get_logger().warn(' ahmed No human position available for escape planning')
+                self.node.get_logger().warn('No human position available for escape planning')
                 return None
             
             # Get map data
@@ -85,12 +84,17 @@ class HumanEscape(WaypointGenerator):
                     if wall_distance[map_y, map_x] < min_wall_distance:
                         continue
                     
-                    # Calculate distances to both robot and human
-                    dist_to_robot = math.sqrt((robot_x - world_x) ** 2 + (robot_y - world_y) ** 2)
-                    dist_to_human = math.sqrt((human_x - world_x) ** 2 + (human_y - world_y) ** 2)
+                    # Calculate distances
+                    dist_to_human = math.sqrt(
+                        (world_x - human_x) ** 2 + 
+                        (world_y - human_y) ** 2
+                    )
                     
-                    # Calculate scores based on distances
-                    total_score = dist_to_robot + dist_to_human  # Maximize distance from both
+                    # Calculate score based primarily on distance from human
+                    total_score = (
+                        3.0 * dist_to_human +           # Heavily weight distance from human
+                        1.0 * wall_distance[map_y, map_x]  # Consider wall clearance as secondary
+                    )
                     
                     valid_points.append((world_x, world_y, radius, total_score))
                 
@@ -101,7 +105,7 @@ class HumanEscape(WaypointGenerator):
                 self.node.get_logger().error('No valid escape points found!')
                 return None
             
-            # Take the point with the highest score
+            # Take the point with the highest score (furthest from human)
             best_point = max(valid_points, key=lambda p: p[3])
             
             # Create waypoint message
@@ -111,24 +115,24 @@ class HumanEscape(WaypointGenerator):
             waypoint.pose.position.x = best_point[0]
             waypoint.pose.position.y = best_point[1]
             
-            # Face away from robot
-            dx = waypoint.pose.position.x - robot_x
-            dy = waypoint.pose.position.y - robot_y
-            yaw = math.atan2(dy, dx)
+            # Face away from human
+            dx = waypoint.pose.position.x - human_x
+            dy = waypoint.pose.position.y - human_y
+            yaw = math.atan2(dy, dx)  # Point away from human
             waypoint.pose.orientation.z = math.sin(yaw / 2.0)
             waypoint.pose.orientation.w = math.cos(yaw / 2.0)
             
             # Mark this as an escape waypoint
             waypoint.header.stamp.nanosec = 1  # Special flag for escape waypoints
             
-            # Create red visualization for escape waypoint
-            markers = self.create_visualization_markers(waypoint, is_escape=True)
-            self.node.marker_pub.publish(markers)
-            
-            self.node.get_logger().warn(
-                f'Generated escape waypoint at ({waypoint.pose.position.x:.2f}, '
-                f'{waypoint.pose.position.y:.2f}), '
-                f'{best_point[2]:.2f}m from robot'
+            # Log the distance from human
+            dist_from_human = math.sqrt(
+                (best_point[0] - human_x) ** 2 + 
+                (best_point[1] - human_y) ** 2
+            )
+            self.node.get_logger().info(
+                f'Generated escape waypoint {dist_from_human:.2f}m from human at '
+                f'({waypoint.pose.position.x:.2f}, {waypoint.pose.position.y:.2f})'
             )
             
             return waypoint

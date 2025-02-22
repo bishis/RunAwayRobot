@@ -29,7 +29,7 @@ class HumanAvoidanceController:
         self.max_backup_speed = 0.15   # Increase backup speed
         
         # Tracking parameters
-        self.max_rotation_speed = 0.1
+        self.max_rotation_speed = 0.06
         
         # Frame zones - simpler tracking
         self.center_zone = 0.25  # Consider centered within ±25% of frame center

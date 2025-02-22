@@ -74,14 +74,17 @@ class HumanEscape(WaypointGenerator):
                     # Strict validation checks
                     if (map_x < 0 or map_x >= map_data.shape[1] or 
                         map_y < 0 or map_y >= map_data.shape[0]):
+                        self.node.get_logger().warn(f'Point out of map bounds: ({map_x}, {map_y})')
                         continue
                         
                     # Only allow known free space
                     if map_data[map_y, map_x] == -1 or map_data[map_y, map_x] >= 50:
+                        self.node.get_logger().warn(f'Point is occupied or unknown: ({map_x}, {map_y})')
                         continue
                     
                     # Strict wall distance check
                     if wall_distance[map_y, map_x] < min_wall_distance:
+                        self.node.get_logger().warn(f'Point too close to wall: ({map_x}, {map_y})')
                         continue
                     
                     # Calculate distances
@@ -134,7 +137,10 @@ class HumanEscape(WaypointGenerator):
                 f'Generated escape waypoint {dist_from_human:.2f}m from human at '
                 f'({waypoint.pose.position.x:.2f}, {waypoint.pose.position.y:.2f})'
             )
-            
+                        # Create red visualization for escape waypoint
+            markers = self.create_visualization_markers(waypoint, is_escape=True)
+            self.node.marker_pub.publish(markers)
+
             return waypoint
         
         except Exception as e:

@@ -55,6 +55,8 @@ class HumanAvoidanceController:
         if hasattr(node, 'latest_scan'):
             self.latest_scan = node.latest_scan
             
+        # Initialize last human position
+        self.last_human_position = None
 
         # Add forward motion control
         self.forward_motion_start = 0.0
@@ -429,5 +431,13 @@ class HumanAvoidanceController:
             
         except Exception as e:
             self.node.get_logger().error(f'Error updating SLAM map: {str(e)}')
+
+    def tracking_cmd_callback(self, msg: Twist):
+        """Handle incoming tracking commands"""
+        # ... existing code ...
+        
+        # Update last_human_position when a human is detected
+        if human_detected:  # Replace with your actual detection logic
+            self.last_human_position = (human_x, human_y)  # Update with actual human coordinates
 
 

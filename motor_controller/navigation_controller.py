@@ -129,7 +129,7 @@ class NavigationController(Node):
         self.latest_scan = msg
         
         # Pass scan to human avoidance controller
-        if hasattr(self.human_avoidance):
+        if hasattr(self, 'human_avoidance'):
             self.human_avoidance.latest_scan = msg
 
     def map_callback(self, msg: OccupancyGrid):

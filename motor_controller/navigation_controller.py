@@ -620,14 +620,16 @@ class NavigationController(Node):
                     target_angle = math.atan2(dy, dx)
                     
                     # Get rotation speeds from human avoidance controller
-                    self.get_logger().info('Turing to face last known human position')
-                    while True:
-                        cmd = self.human_avoidance.turn_to_angle(target_angle)
-                        self.wheel_speeds_pub.publish(cmd)
-                        if abs(cmd.angular.z) < 0.01:
-                            self.escape_wait_start = self.get_clock().now()
-                            break
-                        time.sleep(0.1)
+                    self.get_logger().info('Turning to face last known human position')
+                    cmd = self.human_avoidance.turn_to_angle(target_angle)
+                    self.get_logger().info(f'Rotation command: {cmd}')
+                    # Publish the rotation command
+                    self.wheel_speeds_pub.publish(cmd)
+                    
+                    # Check if we have reached the target angle
+                    if abs(cmd.angular.z) < 0.01:
+                        self.escape_wait_start = self.get_clock().now()
+                        self.get_logger().info('Turned to face last known human position, starting wait period')
                 else:
                     # No known human position, skip wait
                     self.resume_exploration()

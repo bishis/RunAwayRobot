@@ -296,20 +296,17 @@ class HumanAvoidanceController:
             _, _, current_yaw = tf_transformations.euler_from_quaternion(quaternion)
             
             # Calculate angle difference and normalize to [-pi, pi]
-            angle_diff = target_angle - current_yaw
-            while angle_diff > math.pi:
-                angle_diff -= 2 * math.pi
-            while angle_diff < -math.pi:
-                angle_diff += 2 * math.pi
+            angle_diff = normalize_angle(target_angle - current_yaw)
             
             # Calculate rotation speed based on angle difference
             MAX_ROTATION_SPEED = 0.2  # rad/s
             MIN_ROTATION_SPEED = 0.009  # rad/s
-            ANGLE_THRESHOLD = 0.8  # radians
+            ANGLE_THRESHOLD = 0.1  # radians
             
             if abs(angle_diff) < ANGLE_THRESHOLD:
                 # Close enough to target angle
                 cmd = Twist()
+                cmd.angular.z = 0.0  # Stop turning
                 return cmd
             
             # Scale rotation speed based on angle difference
@@ -320,19 +317,17 @@ class HumanAvoidanceController:
             
             # Set direction based on shortest rotation
             if angle_diff > 0:
-                rotation_speed = rotation_speed
+                cmd = Twist()
+                cmd.angular.z = rotation_speed
             else:
-                rotation_speed = -rotation_speed
-            
-            # Create command
-            cmd = Twist()
-            cmd.angular.z = rotation_speed
+                cmd = Twist()
+                cmd.angular.z = -rotation_speed
             
             self.node.get_logger().info(
                 f'Turning to angle {target_angle:.2f}: '
                 f'current={current_yaw:.2f}, '
                 f'diff={angle_diff:.2f}, '
-                f'speed={rotation_speed:.2f}'
+                f'speed={cmd.angular.z:.2f}'
             )
             
             return cmd

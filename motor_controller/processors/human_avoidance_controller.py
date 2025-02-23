@@ -304,7 +304,7 @@ class HumanAvoidanceController:
             
             # Calculate rotation speed based on angle difference
             MAX_ROTATION_SPEED = 0.2  # rad/s
-            MIN_ROTATION_SPEED = 0.05  # rad/s
+            MIN_ROTATION_SPEED = 0.009  # rad/s
             ANGLE_THRESHOLD = 0.8  # radians
             
             if abs(angle_diff) < ANGLE_THRESHOLD:

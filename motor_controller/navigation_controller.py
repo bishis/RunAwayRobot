@@ -297,8 +297,6 @@ class NavigationController(Node):
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
                         self.escape_attempts = 0  # Reset for next time
                         self.get_logger().warn('Escape plan failed - resuming normal operation')
-                        if self.last_human_position is not None:
-                            self.human_avoidance.turn_to_face_human(self.last_human_position)
                         self.reset_navigation_state()
                         return
                 
@@ -423,8 +421,6 @@ class NavigationController(Node):
                             self.get_logger().error('Failed to find escape point!')
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
-                        if self.last_human_position is not None:
-                            self.human_avoidance.turn_to_face_human(self.last_human_position)
                         self.escape_attempts = 0  # Reset for next time
                 
                 # Normal waypoint handling

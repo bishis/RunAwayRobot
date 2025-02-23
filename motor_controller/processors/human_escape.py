@@ -126,7 +126,7 @@ class HumanEscape(WaypointGenerator):
             waypoint.pose.position.x = best_point[0]
             waypoint.pose.position.y = best_point[1]
             
-            # Face away from human
+            # Face towards human
             dx = waypoint.pose.position.x - human_x
             dy = waypoint.pose.position.y - human_y
             yaw = math.atan2(dy, dx)  # Point away from human

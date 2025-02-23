@@ -274,7 +274,7 @@ class WaypointGenerator:
         return empty_markers
 
     def generate_waypoint(self):
-        """Get next waypoint, either existing or new"""
+        """Generate a new waypoint for exploration."""
         current_time = self.node.get_clock().now()
         
         # Add minimum distance between waypoints
@@ -446,23 +446,11 @@ class WaypointGenerator:
             waypoint.pose.position.y = best_point[1]
             waypoint.pose.position.z = 0.0
             
-            # Set orientation towards unexplored area
-            # Find direction of closest unknown area
-            unknown_y, unknown_x = np.where(unknown_area)
-            if len(unknown_x) > 0:
-                # Find closest unknown point
-                dists = [(ux - map_x)**2 + (uy - map_y)**2 for ux, uy in zip(unknown_x, unknown_y)]
-                closest_idx = np.argmin(dists)
-                target_x = origin_x + unknown_x[closest_idx] * resolution
-                target_y = origin_y + unknown_y[closest_idx] * resolution
-                
-                # Calculate angle towards unknown area
-                angle = math.atan2(target_y - best_point[1], target_x - best_point[0])
-                waypoint.pose.orientation.z = math.sin(angle / 2)
-                waypoint.pose.orientation.w = math.cos(angle / 2)
-            else:
-                # If no unknown areas, just use default orientation
-                waypoint.pose.orientation.w = 1.0
+            # Set orientation to a neutral value (no specific direction required)
+            waypoint.pose.orientation.w = 1.0
+            waypoint.pose.orientation.x = 0.0
+            waypoint.pose.orientation.y = 0.0
+            waypoint.pose.orientation.z = 0.0
             
             self.current_waypoint = waypoint
             self.last_waypoint_time = self.node.get_clock().now()

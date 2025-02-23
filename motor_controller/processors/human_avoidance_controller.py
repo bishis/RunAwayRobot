@@ -42,7 +42,7 @@ class HumanAvoidanceController:
         self.max_backup_speed = 0.15   # Increase backup speed
         
         # Tracking parameters
-        self.max_rotation_speed = 0.035
+        self.max_rotation_speed = 0.03
         
         # Frame zones - simpler tracking
         self.center_zone = 0.25  # Consider centered within ±25% of frame center
@@ -299,8 +299,8 @@ class HumanAvoidanceController:
             angle_diff = normalize_angle(target_angle - current_yaw)
             
             # Calculate rotation speed based on angle difference
-            MAX_ROTATION_SPEED = 0.2  # rad/s
-            MIN_ROTATION_SPEED = 0.009  # rad/s
+            MAX_ROTATION_SPEED = 0.3  # rad/s
+            MIN_ROTATION_SPEED = 0.04  # rad/s
             ANGLE_THRESHOLD = 0.1  # radians
             
             if abs(angle_diff) < ANGLE_THRESHOLD:

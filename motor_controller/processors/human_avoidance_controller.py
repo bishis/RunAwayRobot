@@ -7,6 +7,7 @@ import math
 import numpy as np
 import time
 from .human_escape import HumanEscape
+import tf_transformations
 
 def normalize_angle(angle):
     """Normalize an angle to the range [-pi, pi]."""
@@ -271,3 +272,71 @@ class HumanAvoidanceController:
             # Stop turning
             self.wheel_speeds_pub.publish(Twist())
             self.node.get_logger().info('Stopped turning, ready to explore again')
+
+    def turn_to_angle(self, target_angle):
+        """
+        Calculate speeds needed to turn to a specific angle.
+        Returns Twist message with rotation speeds.
+        """
+        try:
+            # Get current robot orientation from tf
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            
+            # Extract current yaw from quaternion
+            quaternion = (
+                transform.transform.rotation.x,
+                transform.transform.rotation.y,
+                transform.transform.rotation.z,
+                transform.transform.rotation.w
+            )
+            _, _, current_yaw = tf_transformations.euler_from_quaternion(quaternion)
+            
+            # Calculate angle difference and normalize to [-pi, pi]
+            angle_diff = target_angle - current_yaw
+            while angle_diff > math.pi:
+                angle_diff -= 2 * math.pi
+            while angle_diff < -math.pi:
+                angle_diff += 2 * math.pi
+            
+            # Calculate rotation speed based on angle difference
+            MAX_ROTATION_SPEED = 0.5  # rad/s
+            MIN_ROTATION_SPEED = 0.1  # rad/s
+            ANGLE_THRESHOLD = 0.1  # radians
+            
+            if abs(angle_diff) < ANGLE_THRESHOLD:
+                # Close enough to target angle
+                cmd = Twist()
+                return cmd
+            
+            # Scale rotation speed based on angle difference
+            rotation_speed = max(
+                MIN_ROTATION_SPEED,
+                min(MAX_ROTATION_SPEED, abs(angle_diff))
+            )
+            
+            # Set direction based on shortest rotation
+            if angle_diff > 0:
+                rotation_speed = rotation_speed
+            else:
+                rotation_speed = -rotation_speed
+            
+            # Create command
+            cmd = Twist()
+            cmd.angular.z = rotation_speed
+            
+            self.node.get_logger().info(
+                f'Turning to angle {target_angle:.2f}: '
+                f'current={current_yaw:.2f}, '
+                f'diff={angle_diff:.2f}, '
+                f'speed={rotation_speed:.2f}'
+            )
+            
+            return cmd
+        
+        except Exception as e:
+            self.node.get_logger().error(f'Error calculating turn angle: {str(e)}')
+            return Twist()  # Return zero speeds on error

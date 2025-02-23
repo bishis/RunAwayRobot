@@ -93,8 +93,8 @@ class NavigationController(Node):
         self.nav2_check_timer = self.create_timer(1.0, self.check_nav2_ready)
         
         # Create timer for exploration control every 0.1 seconds
-        self.create_timer(0.1, self.exploration_loop) 
-        
+        self.exploration_loop_timer = self.create_timer(0.1, self.exploration_loop)
+
         # Add timeout parameters
         self.goal_timeout = 15.0  # Shorter timeout for unreachable goals
         self.planning_attempts = 0
@@ -134,6 +134,11 @@ class NavigationController(Node):
         # Add storage for last seen human position
         self.last_human_position = None
         self.last_human_timestamp = None
+
+        # Add timer for escape monitoring (initially disabled)
+        self.escape_monitor_timer = None
+        self.escape_wait_start = None
+        self.ESCAPE_WAIT_DURATION = 10.0  # seconds
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -317,7 +322,7 @@ class NavigationController(Node):
                         self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
                         escape_point = self.human_avoidance.plan_escape()
                         if escape_point is not None:
-                            self.send_goal(escape_point)  # Retry same escape point
+                            self.send_goal(escape_point)  # Retry escape point
                         return
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
@@ -335,12 +340,14 @@ class NavigationController(Node):
                     self.waypoint_generator.force_waypoint_change()
             else:
                 self.get_logger().info('Navigation succeeded')
+                if self.current_goal is not None and not self.is_escape_waypoint(self.current_goal):
+                    self.planning_attempts = 0
+                    self.reset_navigation_state()
                 if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
                     self.get_logger().info('Escape plan succeeded - resuming normal operation')
                     self.escape_attempts = 0  # Reset escape attempts counter
+                    self.start_escape_monitoring()
                 
-                self.planning_attempts = 0
-                self.reset_navigation_state()
                 
         except Exception as e:
             self.get_logger().error(f'Error getting navigation result: {str(e)}')
@@ -562,6 +569,7 @@ class NavigationController(Node):
                         
                         # Proceed with escape plan
                         self.cancel_current_goal()
+                        self.exploration_loop_timer.cancel()
                         self.waypoint_generator.cancel_waypoint()  # Clear any exploration waypoints
                         escape_point = self.human_avoidance.plan_escape()
                         
@@ -591,6 +599,69 @@ class NavigationController(Node):
     def is_escape_waypoint(self, waypoint):
         """Check if waypoint is an escape waypoint"""
         return waypoint is not None and waypoint.header.stamp.nanosec == 1
+
+    def start_escape_monitoring(self):
+        """Start monitoring after reaching escape point"""
+        self.get_logger().info('Starting escape monitoring sequence')
+        if self.escape_monitor_timer:
+            self.escape_monitor_timer.cancel()
+        self.escape_monitor_timer = self.create_timer(0.1, self.monitor_escape_sequence)
+        self.escape_wait_start = None  # Will be set when turning complete
+
+    def monitor_escape_sequence(self):
+        """Monitor the escape sequence: turn -> wait -> resume"""
+        try:
+            if self.escape_wait_start is None:
+                # First, turn to face last known human position
+                if self.last_human_position is not None:
+                    # Calculate angle to last known human position
+                    dx = self.last_human_position[0] - self.current_pose.pose.position.x
+                    dy = self.last_human_position[1] - self.current_pose.pose.position.y
+                    target_angle = math.atan2(dy, dx)
+                    
+                    # Get rotation speeds from human avoidance controller
+                    cmd = self.human_avoidance.turn_to_angle(target_angle)
+                    
+                    # If speeds are zero, we've reached the target angle
+                    if abs(cmd.angular.z) < 0.01:
+                        self.escape_wait_start = self.get_clock().now()
+                        self.get_logger().info('Turned to face last known human position, starting wait period')
+                    else:
+                        # Send the rotation command
+                        self.wheel_speeds_pub.publish(cmd)
+                else:
+                    # No known human position, skip wait
+                    self.resume_exploration()
+                    return
+            else:
+                # Check if wait period is over
+                current_time = self.get_clock().now()
+                wait_time = (current_time - self.escape_wait_start).nanoseconds / 1e9
+                
+                if wait_time >= self.ESCAPE_WAIT_DURATION:
+                    if self.human_avoidance.is_human_detected():
+                        # Human detected during wait, plan new escape
+                        self.get_logger().info('Human detected during wait, planning new escape')
+                        escape_point = self.human_avoidance.plan_escape()
+                        if escape_point is not None:
+                            self.send_goal(escape_point)
+                    else:
+                        # No human detected, resume exploration
+                        self.get_logger().info('No human detected after wait, resuming exploration')
+                        self.resume_exploration()
+        except Exception as e:
+            self.get_logger().error(f'Error in escape monitoring: {str(e)}')
+            self.resume_exploration()
+
+    def resume_exploration(self):
+        """Clean up escape monitoring and resume exploration"""
+        if self.escape_monitor_timer:
+            self.escape_monitor_timer.cancel()
+            self.escape_monitor_timer = None
+        self.escape_wait_start = None
+        self.exploration_loop_timer.reset()
+        self.waypoint_generator.force_waypoint_change()
+        self.reset_navigation_state()
 
 def main(args=None):
     rclpy.init(args=args)

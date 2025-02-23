@@ -138,7 +138,11 @@ class NavigationController(Node):
                 'base_link',
                 rclpy.time.Time()
             )
-            self.current_pose = transform  # Update current_pose with the latest transform
+            # Update current_pose with the latest transform
+            self.current_pose.position.x = transform.transform.translation.x
+            self.current_pose.position.y = transform.transform.translation.y
+            self.current_pose.position.z = transform.transform.translation.z
+            self.current_pose.orientation = transform.transform.rotation  # Set orientation
         except TransformException:
             self.get_logger().warn('Could not get robot position from transform')
         
@@ -409,7 +413,10 @@ class NavigationController(Node):
 
     def distance_to_goal(self, goal):
         """Calculate the distance to the goal"""
-        return math.sqrt((goal.pose.position.x - self.current_pose.position.x)**2 + (goal.pose.position.y - self.current_pose.position.y)**2)
+        return math.sqrt(
+            (goal.pose.position.x - self.current_pose.position.x) ** 2 +
+            (goal.pose.position.y - self.current_pose.position.y) ** 2
+        )
 
     def check_goal_progress(self):
         """Monitor progress of current navigation goal"""

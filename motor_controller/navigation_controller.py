@@ -25,8 +25,16 @@ class NavigationController(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)  # Pass 'self' as the node
         
-        # Initialize current_pose
-        self.current_pose = PoseStamped()  # Initialize with a default PoseStamped object
+        # Initialize current_pose with proper structure
+        self.current_pose = PoseStamped()
+        self.current_pose.header.frame_id = 'map'
+        self.current_pose.pose.position.x = 0.0
+        self.current_pose.pose.position.y = 0.0
+        self.current_pose.pose.position.z = 0.0
+        self.current_pose.pose.orientation.w = 1.0
+        self.current_pose.pose.orientation.x = 0.0
+        self.current_pose.pose.orientation.y = 0.0
+        self.current_pose.pose.orientation.z = 0.0
         
         # Parameters
         self.declare_parameter('robot_radius', 0.16)
@@ -139,10 +147,10 @@ class NavigationController(Node):
                 rclpy.time.Time()
             )
             # Update current_pose with the latest transform
-            self.current_pose.position.x = transform.transform.translation.x
-            self.current_pose.position.y = transform.transform.translation.y
-            self.current_pose.position.z = transform.transform.translation.z
-            self.current_pose.orientation = transform.transform.rotation  # Set orientation
+            self.current_pose.pose.position.x = transform.transform.translation.x
+            self.current_pose.pose.position.y = transform.transform.translation.y
+            self.current_pose.pose.position.z = transform.transform.translation.z
+            self.current_pose.pose.orientation = transform.transform.rotation
         except TransformException:
             self.get_logger().warn('Could not get robot position from transform')
         
@@ -414,8 +422,8 @@ class NavigationController(Node):
     def distance_to_goal(self, goal):
         """Calculate the distance to the goal"""
         return math.sqrt(
-            (goal.pose.position.x - self.current_pose.position.x) ** 2 +
-            (goal.pose.position.y - self.current_pose.position.y) ** 2
+            (goal.pose.position.x - self.current_pose.pose.position.x) ** 2 +
+            (goal.pose.position.y - self.current_pose.pose.position.y) ** 2
         )
 
     def check_goal_progress(self):

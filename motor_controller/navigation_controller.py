@@ -25,6 +25,9 @@ class NavigationController(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)  # Pass 'self' as the node
         
+        # Initialize current_pose
+        self.current_pose = PoseStamped()  # Initialize with a default PoseStamped object
+        
         # Parameters
         self.declare_parameter('robot_radius', 0.16)
         self.declare_parameter('safety_margin', 0.3)
@@ -127,6 +130,17 @@ class NavigationController(Node):
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
         self.latest_scan = msg
+        
+        # Update current_pose based on the latest transform
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            self.current_pose = transform  # Update current_pose with the latest transform
+        except TransformException:
+            self.get_logger().warn('Could not get robot position from transform')
         
         # Pass scan to human avoidance controller
         if hasattr(self, 'human_avoidance'):

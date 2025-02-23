@@ -51,9 +51,6 @@ class NavigationController(Node):
             goal_tolerance=0.3
         )
         
-        # Initialize human avoidance controller
-        self.human_avoidance = HumanAvoidanceController(self, self.waypoint_generator)
-        
         # Add current_map storage
         self.current_map = None
         
@@ -115,7 +112,9 @@ class NavigationController(Node):
         self.get_logger().info('Navigation controller initialized')
         
         self._current_goal_handle = None
-        
+
+        self.human_avoidance = HumanAvoidanceController(self, self.waypoint_generator)
+
         # Add escape-specific parameters
         self.escape_timeout = 45.0  # Longer timeout for escape attempts
         self.max_escape_attempts = 3  # Number of retry attempts for escape

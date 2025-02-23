@@ -646,7 +646,14 @@ class NavigationController(Node):
                 wait_time = (current_time - self.escape_wait_start).nanoseconds / 1e9
                 
                 if wait_time >= self.ESCAPE_WAIT_DURATION:
-                    if self.human_avoidance.is_human_detected():
+                    # Check if human is detected based on tracking state and recent timestamp
+                    current_time = self.get_clock().now().nanoseconds / 1e9
+                    human_recently_seen = (
+                        self.last_human_timestamp is not None and 
+                        (current_time - self.last_human_timestamp) < 2.0  # Within last second
+                    )
+                    
+                    if self.is_tracking_human or human_recently_seen:
                         # Human detected during wait, plan new escape
                         self.get_logger().info('Human detected during wait, planning new escape')
                         escape_point = self.human_avoidance.plan_escape()

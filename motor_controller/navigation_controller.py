@@ -125,17 +125,12 @@ class NavigationController(Node):
         self.last_human_timestamp = None
 
     def scan_callback(self, msg: LaserScan):
-        """Store latest scan data and process human detection"""
+        """Store latest scan data"""
         self.latest_scan = msg
         
         # Pass scan to human avoidance controller
-        if hasattr(self.human_avoidance, 'latest_scan'):
+        if hasattr(self.human_avoidance):
             self.human_avoidance.latest_scan = msg
-        
-        # Check for human detection and update SLAM map
-        if self.human_avoidance.last_human_position:
-            human_position = self.human_avoidance.last_human_position
-            self.human_avoidance.add_human_to_slam_map(human_position, msg)
 
     def map_callback(self, msg: OccupancyGrid):
         """Update map in waypoint generator and store locally"""

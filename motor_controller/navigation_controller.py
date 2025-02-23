@@ -393,12 +393,25 @@ class NavigationController(Node):
         else:
             self.get_logger().warn('Goal cancellation failed')
 
+    def distance_to_goal(self, goal):
+        """Calculate the distance to the goal"""
+        return math.sqrt((goal.pose.position.x - self.current_pose.position.x)**2 + (goal.pose.position.y - self.current_pose.position.y)**2)
+
     def check_goal_progress(self):
         """Monitor progress of current navigation goal"""
         if not self.is_navigating or self.current_goal is None:
             return
         
         try:
+            #check the distance to the goal
+            if not self.is_escape_waypoint(self.current_goal):
+                if self.distance_to_goal(self.current_goal) < 0.1:
+                    self.get_logger().info('Goal reached, cancelling...')
+                    self.cancel_current_goal()
+                    self.waypoint_generator.force_waypoint_change()
+                    self.reset_navigation_state()
+                    return
+
             current_time = self.get_clock().now()
             time_navigating = (current_time - self.goal_start_time).nanoseconds / 1e9
             

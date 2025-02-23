@@ -131,11 +131,7 @@ class HumanAvoidanceController:
                 self.node.get_logger().info(
                     f'Rear distance: {rear_distance:.2f}m at angle: {math.degrees(closest_angle):.1f}°'
                 )
-                
-                # Check distances
-                if rear_distance < self.critical_distance:
-                    return 'critical', rear_distance
-                elif rear_distance < self.ready_to_flee_distance:
+                if rear_distance < self.ready_to_flee_distance:
                     return 'ready', rear_distance
                 
                 return 'safe', rear_distance
@@ -152,12 +148,6 @@ class HumanAvoidanceController:
         
         # First check rear safety and get distance
         rear_status, rear_distance = self.check_rear_safety()
-        
-        # Handle critical rear distance
-        if rear_status == 'critical':
-            self.node.get_logger().error('EMERGENCY STOP - Critical rear distance!')
-            cmd = Twist()  # Zero velocity command
-            return cmd, True  # Return emergency stop and trigger escape
         
         # Handle turning to face human
         if image_x is not None:

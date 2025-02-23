@@ -620,6 +620,7 @@ class NavigationController(Node):
                     target_angle = math.atan2(dy, dx)
                     
                     # Get rotation speeds from human avoidance controller
+                    self.get_logger().info('Turing to face last known human position')
                     cmd = self.human_avoidance.turn_to_angle(target_angle)
                     
                     # If speeds are zero, we've reached the target angle

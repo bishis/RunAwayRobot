@@ -447,7 +447,13 @@ class NavigationController(Node):
                     self.waypoint_generator.force_waypoint_change()
                     self.reset_navigation_state()
                     return
-
+            elif self.is_escape_waypoint(self.current_goal):
+                if self.distance_to_goal(self.current_goal) < 0.3:
+                    self.get_logger().info('Escape goal reached, cancelling...')
+                    self.cancel_current_goal()
+                    self.start_escape_monitoring()
+                    return
+            
             current_time = self.get_clock().now()
             time_navigating = (current_time - self.goal_start_time).nanoseconds / 1e9
             
@@ -471,7 +477,7 @@ class NavigationController(Node):
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
                         self.escape_attempts = 0  # Reset for next time
-                
+                        self.start_escape_monitoring()
                 # Normal waypoint handling
                 else:
                     self.planning_attempts += 1

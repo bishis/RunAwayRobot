@@ -417,7 +417,7 @@ class NavigationController(Node):
                         self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
                         escape_point = self.human_avoidance.plan_escape()
                         if escape_point is not None:
-                            self.send_goal(escape_point)  # Retry same escape point
+                            self.send_goal(escape_point)  # Retry escape point
                             return
                         else:
                             self.get_logger().error('Failed to find escape point!')

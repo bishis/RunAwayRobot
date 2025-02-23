@@ -230,9 +230,8 @@ class HumanAvoidanceController:
     def turn_to_face_human(self, last_human_position):
         """Turn the robot to face the last known position of the human"""
         if last_human_position is not None:
-            
             self.node.get_logger().info('Turning to face human...')
-
+            
             human_x, human_y = last_human_position
             
             # Get current robot position

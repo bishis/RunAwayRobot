@@ -51,6 +51,9 @@ class NavigationController(Node):
             goal_tolerance=0.3
         )
         
+        # Initialize human avoidance controller
+        self.human_avoidance = HumanAvoidanceController(self, self.waypoint_generator)
+        
         # Add current_map storage
         self.current_map = None
         
@@ -113,9 +116,6 @@ class NavigationController(Node):
         
         self._current_goal_handle = None
         
-        # Add human avoidance controller
-        self.human_avoidance = HumanAvoidanceController(self, self.waypoint_generator)
-        
         # Add escape-specific parameters
         self.escape_timeout = 45.0  # Longer timeout for escape attempts
         self.max_escape_attempts = 3  # Number of retry attempts for escape
@@ -126,11 +126,17 @@ class NavigationController(Node):
         self.last_human_timestamp = None
 
     def scan_callback(self, msg: LaserScan):
-        """Store latest scan data"""
+        """Store latest scan data and process human detection"""
         self.latest_scan = msg
+        
         # Pass scan to human avoidance controller
-        if hasattr(self, 'human_avoidance'):
+        if hasattr(self.human_avoidance, 'latest_scan'):
             self.human_avoidance.latest_scan = msg
+        
+        # Check for human detection and update SLAM map
+        if self.human_avoidance.last_human_position:
+            human_position = self.human_avoidance.last_human_position
+            self.human_avoidance.add_human_to_slam_map(human_position, msg)
 
     def map_callback(self, msg: OccupancyGrid):
         """Update map in waypoint generator and store locally"""

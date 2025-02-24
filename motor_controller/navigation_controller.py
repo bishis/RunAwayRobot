@@ -656,17 +656,20 @@ class NavigationController(Node):
                         self.escape_wait_start = self.get_clock().now()
                         self.get_logger().info('Turned to face last known human position, starting wait period')
                 else:
-                    # No known human position, skip wait
+                    # No known human position, skip wait and cleanup
+                    self.cleanup_escape_monitoring()
                     self.resume_exploration()
                     return
             else:
                 # Check if wait period is over
                 current_time = self.get_clock().now()
-                # Calculate time difference in seconds
                 wait_time = (current_time.nanoseconds - self.escape_wait_start.nanoseconds) / 1e9
                 
                 if wait_time >= self.ESCAPE_WAIT_DURATION:
-                    # Check if human is detected based on tracking state and recent timestamp
+                    # Cleanup escape monitoring first
+                    self.cleanup_escape_monitoring()
+                    
+                    # Then check for human and take appropriate action
                     current_time_seconds = float(self.get_clock().now().nanoseconds) / 1e9
                     human_recently_seen = (
                         self.last_human_timestamp is not None and 
@@ -674,22 +677,27 @@ class NavigationController(Node):
                     )
                     
                     if self.is_tracking_human or human_recently_seen:
-                        # Human detected during wait, plan new escape
                         self.get_logger().info('Human detected during wait, planning new escape')
                         self.escape_again()
                     else:
-                        # No human detected, resume exploration
                         self.get_logger().info('No human detected after wait, resuming exploration')
                         self.resume_exploration()
         except Exception as e:
             self.get_logger().error(f'Error in escape monitoring: {str(e)}')
+            self.cleanup_escape_monitoring()
             self.resume_exploration()
+
+    def cleanup_escape_monitoring(self):
+        """Clean up escape monitoring timers and state"""
+        if self.escape_monitor_timer:
+            self.escape_monitor_timer.cancel()
+            self.escape_monitor_timer = None
+        self.escape_wait_start = None
+        self.get_logger().info('Cleaned up escape monitoring')
 
     def resume_exploration(self):
         """Clean up escape monitoring and resume exploration"""
-        if self.escape_monitor_timer:
-            self.escape_monitor_timer.cancel()
-            self.reset_escape_state()
+        self.cleanup_escape_monitoring()  # Make sure monitoring is cleaned up
         self.exploration_loop_timer.reset()
         self.waypoint_generator.force_waypoint_change()
         self.reset_navigation_state()

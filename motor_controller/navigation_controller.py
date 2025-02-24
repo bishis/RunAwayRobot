@@ -456,11 +456,11 @@ class NavigationController(Node):
         try:
             #check the distance to the goal
             if not self.is_escape_waypoint(self.current_goal):
-                if self.distance_to_goal(self.current_goal) < 0.3:
+                if self.distance_to_goal(self.current_goal) < 0.6:
                     self.get_logger().info('Goal reached, cancelling...')
                     self.cancel_current_goal()
-                    self.waypoint_generator.force_waypoint_change()
                     self.reset_navigation_state()
+                    self.waypoint_generator.force_waypoint_change()
                     return
             elif self.is_escape_waypoint(self.current_goal):
                 if self.distance_to_goal(self.current_goal) < 0.3:

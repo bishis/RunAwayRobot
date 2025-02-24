@@ -144,11 +144,6 @@ class NavigationController(Node):
         # Add map publisher for human obstacle updates
         self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
 
-        # Add escape sequence state
-        self.escape_state = 'INIT'  # States: INIT, TURNING, WAITING, DONE
-        self.escape_start_time = None
-        self.ESCAPE_WAIT_DURATION = 2  # seconds
-
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
         self.latest_scan = msg
@@ -456,7 +451,7 @@ class NavigationController(Node):
         try:
             #check the distance to the goal
             if not self.is_escape_waypoint(self.current_goal):
-                if self.distance_to_goal(self.current_goal) < 0.6:
+                if self.distance_to_goal(self.current_goal) < 0.5:
                     self.get_logger().info('Goal reached, cancelling...')
                     self.cancel_current_goal()
                     self.reset_navigation_state()
@@ -632,64 +627,68 @@ class NavigationController(Node):
         self.escape_wait_start = None  # Will be set when turning complete
 
     def monitor_escape_sequence(self):
-        """Monitor the escape sequence using a state machine approach"""
+        """Monitor the escape sequence: turn -> wait -> resume"""
         try:
-            current_time = self.get_clock().now().nanoseconds / 1e9  # Current time in seconds
-            
-            if self.escape_state == 'INIT':
+            if self.escape_wait_start is None:
+                # First, turn to face last known human position
                 if self.last_human_position is not None:
-                    self.escape_state = 'TURNING'
-                    self.get_logger().info('Starting escape sequence - turning to face human')
+                    # Calculate angle to last known human position
+                    dx = self.last_human_position[0] - self.current_pose.pose.position.x
+                    dy = self.last_human_position[1] - self.current_pose.pose.position.y
+                    target_angle = math.atan2(dy, dx)
+                    
+                    # Check if a human is detected
+                    if self.is_tracking_human:  # Assuming this variable indicates human detection
+                        self.get_logger().info('Human detected, stopping turn.')
+                        self.wheel_speeds_pub.publish(Twist())  # Stop turning
+                        self.escape_again()  # Call escape again
+                        return  # Exit the function to avoid further processing
+                    
+                    # Get rotation speeds from human avoidance controller
+                    self.get_logger().info('Turning to face last known human position')
+                    cmd = self.human_avoidance.turn_to_angle(target_angle)
+                    # Publish the rotation command
+                    self.wheel_speeds_pub.publish(cmd)
+                    
+                    # Check if we have reached the target angle
+                    if abs(cmd.angular.z) < 0.01:
+                        # Store as Time type
+                        self.escape_wait_start = Time(seconds=int(self.get_clock().now().nanoseconds / 1e9),
+                                                    nanoseconds=int(self.get_clock().now().nanoseconds % 1e9))
+                        self.get_logger().info('Turned to face last known human position, starting wait period')
                 else:
+                    # No known human position, skip wait and cleanup
                     self.cleanup_escape_monitoring()
                     self.resume_exploration()
                     return
-
-            elif self.escape_state == 'TURNING':
-                # Calculate angle to last known human position
-                dx = self.last_human_position[0] - self.current_pose.pose.position.x
-                dy = self.last_human_position[1] - self.current_pose.pose.position.y
-                target_angle = math.atan2(dy, dx)
+            else:
+                # Check if wait period is over
+                current_time = Time(seconds=int(self.get_clock().now().nanoseconds / 1e9),
+                                  nanoseconds=int(self.get_clock().now().nanoseconds % 1e9))
                 
-                # Check if human is detected
-                if self.is_tracking_human:
-                    self.get_logger().info('Human detected while turning, planning new escape')
-                    self.wheel_speeds_pub.publish(Twist())  # Stop turning
-                    self.escape_again()
-                    return
-                
-                # Get rotation command
-                cmd = self.human_avoidance.turn_to_angle(target_angle)
-                self.wheel_speeds_pub.publish(cmd)
-                
-                # Check if turn is complete
-                if abs(cmd.angular.z) < 0.01:
-                    self.escape_state = 'WAITING'
-                    self.escape_start_time = current_time
-                    self.get_logger().info('Turn complete, starting wait period')
-                    self.wheel_speeds_pub.publish(Twist())  # Ensure robot is stopped
-
-            elif self.escape_state == 'WAITING':
-                if self.escape_start_time is None:
-                    self.escape_start_time = current_time
-                    
-                wait_time = current_time - self.escape_start_time
+                # Calculate time difference in seconds using Time objects
+                wait_time = (current_time.sec - self.escape_wait_start.sec + 
+                            (current_time.nanosec - self.escape_wait_start.nanosec) / 1e9)
                 
                 if wait_time >= self.ESCAPE_WAIT_DURATION:
-                    self.escape_state = 'DONE'
+                    # Cleanup escape monitoring first
+                    self.cleanup_escape_monitoring()
+                    
+                    # Then check for human and take appropriate action
+                    current_time_seconds = float(self.get_clock().now().nanoseconds) / 1e9
                     human_recently_seen = (
                         self.last_human_timestamp is not None and 
-                        (current_time - self.last_human_timestamp) < 2.0
+                        (current_time_seconds - self.last_human_timestamp) < 2.0
                     )
                     
                     if self.is_tracking_human or human_recently_seen:
                         self.get_logger().info('Human detected during wait, planning new escape')
                         self.escape_again()
+                        return
                     else:
                         self.get_logger().info('No human detected after wait, resuming exploration')
                         self.resume_exploration()
-                    return
-
+                        return
         except Exception as e:
             self.get_logger().error(f'Error in escape monitoring: {str(e)}')
             self.cleanup_escape_monitoring()
@@ -700,8 +699,7 @@ class NavigationController(Node):
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
             self.escape_monitor_timer = None
-        self.escape_state = 'INIT'
-        self.escape_start_time = None
+        self.escape_wait_start = None
         self.get_logger().info('Cleaned up escape monitoring')
 
     def resume_exploration(self):

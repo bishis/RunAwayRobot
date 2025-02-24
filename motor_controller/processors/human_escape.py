@@ -11,10 +11,6 @@ class HumanEscape(WaypointGenerator):
     
     def __init__(self, node):
         super().__init__(node)
-        # Additional parameters for escape behavior
-        self.escape_distance = 2.0  # Desired escape distance in meters
-        self.min_escape_distance = 1.5  # Minimum acceptable escape distance
-        self.escape_search_radius = 3.0  # Maximum radius to search for escape points
         
     def get_furthest_waypoint(self):
         """Generate a waypoint at the furthest reachable point from human position"""

@@ -1,6 +1,6 @@
 image_width: 640
 image_height: 480
-camera_name: camera
+camera_name: "logitech_webcam_c930e"
 camera_matrix:
   rows: 3
   cols: 3

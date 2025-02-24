@@ -139,7 +139,7 @@ class NavigationController(Node):
         # Add timer for escape monitoring (initially disabled)
         self.escape_monitor_timer = None
         self.escape_wait_start = None
-        self.ESCAPE_WAIT_DURATION = 10.0  # seconds
+        self.ESCAPE_WAIT_DURATION = 2.0  # Wait duration in seconds
 
         # Add map publisher for human obstacle updates
         self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
@@ -588,7 +588,7 @@ class NavigationController(Node):
                         self.cancel_current_goal()
                         self.exploration_loop_timer.cancel()
                         self.waypoint_generator.cancel_waypoint()  # Clear any exploration waypoints
-                        self.update_human_position_in_map()
+                        # self.update_human_position_in_map()
                         escape_point = self.human_avoidance.plan_escape()
                         
                         if escape_point is not None:
@@ -653,7 +653,7 @@ class NavigationController(Node):
                     
                     # Check if we have reached the target angle
                     if abs(cmd.angular.z) < 0.01:
-                        self.escape_wait_start = self.get_clock().now().to_msg()  # Store as message
+                        self.escape_wait_start = self.get_clock().now()
                         self.get_logger().info('Turned to face last known human position, starting wait period')
                 else:
                     # No known human position, skip wait
@@ -661,14 +661,13 @@ class NavigationController(Node):
                     return
             else:
                 # Check if wait period is over
-                current_time = self.get_clock().now().to_msg()
-                # Convert time difference to seconds
-                wait_time = (current_time.sec - self.escape_wait_start.sec + 
-                            (current_time.nanosec - self.escape_wait_start.nanosec) / 1e9)
+                current_time = self.get_clock().now()
+                # Calculate time difference in seconds
+                wait_time = (current_time.nanoseconds - self.escape_wait_start.nanoseconds) / 1e9
                 
                 if wait_time >= self.ESCAPE_WAIT_DURATION:
                     # Check if human is detected based on tracking state and recent timestamp
-                    current_time_seconds = self.get_clock().now().seconds_nanoseconds()[0]
+                    current_time_seconds = float(self.get_clock().now().nanoseconds) / 1e9
                     human_recently_seen = (
                         self.last_human_timestamp is not None and 
                         (current_time_seconds - self.last_human_timestamp) < 2.0

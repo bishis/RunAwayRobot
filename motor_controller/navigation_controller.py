@@ -685,9 +685,11 @@ class NavigationController(Node):
                     if self.is_tracking_human or human_recently_seen:
                         self.get_logger().info('Human detected during wait, planning new escape')
                         self.escape_again()
+                        return
                     else:
                         self.get_logger().info('No human detected after wait, resuming exploration')
                         self.resume_exploration()
+                        return
         except Exception as e:
             self.get_logger().error(f'Error in escape monitoring: {str(e)}')
             self.cleanup_escape_monitoring()
@@ -714,9 +716,6 @@ class NavigationController(Node):
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
             self.reset_escape_state()
-        escape_point = self.human_avoidance.plan_escape()
-        if escape_point is not None:
-            self.send_goal(escape_point)
         
     def update_human_position_in_map(self):
         """Update the occupancy grid with the last known human position"""

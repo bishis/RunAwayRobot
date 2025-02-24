@@ -53,7 +53,6 @@ def generate_launch_description():
                 'camera_frame_id': 'camera_link',
                 'video_device': '/dev/video0',
                 'pixel_format': 'YUYV',
-                'output_encoding': 'rgb8',
                 'camera_info_url': 'package://motor_controller/config/camera_info.yaml',
                 'publish_raw': False,
                 'publish_compressed': True,

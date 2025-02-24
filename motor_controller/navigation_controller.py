@@ -16,6 +16,7 @@ from .processors.human_avoidance_controller import HumanAvoidanceController
 from std_srvs.srv import Empty
 from tf2_ros import TransformException, Buffer, TransformListener
 import time
+from builtin_interfaces.msg import Time
 
 class NavigationController(Node):
     def __init__(self):
@@ -139,6 +140,9 @@ class NavigationController(Node):
         self.escape_monitor_timer = None
         self.escape_wait_start = None
         self.ESCAPE_WAIT_DURATION = 10.0  # seconds
+
+        # Add map publisher for human obstacle updates
+        self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -584,6 +588,7 @@ class NavigationController(Node):
                         self.cancel_current_goal()
                         self.exploration_loop_timer.cancel()
                         self.waypoint_generator.cancel_waypoint()  # Clear any exploration waypoints
+                        self.update_human_position_in_map()
                         escape_point = self.human_avoidance.plan_escape()
                         
                         if escape_point is not None:
@@ -700,7 +705,56 @@ class NavigationController(Node):
         if escape_point is not None:
             self.send_goal(escape_point)
         
-        
+    def update_human_position_in_map(self):
+        """Update the occupancy grid with the last known human position"""
+        if self.current_map is None or self.last_human_position is None:
+            return
+
+        try:
+            # Convert human position to map coordinates
+            map_x = int((self.last_human_position[0] - self.current_map.info.origin.position.x) / 
+                        self.current_map.info.resolution)
+            map_y = int((self.last_human_position[1] - self.current_map.info.origin.position.y) / 
+                        self.current_map.info.resolution)
+
+            # Define radius of human obstacle (in meters)
+            human_radius = 0.23  # 0.25 meter radius
+            cells_radius = int(human_radius / self.current_map.info.resolution)
+
+            # Create temporary map data
+            temp_map = list(self.current_map.data)
+
+            # Mark cells around human position as occupied
+            for dx in range(-cells_radius, cells_radius + 1):
+                for dy in range(-cells_radius, cells_radius + 1):
+                    # Check if point is within circular radius
+                    if dx*dx + dy*dy <= cells_radius*cells_radius:
+                        cell_x = map_x + dx
+                        cell_y = map_y + dy
+                        
+                        # Check if coordinates are within map bounds
+                        if (0 <= cell_x < self.current_map.info.width and 
+                            0 <= cell_y < self.current_map.info.height):
+                            # Calculate index in flattened array
+                            index = cell_y * self.current_map.info.width + cell_x
+                            # Mark as occupied (100 represents occupied in occupancy grid)
+                            temp_map[index] = 100
+
+            # Update map data
+            self.current_map.data = temp_map
+            
+            # Republish modified map
+            self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
+            self.map_pub.publish(self.current_map)
+            
+            self.get_logger().info(
+                f'Updated map with human obstacle at ({self.last_human_position[0]:.2f}, '
+                f'{self.last_human_position[1]:.2f})'
+            )
+
+        except Exception as e:
+            self.get_logger().error(f'Error updating human position in map: {str(e)}')
+
 def main(args=None):
     rclpy.init(args=args)
     node = NavigationController()

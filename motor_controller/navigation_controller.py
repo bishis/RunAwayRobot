@@ -345,7 +345,7 @@ class NavigationController(Node):
                     self.reset_navigation_state()
                 if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
                     self.get_logger().info('Escape plan succeeded - resuming normal operation')
-                    self.escape_attempts = 0  # Reset escape attempts counter
+                    self.reset_escape_state()
                     self.start_escape_monitoring()
                 
                 
@@ -372,6 +372,12 @@ class NavigationController(Node):
             # Still try to reset navigation even if timer cleanup fails
             self.reset_navigation_state()
 
+    def reset_escape_state(self):
+        """Reset escape state"""
+        self.escape_attempts = 0
+        self.escape_wait_start = None
+        self.escape_monitor_timer = None
+        
     def reset_navigation_state(self):
         """Reset navigation state and try new waypoint"""
         self.is_navigating = False
@@ -451,6 +457,7 @@ class NavigationController(Node):
                 if self.distance_to_goal(self.current_goal) < 0.3:
                     self.get_logger().info('Escape goal reached, cancelling...')
                     self.cancel_current_goal()
+                    self.reset_escape_state()
                     self.start_escape_monitoring()
                     return
             
@@ -476,7 +483,7 @@ class NavigationController(Node):
                             self.get_logger().error('Failed to find escape point!')
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
-                        self.escape_attempts = 0  # Reset for next time
+                        self.reset_escape_state()
                         self.start_escape_monitoring()
                 # Normal waypoint handling
                 else:

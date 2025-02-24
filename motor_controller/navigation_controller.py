@@ -648,7 +648,7 @@ class NavigationController(Node):
                     
                     # Check if we have reached the target angle
                     if abs(cmd.angular.z) < 0.01:
-                        self.escape_wait_start = self.get_clock().now()  # Store the current time
+                        self.escape_wait_start = self.get_clock().now().to_msg()  # Store as message
                         self.get_logger().info('Turned to face last known human position, starting wait period')
                 else:
                     # No known human position, skip wait
@@ -656,15 +656,17 @@ class NavigationController(Node):
                     return
             else:
                 # Check if wait period is over
-                current_time = self.get_clock().now()
-                wait_time = (current_time.nanoseconds - self.escape_wait_start.nanoseconds) / 1e9  # Convert to seconds
+                current_time = self.get_clock().now().to_msg()
+                # Convert time difference to seconds
+                wait_time = (current_time.sec - self.escape_wait_start.sec + 
+                            (current_time.nanosec - self.escape_wait_start.nanosec) / 1e9)
                 
                 if wait_time >= self.ESCAPE_WAIT_DURATION:
                     # Check if human is detected based on tracking state and recent timestamp
-                    current_time_seconds = self.get_clock().now().nanoseconds / 1e9
+                    current_time_seconds = self.get_clock().now().seconds_nanoseconds()[0]
                     human_recently_seen = (
                         self.last_human_timestamp is not None and 
-                        (current_time_seconds - self.last_human_timestamp) < 2.0  # Within last second
+                        (current_time_seconds - self.last_human_timestamp) < 2.0
                     )
                     
                     if self.is_tracking_human or human_recently_seen:

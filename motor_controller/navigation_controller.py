@@ -632,6 +632,13 @@ class NavigationController(Node):
                     dy = self.last_human_position[1] - self.current_pose.pose.position.y
                     target_angle = math.atan2(dy, dx)
                     
+                    # Check if a human is detected
+                    if self.is_tracking_human:  # Assuming this variable indicates human detection
+                        self.get_logger().info('Human detected, stopping turn.')
+                        self.wheel_speeds_pub.publish(Twist())  # Stop turning
+                        self.escape_again()
+                        return  # Exit the function to avoid further processing
+                    
                     # Get rotation speeds from human avoidance controller
                     self.get_logger().info('Turning to face last known human position')
                     cmd = self.human_avoidance.turn_to_angle(target_angle)
@@ -663,9 +670,7 @@ class NavigationController(Node):
                     if self.is_tracking_human or human_recently_seen:
                         # Human detected during wait, plan new escape
                         self.get_logger().info('Human detected during wait, planning new escape')
-                        escape_point = self.human_avoidance.plan_escape()
-                        if escape_point is not None:
-                            self.send_goal(escape_point)
+                        self.escape_again()
                     else:
                         # No human detected, resume exploration
                         self.get_logger().info('No human detected after wait, resuming exploration')
@@ -678,12 +683,22 @@ class NavigationController(Node):
         """Clean up escape monitoring and resume exploration"""
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
-            self.escape_monitor_timer = None
-        self.escape_wait_start = None
+            self.reset_escape_state()
         self.exploration_loop_timer.reset()
         self.waypoint_generator.force_waypoint_change()
         self.reset_navigation_state()
 
+    def escape_again(self):
+        """Escape again"""
+        self.get_logger().info('Escape again')
+        if self.escape_monitor_timer:
+            self.escape_monitor_timer.cancel()
+            self.reset_escape_state()
+        escape_point = self.human_avoidance.plan_escape()
+        if escape_point is not None:
+            self.send_goal(escape_point)
+        
+        
 def main(args=None):
     rclpy.init(args=args)
     node = NavigationController()

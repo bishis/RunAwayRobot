@@ -629,6 +629,12 @@ class NavigationController(Node):
     def monitor_escape_sequence(self):
         """Monitor the escape sequence: turn -> wait -> resume"""
         try:
+            if self.is_tracking_human:
+                self.get_logger().info('Human detected, stopping turn.')
+                self.wheel_speeds_pub.publish(Twist())  # Stop turning
+                self.escape_again()  # Call escape again
+                return  # Exit the function to avoid further processing
+            
             if self.escape_wait_start is None:
                 # First, turn to face last known human position
                 if self.last_human_position is not None:

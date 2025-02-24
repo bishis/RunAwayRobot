@@ -139,7 +139,7 @@ class NavigationController(Node):
         # Add timer for escape monitoring (initially disabled)
         self.escape_monitor_timer = None
         self.escape_wait_start = None
-        self.ESCAPE_WAIT_DURATION = 2.0  # Wait duration in seconds
+        self.ESCAPE_WAIT_DURATION = 2
 
         # Add map publisher for human obstacle updates
         self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
@@ -653,7 +653,9 @@ class NavigationController(Node):
                     
                     # Check if we have reached the target angle
                     if abs(cmd.angular.z) < 0.01:
-                        self.escape_wait_start = self.get_clock().now()
+                        # Store as Time type
+                        self.escape_wait_start = Time(seconds=int(self.get_clock().now().nanoseconds / 1e9),
+                                                    nanoseconds=int(self.get_clock().now().nanoseconds % 1e9))
                         self.get_logger().info('Turned to face last known human position, starting wait period')
                 else:
                     # No known human position, skip wait and cleanup
@@ -662,8 +664,12 @@ class NavigationController(Node):
                     return
             else:
                 # Check if wait period is over
-                current_time = self.get_clock().now()
-                wait_time = (current_time.nanoseconds - self.escape_wait_start.nanoseconds) / 1e9
+                current_time = Time(seconds=int(self.get_clock().now().nanoseconds / 1e9),
+                                  nanoseconds=int(self.get_clock().now().nanoseconds % 1e9))
+                
+                # Calculate time difference in seconds using Time objects
+                wait_time = (current_time.sec - self.escape_wait_start.sec + 
+                            (current_time.nanosec - self.escape_wait_start.nanosec) / 1e9)
                 
                 if wait_time >= self.ESCAPE_WAIT_DURATION:
                     # Cleanup escape monitoring first

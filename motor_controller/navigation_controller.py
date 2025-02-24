@@ -635,7 +635,7 @@ class NavigationController(Node):
                 return
             
             # Calculate angle to last known human position
-            if self.last_human_position is not None:
+            elif self.last_human_position is not None:
                 dx = self.last_human_position[0] - self.current_pose.pose.position.x
                 dy = self.last_human_position[1] - self.current_pose.pose.position.y
                 target_angle = math.atan2(dy, dx)

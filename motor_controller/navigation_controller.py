@@ -349,6 +349,7 @@ class NavigationController(Node):
                     self.reset_navigation_state()
                 if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
                     self.get_logger().info('Escape plan succeeded - turning to face human')
+                    self.cancel_current_goal()
                     self.reset_escape_state()
                     self.start_escape_monitoring()
                 
@@ -488,6 +489,7 @@ class NavigationController(Node):
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
                         self.reset_escape_state()
+                        self.cancel_current_goal()
                         self.start_escape_monitoring()
                 # Normal waypoint handling
                 else:

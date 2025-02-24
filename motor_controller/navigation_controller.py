@@ -636,7 +636,7 @@ class NavigationController(Node):
                     if self.is_tracking_human:  # Assuming this variable indicates human detection
                         self.get_logger().info('Human detected, stopping turn.')
                         self.wheel_speeds_pub.publish(Twist())  # Stop turning
-                        self.escape_again()
+                        self.escape_again()  # Call escape again
                         return  # Exit the function to avoid further processing
                     
                     # Get rotation speeds from human avoidance controller

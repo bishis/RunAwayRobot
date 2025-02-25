@@ -368,7 +368,12 @@ class NavigationController(Node):
         self.escape_attempts = 0
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
-        
+            self.escape_monitor_timer = None
+        if self.spin_timer:  # Add spin timer cleanup
+            self.spin_timer.cancel()
+            self.spin_timer = None
+        self.is_spinning = False  # Reset spinning state
+
     def reset_navigation_state(self):
         """Reset navigation state and try new waypoint"""
         self.is_navigating = False
@@ -628,11 +633,6 @@ class NavigationController(Node):
                 dx = self.last_human_position[0] - self.current_pose.pose.position.x
                 dy = self.last_human_position[1] - self.current_pose.pose.position.y
                 target_angle = math.atan2(dy, dx)
-                if self.is_tracking_human:  # Assuming this variable indicates human detection
-                    self.get_logger().info('Human detected, stopping turn.')
-                    self.wheel_speeds_pub.publish(Twist())  # Stop turning
-                    self.escape_again()  # Call escape again
-                    return  # Exit the function to avoid further processing
                 
                 # Get rotation speeds from human avoidance controller
                 cmd = self.human_avoidance.turn_to_angle(target_angle)
@@ -665,6 +665,11 @@ class NavigationController(Node):
     def resume_exploration(self):
         """Clean up escape monitoring and resume exploration"""
         self.cleanup_escape_monitoring()  # Make sure monitoring is cleaned up
+        if self.spin_timer:  # Add check for spin timer
+            self.spin_timer.cancel()
+            self.spin_timer = None
+        self.is_spinning = False  # Reset spinning state
+        self.escape_attempts = 0  # Reset escape attempts
         self.exploration_loop_timer.reset()
         self.waypoint_generator.force_waypoint_change()
         self.reset_navigation_state()
@@ -675,7 +680,7 @@ class NavigationController(Node):
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
             self.reset_escape_state()
-        
+    
     def update_human_position_in_map(self):
         """Update the occupancy grid with the last known human position"""
         if self.current_map is None or self.last_human_position is None:

@@ -142,6 +142,11 @@ class NavigationController(Node):
 
         # Add map publisher for human obstacle updates
         self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
+        
+        # Add spin parameters
+        self.SPIN_SPEED = 0.8  # rad/s
+        self.is_spinning = False
+        self.spin_timer = None
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -289,7 +294,10 @@ class NavigationController(Node):
             
             if not goal_handle.accepted:
                 self.get_logger().warn('Goal rejected')
-                self.reset_navigation_state()
+                if self.is_escape_waypoint(self.current_goal):
+                    self.handle_escape_failure("Goal rejected")
+                else:
+                    self.reset_navigation_state()
                 return
             
             self.get_logger().info('Goal accepted')
@@ -310,76 +318,56 @@ class NavigationController(Node):
             status = result.status
             self.get_logger().info(f'Navigation result status: {status}')
             
-            if status != GoalStatus.STATUS_SUCCEEDED:
-                # Check for specific failure messages
-                if hasattr(result, 'result') and hasattr(result.result, 'error_code'):
-                    if result.result.error_code == 100:  # Nav2 error code for no valid path
-                        self.get_logger().error('ROBOT IS TRAPPED - No valid escape path found!')
-                
-                self.get_logger().warn(f'Navigation failed with status: {status}')
-                
-                # Handle escape waypoint failures differently
-                if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
-                    self.escape_attempts += 1
-                    if self.escape_attempts < self.max_escape_attempts:
-                        self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
-                        escape_point = self.human_avoidance.plan_escape()
-                        if escape_point is not None:
-                            self.send_goal(escape_point)  # Retry escape point
-                        return
-                    else:
-                        self.get_logger().error('Max escape attempts reached, giving up escape plan')
-                        self.escape_attempts = 0  # Reset for next time
-                        self.get_logger().warn('Escape plan failed - resuming normal operation')
-                        self.reset_navigation_state()
-                        return
-                
-                # Normal failure handling
-                self.planning_attempts += 1
-                
-                if self.planning_attempts >= self.max_planning_attempts:
-                    self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
-                    self.planning_attempts = 0
-                    self.waypoint_generator.force_waypoint_change()
-            else:
-                self.get_logger().info('Navigation succeeded')
-                if self.current_goal is not None and not self.is_escape_waypoint(self.current_goal):
-                    self.planning_attempts = 0
-                    self.reset_navigation_state()
-                if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
-                    self.get_logger().info('Escape plan succeeded - turning to face human')
-                    self.cancel_current_goal()
-                    self.reset_escape_state()
+            if result.result == NavigateToPose.Result.NO_VALID_PATH and self.is_escape_waypoint(self.current_goal):
+                self.get_logger().warn('No valid path to escape!')
+                self.start_spin_defense()
+
+            elif status != GoalStatus.STATUS_SUCCEEDED and self.is_escape_waypoint(self.current_goal):
+                self.handle_escape_failure("escape failed")
+                self.escape_attempts += 1
+                if self.escape_attempts < self.max_escape_attempts:
+                    self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
+                    escape_point = self.human_avoidance.plan_escape()
+                    if escape_point is not None:
+                        self.send_goal(escape_point)  # Retry escape point
+                    return
+                else:
+                    self.get_logger().error('Max escape attempts reached, giving up escape plan')
+                    self.get_logger().warn('Escape plan failed')
                     self.start_escape_monitoring()
+                    return
+            else:                
+                if status != GoalStatus.STATUS_SUCCEEDED:
+
+                    self.get_logger().warn(f'Navigation failed with status: {status}')
+                    # Normal failure handling
+                    self.planning_attempts += 1
+                    
+                    if self.planning_attempts >= self.max_planning_attempts:
+                        self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
+                        self.planning_attempts = 0
+                        self.waypoint_generator.force_waypoint_change()
+                else:
+                    self.get_logger().info('Navigation succeeded')
+                    if self.current_goal is not None and not self.is_escape_waypoint(self.current_goal):
+                        self.planning_attempts = 0
+                        self.reset_navigation_state()
+                    if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+                        self.get_logger().info('Escape plan succeeded - turning to face human')
+                        self.cancel_current_goal()
+                        self.reset_escape_state()
+                        self.start_escape_monitoring()
                 
                 
         except Exception as e:
             self.get_logger().error(f'Error getting navigation result: {str(e)}')
             self.reset_navigation_state()
 
-    def handle_goal_failure(self):
-        """Handle navigation failures"""
-        # Force waypoint generator to pick new point
-        self.waypoint_generator.force_waypoint_change()
-        self.reset_navigation_state()
-
-    def reset_with_timer(self):
-        """Callback for reset timer"""
-        try:
-            if hasattr(self, '_reset_timer') and self._reset_timer is not None:
-                self._reset_timer.cancel()
-                self._reset_timer = None
-            # Reset navigation
-            self.reset_navigation_state()
-        except Exception as e:
-            self.get_logger().error(f'Error in reset timer: {str(e)}')
-            # Still try to reset navigation even if timer cleanup fails
-            self.reset_navigation_state()
-
     def reset_escape_state(self):
         """Reset escape state"""
         self.escape_attempts = 0
-        self.escape_monitor_timer = None
+        if self.escape_monitor_timer:
+            self.escape_monitor_timer.cancel()
         
     def reset_navigation_state(self):
         """Reset navigation state and try new waypoint"""
@@ -586,9 +574,10 @@ class NavigationController(Node):
                         
                         # Proceed with escape plan
                         self.cancel_current_goal()
-                        self.exploration_loop_timer.cancel()
+                        if self.exploration_loop_timer:
+                            self.exploration_loop_timer.cancel()
                         self.waypoint_generator.cancel_waypoint()  # Clear any exploration waypoints
-                        # self.update_human_position_in_map()
+                        self.update_human_position_in_map()
                         escape_point = self.human_avoidance.plan_escape()
                         
                         if escape_point is not None:
@@ -736,6 +725,36 @@ class NavigationController(Node):
 
         except Exception as e:
             self.get_logger().error(f'Error updating human position in map: {str(e)}')
+
+    def start_spin_defense(self):
+        """Start spinning in place as last resort defense"""
+        self.get_logger().warn('Starting spin defense!')
+        self.is_spinning = True
+        
+        # Cancel any existing navigation
+        self.cancel_current_goal()
+        if self.escape_monitor_timer:
+            self.escape_monitor_timer.cancel()
+        if self.spin_timer:
+            self.spin_timer.cancel()
+        self.spin_timer = self.create_timer(0.1, self.spin_defense_callback)
+
+    def spin_defense_callback(self):
+        """Execute spin movement"""
+        if not self.is_spinning:
+            if self.spin_timer:
+                self.spin_timer.cancel()
+                self.spin_timer = None
+            return
+        
+        cmd = Twist()
+        cmd.angular.z = self.SPIN_SPEED
+        self.wheel_speeds_pub.publish(cmd)
+
+    def handle_escape_failure(self, reason):
+        """Handle failed escape attempt"""
+        self.get_logger().warn(f'Escape failed: {reason}')
+        
 
 def main(args=None):
     rclpy.init(args=args)

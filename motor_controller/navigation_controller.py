@@ -318,11 +318,11 @@ class NavigationController(Node):
             status = result.status
             self.get_logger().info(f'Navigation result status: {status}')
             
-            if result.result == NavigateToPose.Result.NO_VALID_PATH and self.is_escape_waypoint(self.current_goal):
-                self.get_logger().warn('No valid path to escape!')
-                self.start_spin_defense()
+            # if result.result == NavigateToPose.Result.NO_VALID_PATH and self.is_escape_waypoint(self.current_goal):
+            #     self.get_logger().warn('No valid path to escape!')
+            #     self.start_spin_defense()
 
-            elif status != GoalStatus.STATUS_SUCCEEDED and self.is_escape_waypoint(self.current_goal):
+            if status != GoalStatus.STATUS_SUCCEEDED and self.is_escape_waypoint(self.current_goal):
                 self.handle_escape_failure("escape failed")
                 self.escape_attempts += 1
                 if self.escape_attempts < self.max_escape_attempts:

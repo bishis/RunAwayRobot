@@ -406,10 +406,10 @@ class NavigationController(Node):
     def cancel_current_goal(self):
         """Cancel the current navigation goal if one exists"""
         if self._current_goal_handle is not None:
+            self.clear_visualization_markers()
             if self.is_escape_waypoint(self.current_goal):
                 self.get_logger().info('Canceling escape goal')
                 # Reset escape-specific state
-                self.escape_attempts = 0
                 self.is_tracking_human = False  # Ensure tracking stays off
             else:
                 self.get_logger().info('Canceling exploration goal')
@@ -452,6 +452,7 @@ class NavigationController(Node):
             elif self.is_escape_waypoint(self.current_goal):
                 if self.distance_to_goal(self.current_goal) < 0.3:
                     self.get_logger().info('Escape goal reached, cancelling...')
+                    self.escape_attempts = 0
                     self.cancel_current_goal()
                     self.reset_escape_state()
                     self.start_escape_monitoring()
@@ -670,6 +671,10 @@ class NavigationController(Node):
             self.spin_timer = None
         self.is_spinning = False  # Reset spinning state
         self.escape_attempts = 0  # Reset escape attempts
+        
+        # Clear old markers before resuming
+        self.clear_visualization_markers()
+        
         self.exploration_loop_timer.reset()
         self.waypoint_generator.force_waypoint_change()
         self.reset_navigation_state()
@@ -680,7 +685,7 @@ class NavigationController(Node):
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
             self.reset_escape_state()
-    
+
     def update_human_position_in_map(self):
         """Update the occupancy grid with the last known human position"""
         if self.current_map is None or self.last_human_position is None:
@@ -742,6 +747,10 @@ class NavigationController(Node):
             self.escape_monitor_timer.cancel()
         if self.spin_timer:
             self.spin_timer.cancel()
+        
+        # Clear visualization markers
+        self.clear_visualization_markers()
+        
         self.spin_timer = self.create_timer(0.1, self.spin_defense_callback)
 
     def spin_defense_callback(self):
@@ -760,6 +769,23 @@ class NavigationController(Node):
         """Handle failed escape attempt"""
         self.get_logger().warn(f'Escape failed: {reason}')
         
+    def clear_visualization_markers(self):
+        """Clear all visualization markers"""
+        try:
+            # Create an empty marker array
+            marker_array = MarkerArray()
+            
+            # Add a deletion marker
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.action = Marker.DELETEALL
+            marker_array.markers.append(marker)
+            
+            # Publish the deletion marker
+            self.marker_pub.publish(marker_array)
+            self.get_logger().debug('Cleared visualization markers')
+        except Exception as e:
+            self.get_logger().error(f'Error clearing markers: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)

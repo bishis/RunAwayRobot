@@ -37,8 +37,7 @@ class HumanAvoidanceController:
         
         # Distance thresholds
         self.min_safe_distance = 1.25  # Start backing up at 1m
-        self.critical_distance = 0.4   # Request escape at 0.3m
-        self.ready_to_flee_distance = 0.5  # Distance to enter ready-to-flee mode
+        self.ready_to_flee_distance = 0.55  # Distance to enter ready-to-flee mode
         self.max_backup_speed = 0.15   # Increase backup speed
         
         # Tracking parameters
@@ -56,10 +55,6 @@ class HumanAvoidanceController:
         if hasattr(node, 'latest_scan'):
             self.latest_scan = node.latest_scan
             
-
-        # Add forward motion control
-        self.forward_motion_start = 0.0
-        self.forward_motion_duration = 0.5  # Forward motion duration in seconds
 
     def calculate_turn_command(self, image_x: float) -> float:
         """Calculate turn speed to face human."""
@@ -98,9 +93,9 @@ class HumanAvoidanceController:
             return 'safe', float('inf')  # Assume safe if no data
         
         try:
-            # Define rear arc from 120° to 220° for 100° total coverage
-            rear_start_angle = 120 * math.pi/180  # 120 degrees
-            rear_end_angle = 220 * math.pi/180    # 220 degrees
+            # Define rear arc from 105° to 235° for 130° total coverage
+            rear_start_angle = 105 * math.pi/180  # 105 degrees
+            rear_end_angle = 235 * math.pi/180    # 235 degrees
             
             # Convert angles to LIDAR indices
             start_idx = int((rear_start_angle - self.latest_scan.angle_min) / 

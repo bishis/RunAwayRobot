@@ -692,18 +692,26 @@ class NavigationController(Node):
             return
 
         try:
+            # Create a deep copy of the current map to avoid modifying the original
+            updated_map = OccupancyGrid()
+            updated_map.header = self.current_map.header
+            updated_map.info = self.current_map.info
+            
+            # Update header with current time and increment sequence number
+            updated_map.header.stamp = self.get_clock().now().to_msg()
+            
+            # Copy the map data
+            updated_map.data = list(self.current_map.data)
+
             # Convert human position to map coordinates
-            map_x = int((self.last_human_position[0] - self.current_map.info.origin.position.x) / 
-                        self.current_map.info.resolution)
-            map_y = int((self.last_human_position[1] - self.current_map.info.origin.position.y) / 
-                        self.current_map.info.resolution)
+            map_x = int((self.last_human_position[0] - updated_map.info.origin.position.x) / 
+                        updated_map.info.resolution)
+            map_y = int((self.last_human_position[1] - updated_map.info.origin.position.y) / 
+                        updated_map.info.resolution)
 
             # Define radius of human obstacle (in meters)
             human_radius = 0.23  # 0.25 meter radius
-            cells_radius = int(human_radius / self.current_map.info.resolution)
-
-            # Create temporary map data
-            temp_map = list(self.current_map.data)
+            cells_radius = int(human_radius / updated_map.info.resolution)
 
             # Mark cells around human position as occupied
             for dx in range(-cells_radius, cells_radius + 1):
@@ -714,24 +722,26 @@ class NavigationController(Node):
                         cell_y = map_y + dy
                         
                         # Check if coordinates are within map bounds
-                        if (0 <= cell_x < self.current_map.info.width and 
-                            0 <= cell_y < self.current_map.info.height):
+                        if (0 <= cell_x < updated_map.info.width and 
+                            0 <= cell_y < updated_map.info.height):
                             # Calculate index in flattened array
-                            index = cell_y * self.current_map.info.width + cell_x
+                            index = cell_y * updated_map.info.width + cell_x
                             # Mark as occupied (100 represents occupied in occupancy grid)
-                            temp_map[index] = 100
-
-            # Update map data
-            self.current_map.data = temp_map
+                            updated_map.data[index] = 100
+                                        
+            # Also update our stored map
+            self.current_map = updated_map
             
-            # Republish modified map
-            self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
-            self.map_pub.publish(self.current_map)
+            # Update waypoint generator with new map
+            self.waypoint_generator.update_map(updated_map)
             
             self.get_logger().info(
                 f'Updated map with human obstacle at ({self.last_human_position[0]:.2f}, '
                 f'{self.last_human_position[1]:.2f})'
             )
+            
+            # Call refresh_map to ensure the map gets refreshed
+            self.refresh_map()
 
         except Exception as e:
             self.get_logger().error(f'Error updating human position in map: {str(e)}')
@@ -786,6 +796,38 @@ class NavigationController(Node):
             self.get_logger().debug('Cleared visualization markers')
         except Exception as e:
             self.get_logger().error(f'Error clearing markers: {str(e)}')
+
+    def refresh_map(self):
+        """Refresh the map by republishing it with a new timestamp"""
+        if self.current_map is None:
+            self.get_logger().warn('Cannot refresh map: No map available')
+            return
+
+        try:
+            # Create a deep copy of the current map
+            refreshed_map = OccupancyGrid()
+            refreshed_map.header = self.current_map.header
+            refreshed_map.info = self.current_map.info
+            
+            # Update timestamp to current time to force refresh
+            refreshed_map.header.stamp = self.get_clock().now().to_msg()
+            
+            # Copy map data (no changes)
+            refreshed_map.data = list(self.current_map.data)
+            
+            # Republish the map
+            self.map_pub.publish(refreshed_map)
+            
+            # Update the stored map reference
+            self.current_map = refreshed_map
+            
+            # Also update waypoint generator
+            self.waypoint_generator.update_map(refreshed_map)
+            
+            self.get_logger().info('Map refreshed with new timestamp')
+            
+        except Exception as e:
+            self.get_logger().error(f'Error refreshing map: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)

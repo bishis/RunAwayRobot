@@ -353,7 +353,7 @@ global_costmap:
         obstacle_max_range: 1.0
         obstacle_min_range: 0.05
         inf_is_valid: false
-        observation_persistence: 0.0
+        observation_persistence: 1.0 
         marking_buffers: 1
         clearing_buffers: 1
 

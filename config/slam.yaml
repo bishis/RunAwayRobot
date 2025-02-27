@@ -13,7 +13,7 @@ slam_toolbox:
     transform_timeout: 0.3    # increased from 0.2 to allow extra time for fast movements
     update_timing: true
     publish_period: 0.5
-    map_update_interval: 5.0
+    map_update_interval: 0.5
     max_update_rate: 10.0
 
     # Map management

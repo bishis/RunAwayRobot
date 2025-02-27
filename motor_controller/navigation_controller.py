@@ -865,6 +865,24 @@ class NavigationController(Node):
             self.update_nav2_costmaps()
             self.get_logger().debug('Republished human obstacles to costmaps')
 
+    def clear_visualization_markers(self):
+        """Clear all visualization markers"""
+        try:
+            # Create an empty marker array
+            marker_array = MarkerArray()
+            
+            # Add a deletion marker
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.action = Marker.DELETEALL
+            marker_array.markers.append(marker)
+            
+            # Publish the deletion marker
+            self.marker_pub.publish(marker_array)
+            self.get_logger().debug('Cleared visualization markers')
+        except Exception as e:
+            self.get_logger().error(f'Error clearing markers: {str(e)}')
+            
 def main(args=None):
     rclpy.init(args=args)
     node = NavigationController()

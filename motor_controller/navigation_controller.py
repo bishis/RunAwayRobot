@@ -518,47 +518,49 @@ class NavigationController(Node):
 
     def tracking_cmd_callback(self, msg):
         """Handle human tracking commands with avoidance"""
-        # First check if we're executing an escape plan
-        if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
-            self.get_logger().info('Executing escape plan - ignoring ALL human tracking')
-            return  # Don't process any human tracking while escaping
+        try:
+            # Extract human position data regardless of escape state
+            human_angle = -msg.angular.z  # Invert because cmd is opposite
+            human_distance = msg.linear.y  # Get real distance measurement
             
-        if self.is_tracking_human:
-            try:
+            # Always update human position when detected
+            if human_distance > 0:
+                # Convert polar to cartesian coordinates relative to robot
+                human_x = human_distance * math.cos(human_angle)
+                human_y = human_distance * math.sin(human_angle)
+                
+                try:
+                    # Get robot's position in map frame
+                    transform = self.tf_buffer.lookup_transform(
+                        'map',
+                        'base_link',
+                        rclpy.time.Time()
+                    )
+                    
+                    # Transform human position to map coordinates
+                    human_map_x = transform.transform.translation.x + human_x
+                    human_map_y = transform.transform.translation.y + human_y
+                    
+                    # Store position with timestamp (even during escape)
+                    self.last_human_position = (human_map_x, human_map_y)
+                    self.last_human_timestamp = self.get_clock().now()
+                    
+                    self.get_logger().info(
+                        f'Updated human position: ({human_map_x:.2f}, {human_map_y:.2f})'
+                    )
+                    
+                    # If we're escaping, just update the position but don't modify behavior
+                    if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+                        self.get_logger().info('Executing escape plan - tracking human position only')
+                        return  # Skip avoidance commands while escaping
+                    
+                except Exception as e:
+                    self.get_logger().warn(f'Could not transform human position: {e}')
+            
+            # Only proceed with avoidance and escape logic if not already escaping
+            if self.is_tracking_human:
                 # Initialize avoidance_cmd before using it
                 avoidance_cmd = Twist()
-                
-                # Extract human position from tracking command
-                human_angle = -msg.angular.z  # Invert because cmd is opposite
-                human_distance = msg.linear.y  # Get real distance measurement
-                
-                # Store human position whenever we see them
-                if human_distance > 0:
-                    # Convert polar to cartesian coordinates relative to robot
-                    human_x = human_distance * math.cos(human_angle)
-                    human_y = human_distance * math.sin(human_angle)
-                    
-                    try:
-                        # Get robot's position in map frame
-                        transform = self.tf_buffer.lookup_transform(
-                            'map',
-                            'base_link',
-                            rclpy.time.Time()
-                        )
-                        
-                        # Transform human position to map coordinates
-                        human_map_x = transform.transform.translation.x + human_x
-                        human_map_y = transform.transform.translation.y + human_y
-                        
-                        # Store position with timestamp
-                        self.last_human_position = (human_map_x, human_map_y)
-                        self.last_human_timestamp = self.get_clock().now()
-                        
-                        self.get_logger().info(
-                            f'Updated human position: ({human_map_x:.2f}, {human_map_y:.2f})'
-                        )
-                    except Exception as e:
-                        self.get_logger().warn(f'Could not transform human position: {e}')
                 
                 # Calculate normalized image position from angular command
                 image_x = ((-human_angle / self.max_angular_speed) + 1) * 320
@@ -604,10 +606,9 @@ class NavigationController(Node):
                     f'backing_up={avoidance_cmd.linear.x:.2f}m/s'
                 )
                 
-            except Exception as e:
-                self.get_logger().error(f'Error in tracking cmd callback: {str(e)}')
-                self.wheel_speeds_pub.publish(Twist())  # Stop on error
-
+        except Exception as e:
+            self.get_logger().error(f'Error in tracking cmd callback: {str(e)}')
+            self.wheel_speeds_pub.publish(Twist())  # Stop on error
 
     def is_escape_waypoint(self, waypoint):
         """Check if waypoint is an escape waypoint"""

@@ -154,8 +154,8 @@ class NavigationController(Node):
             10
         )
         
-        # Timer to regularly update human obstacles
-        self.human_obstacle_timer = self.create_timer(0.5, self.update_human_obstacles)
+        # Timer to regularly update human obstacles - update more frequently
+        self.human_obstacle_timer = self.create_timer(0.2, self.update_human_obstacles)  # Every 0.2 seconds
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -549,10 +549,8 @@ class NavigationController(Node):
                     self.last_human_position = (human_map_x, human_map_y)
                     self.last_human_timestamp = self.get_clock().now()
 
-                    # After updating human position and before potential escape:
-                    # Add human position to costmap via the dedicated layer
-                    if self.last_human_position is not None:
-                        self.update_human_obstacles()
+                    # IMPORTANT: Force immediate update of human obstacles
+                    self.update_human_obstacles()
                     
                     self.get_logger().info(
                         f'Updated human position: ({human_map_x:.2f}, {human_map_y:.2f})'
@@ -733,53 +731,62 @@ class NavigationController(Node):
             pc2.header.stamp = self.get_clock().now().to_msg()
             pc2.header.frame_id = "map"  # Must be in map frame
             
-            # Configure fields (x, y, z, intensity)
+            # IMPORTANT: For Nav2's ObstacleLayer, we only need x, y, z fields - intensity isn't used
             fields = [
                 PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
                 PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
                 PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
-                PointField(name='intensity', offset=12, datatype=PointField.FLOAT32, count=1),
             ]
             pc2.fields = fields
             
             # Generate points for human obstacle (dense sphere)
             points = []
             human_x, human_y = self.last_human_position
-            radius = 0.6  # Large enough to ensure the robot paths around it
+            # Make the obstacle much larger to ensure the robot goes around it
+            radius = 0.35  # Larger radius to ensure the robot paths around it
             
-            # Create a dense cloud around the human
-            for r in np.linspace(0, radius, 5):  # 5 concentric circles
-                # More points for outer circles
-                n_points = max(8, int(16 * r / radius)) if r > 0 else 1
-                
-                if r == 0:  # Center point
-                    points.append((human_x, human_y, 0.0, 100.0))
-                else:
-                    for i in range(n_points):
-                        angle = 2.0 * np.pi * i / n_points
-                        x = human_x + r * np.cos(angle)
-                        y = human_y + r * np.sin(angle)
-                        # Higher intensity for inner points (100 = lethal)
-                        intensity = 100.0 * (1.0 - r/radius)
-                        points.append((x, y, 0.0, intensity))
+            # Create a MUCH denser cloud of points
+            num_rings = 10
+            points_per_ring = 32
+            
+            # Add center point
+            points.append((human_x, human_y, 0.0))
+            
+            # Create multiple dense rings
+            for r_idx in range(num_rings):
+                r = radius * (r_idx + 1) / num_rings
+                for i in range(points_per_ring):
+                    angle = 2.0 * np.pi * i / points_per_ring
+                    x = human_x + r * np.cos(angle)
+                    y = human_y + r * np.sin(angle)
+                    points.append((x, y, 0.0))
+            
+            # Also add a solid filled circle
+            for dx in np.linspace(-radius, radius, 20):
+                for dy in np.linspace(-radius, radius, 20):
+                    if dx*dx + dy*dy <= radius*radius:  # Only points inside the circle
+                        x = human_x + dx
+                        y = human_y + dy
+                        points.append((x, y, 0.0))
             
             # Pack points into PointCloud2
             pc2.height = 1
             pc2.width = len(points)
-            pc2.point_step = 16  # 4 fields * 4 bytes
+            pc2.point_step = 12  # 3 fields * 4 bytes
             pc2.row_step = pc2.point_step * pc2.width
             pc2.is_dense = True
             
             # Pack points into binary array
             point_data = bytearray()
             for p in points:
-                point_data.extend(struct.pack('ffff', *p))
+                point_data.extend(struct.pack('fff', *p))
             pc2.data = point_data
             
-            # Publish to the human_obstacles topic
+            # Publish to the human_obstacles topic - CRITICAL for Nav2 to use it
             self.human_obstacles_pub.publish(pc2)
             
-            self.get_logger().debug(f'Published human obstacle at ({human_x:.2f}, {human_y:.2f})')
+            # Log that we published an obstacle
+            self.get_logger().info(f'Published human obstacle at ({human_x:.2f}, {human_y:.2f}) with {len(points)} points')
             
         except Exception as e:
             self.get_logger().error(f'Error publishing human obstacle: {str(e)}')

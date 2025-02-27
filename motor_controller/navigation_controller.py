@@ -157,8 +157,8 @@ class NavigationController(Node):
             1
         )
         
-        # Add timer to periodically republish human obstacles (every 2 seconds)
-        self.obstacle_timer = self.create_timer(2.0, self.republish_human_obstacles)
+        # Make obstacle republishing more frequent (every 0.5 seconds)
+        self.obstacle_timer = self.create_timer(0.5, self.republish_human_obstacles)
 
         # Add service clients for costmap management
         self.clear_global_costmap_client = self.create_client(
@@ -783,52 +783,79 @@ class NavigationController(Node):
                 PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
                 PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
                 PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+                # Add intensity field for higher cost
+                PointField(name='intensity', offset=12, datatype=PointField.FLOAT32, count=1),
             ]
             pc2.fields = fields
             
             # Generate points in a circle around the human
             points = []
             human_x, human_y = self.last_human_position
-            radius = 0.4  # Larger radius for costmap (0.4m)
-            num_points = 32  # More points for a more solid obstacle
+            # Use a larger radius to make the obstacle more visible
+            radius = 0.35  # Much larger radius (0.35m) for better avoidance
+            num_points = 64  # Many more points for a solid obstacle
             
-            # Add center point
-            points.append((human_x, human_y, 0.0))
-            
-            # Add points in a circle
-            for i in range(num_points):
-                angle = 2.0 * np.pi * i / num_points
-                x = human_x + radius * np.cos(angle)
-                y = human_y + radius * np.sin(angle)
-                points.append((x, y, 0.0))
+            # Add multiple layers with different radii for a solid obstacle
+            for r_multiplier in [0.2, 0.4, 0.6, 0.8, 1.0]:
+                curr_radius = radius * r_multiplier
+                # Add center point with maximum cost
+                if r_multiplier == 0.2:
+                    points.append((human_x, human_y, 0.0, 254.0))  # Max cost in center
                 
-                # Add more points with varying radii for better obstacle coverage
-                inner_radius = radius * 0.7
-                x_inner = human_x + inner_radius * np.cos(angle)
-                y_inner = human_y + inner_radius * np.sin(angle)
-                points.append((x_inner, y_inner, 0.0))
+                # Add dense ring of points
+                for i in range(num_points):
+                    angle = 2.0 * np.pi * i / num_points
+                    x = human_x + curr_radius * np.cos(angle)
+                    y = human_y + curr_radius * np.sin(angle)
+                    # Set high cost (254 is max in costmap)
+                    points.append((x, y, 0.0, 254.0))
                 
             # Convert points to binary data
             pc2.height = 1
             pc2.width = len(points)
-            pc2.point_step = 12  # 3 fields * 4 bytes
+            pc2.point_step = 16  # 4 fields * 4 bytes (includes intensity)
             pc2.row_step = pc2.point_step * pc2.width
             pc2.is_dense = True
             
-            # Pack points into binary array
+            # Pack points into binary array with intensity value
             point_data = bytearray()
             for p in points:
-                point_data.extend(struct.pack('fff', *p))
+                point_data.extend(struct.pack('ffff', p[0], p[1], p[2], p[3]))  # x,y,z,intensity
             pc2.data = point_data
             
-            # Publish the point cloud to both local and global costmaps
-            self.local_obstacle_pub.publish(pc2)
+            # Publish to correct topics - these should be the observation source topics
+            # Note: these topics may differ based on your Nav2 configuration
             self.global_obstacle_pub.publish(pc2)
+            self.local_obstacle_pub.publish(pc2)
             
-            # Request costmap clearing to force refresh
-            self.refresh_costmaps()
+            # Also publish directly to the marking topics
+            marking_pub = self.create_publisher(
+                PointCloud2, 
+                '/global_costmap/global_costmap/obstacles', 
+                1
+            )
+            marking_pub.publish(pc2)
             
-            self.get_logger().info('Published human position to Nav2 costmaps')
+            local_marking_pub = self.create_publisher(
+                PointCloud2, 
+                '/local_costmap/local_costmap/obstacles', 
+                1
+            )
+            local_marking_pub.publish(pc2)
+            
+            # Force Nav2 to replan by canceling and resending the current goal
+            if self.is_navigating and not self.is_escape_waypoint(self.current_goal):
+                self.get_logger().info('Human detected near path - requesting replan')
+                # Store current goal
+                current_goal_backup = self.current_goal
+                # Cancel current goal
+                self.cancel_current_goal()
+                # Wait briefly for cancelation to take effect
+                time.sleep(0.2)
+                # Send goal again to force replanning
+                self.send_goal(current_goal_backup)
+                
+            self.get_logger().info('Published human position as lethal obstacle to Nav2 costmaps')
             
         except Exception as e:
             self.get_logger().error(f'Error updating Nav2 costmaps: {str(e)}')

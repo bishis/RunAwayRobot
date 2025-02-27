@@ -154,8 +154,11 @@ class NavigationController(Node):
             10
         )
         
-        # Timer to regularly update human obstacles - update more frequently
-        #self.human_obstacle_timer = self.create_timer(0.2, self.update_human_obstacles)  # Every 0.2 seconds
+        # Re-enable timer for regularly updating human obstacles (every 0.5 seconds)
+        self.human_obstacle_timer = self.create_timer(0.5, self.update_human_obstacles)
+        
+        # Add a service client for triggering path replanning
+        self.make_plan_client = self.create_client(Empty, '/global_costmap/global_costmap/clear_except_static')
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -541,16 +544,21 @@ class NavigationController(Node):
                         rclpy.time.Time()
                     )
                     
-                    # Transform human position to map coordinates
+                    # Calculate human position in map coordinates
                     human_map_x = transform.transform.translation.x + human_x
                     human_map_y = transform.transform.translation.y + human_y
                     
                     # Store position with timestamp (even during escape)
                     self.last_human_position = (human_map_x, human_map_y)
                     self.last_human_timestamp = self.get_clock().now()
-
-                    # IMPORTANT: Force immediate update of human obstacles
-                    #self.update_human_obstacles()
+                    
+                    # Immediately update human obstacles when position changes
+                    self.update_human_obstacles()  # Force immediate update with new position
+                    
+                    # Request path replanning if we're navigating (and not escaping)
+                    if self.is_navigating and self.is_escape_waypoint(self.current_goal):
+                        # This is the key call that was missing!
+                        self.request_path_replanning()
                     
                     self.get_logger().info(
                         f'Updated human position: ({human_map_x:.2f}, {human_map_y:.2f})'
@@ -708,7 +716,6 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error clearing markers: {str(e)}')
             
-
     def update_human_obstacles(self):
         """Publish human obstacle positions as PointCloud2 for the dedicated costmap layer"""
         if self.last_human_position is None:
@@ -731,7 +738,7 @@ class NavigationController(Node):
             pc2.header.stamp = self.get_clock().now().to_msg()
             pc2.header.frame_id = "map"  # Must be in map frame
             
-            # IMPORTANT: For Nav2's ObstacleLayer, we only need x, y, z fields - intensity isn't used
+            # Configure fields (x, y, z)
             fields = [
                 PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
                 PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
@@ -739,35 +746,28 @@ class NavigationController(Node):
             ]
             pc2.fields = fields
             
-            # Generate points for human obstacle (dense sphere)
+            # Generate points for human obstacle with larger radius
             points = []
             human_x, human_y = self.last_human_position
-            # Make the obstacle much larger to ensure the robot goes around it
-            radius = 0.35  # Larger radius to ensure the robot paths around it
+            radius = 0.45  # Increase radius for better avoidance
             
-            # Create a MUCH denser cloud of points
-            num_rings = 10
-            points_per_ring = 32
-            
-            # Add center point
-            points.append((human_x, human_y, 0.0))
-            
-            # Create multiple dense rings
-            for r_idx in range(num_rings):
-                r = radius * (r_idx + 1) / num_rings
-                for i in range(points_per_ring):
-                    angle = 2.0 * np.pi * i / points_per_ring
-                    x = human_x + r * np.cos(angle)
-                    y = human_y + r * np.sin(angle)
-                    points.append((x, y, 0.0))
-            
-            # Also add a solid filled circle
-            for dx in np.linspace(-radius, radius, 20):
-                for dy in np.linspace(-radius, radius, 20):
+            # Create a very dense point cloud for better obstacle representation
+            # 1. Create a solid circle of points
+            steps = 40  # More points for better resolution
+            for dx in np.linspace(-radius, radius, steps):
+                for dy in np.linspace(-radius, radius, steps):
                     if dx*dx + dy*dy <= radius*radius:  # Only points inside the circle
                         x = human_x + dx
                         y = human_y + dy
                         points.append((x, y, 0.0))
+                        
+            # 2. Add extra points at the perimeter for better boundary representation
+            perimeter_points = 64
+            for i in range(perimeter_points):
+                angle = 2.0 * np.pi * i / perimeter_points
+                x = human_x + radius * np.cos(angle)
+                y = human_y + radius * np.sin(angle)
+                points.append((x, y, 0.0))
             
             # Pack points into PointCloud2
             pc2.height = 1
@@ -782,14 +782,47 @@ class NavigationController(Node):
                 point_data.extend(struct.pack('fff', *p))
             pc2.data = point_data
             
-            # Publish to the human_obstacles topic - CRITICAL for Nav2 to use it
+            # Publish to the human_obstacles topic
             self.human_obstacles_pub.publish(pc2)
             
             # Log that we published an obstacle
-            self.get_logger().info(f'Published human obstacle at ({human_x:.2f}, {human_y:.2f}) with {len(points)} points')
+            self.get_logger().debug(f'Published human obstacle at ({human_x:.2f}, {human_y:.2f}) with {len(points)} points')
+            
+            # Request path replanning if we're navigating and not escaping
+            # This ensures plans stay updated as long as we have a recent human position
+            if self.is_navigating and not self.is_escape_waypoint(self.current_goal):
+                self.request_path_replanning()
             
         except Exception as e:
             self.get_logger().error(f'Error publishing human obstacle: {str(e)}')
+
+    def request_path_replanning(self):
+        """Request Nav2 to replan the path without canceling goals"""
+        try:
+            # Check if the service client is ready
+            if not self.make_plan_client.service_is_ready():
+                self.get_logger().warn('Replanning service not ready')
+                return
+            
+            # Create and send the service request
+            request = Empty.Request()
+            future = self.make_plan_client.call_async(request)
+            
+            # Add a callback to handle the result
+            future.add_done_callback(self.replan_callback)
+            
+            self.get_logger().info('Requested path replanning to avoid human')
+            
+        except Exception as e:
+            self.get_logger().error(f'Error requesting path replanning: {str(e)}')
+        
+    def replan_callback(self, future):
+        """Handle the result of the replanning request"""
+        try:
+            future.result()  # Wait for the result
+            self.get_logger().info('Path replanning completed')
+        except Exception as e:
+            self.get_logger().error(f'Path replanning failed: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)

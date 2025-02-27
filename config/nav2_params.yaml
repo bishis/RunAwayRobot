@@ -361,6 +361,7 @@ global_costmap:
       plugin: "nav2_costmap_2d::StaticLayer"
       map_subscribe_transient_local: true
       enabled: true
+      subscribe_to_updates: true
 
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"

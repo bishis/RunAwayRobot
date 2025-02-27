@@ -155,7 +155,7 @@ class NavigationController(Node):
         )
         
         # Timer to regularly update human obstacles - update more frequently
-        self.human_obstacle_timer = self.create_timer(0.2, self.update_human_obstacles)  # Every 0.2 seconds
+        #self.human_obstacle_timer = self.create_timer(0.2, self.update_human_obstacles)  # Every 0.2 seconds
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -550,7 +550,7 @@ class NavigationController(Node):
                     self.last_human_timestamp = self.get_clock().now()
 
                     # IMPORTANT: Force immediate update of human obstacles
-                    self.update_human_obstacles()
+                    #self.update_human_obstacles()
                     
                     self.get_logger().info(
                         f'Updated human position: ({human_map_x:.2f}, {human_map_y:.2f})'

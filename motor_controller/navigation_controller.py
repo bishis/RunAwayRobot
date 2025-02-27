@@ -841,57 +841,6 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error refreshing costmaps: {str(e)}')
 
-    def start_spin_defense(self):
-        """Start spinning in place as last resort defense"""
-        self.get_logger().warn('Starting spin defense!')
-        self.is_spinning = True
-        
-        # Cancel any existing navigation
-        self.cancel_current_goal()
-        if self.escape_monitor_timer:
-            self.escape_monitor_timer.cancel()
-        if self.spin_timer:
-            self.spin_timer.cancel()
-        
-        # Clear visualization markers
-        self.clear_visualization_markers()
-        
-        self.spin_timer = self.create_timer(0.1, self.spin_defense_callback)
-
-    def spin_defense_callback(self):
-        """Execute spin movement"""
-        if not self.is_spinning:
-            if self.spin_timer:
-                self.spin_timer.cancel()
-                self.spin_timer = None
-            return
-        
-        cmd = Twist()
-        cmd.angular.z = self.SPIN_SPEED
-        self.wheel_speeds_pub.publish(cmd)
-
-    def handle_escape_failure(self, reason):
-        """Handle failed escape attempt"""
-        self.get_logger().warn(f'Escape failed: {reason}')
-        
-    def clear_visualization_markers(self):
-        """Clear all visualization markers"""
-        try:
-            # Create an empty marker array
-            marker_array = MarkerArray()
-            
-            # Add a deletion marker
-            marker = Marker()
-            marker.header.frame_id = 'map'
-            marker.action = Marker.DELETEALL
-            marker_array.markers.append(marker)
-            
-            # Publish the deletion marker
-            self.marker_pub.publish(marker_array)
-            self.get_logger().debug('Cleared visualization markers')
-        except Exception as e:
-            self.get_logger().error(f'Error clearing markers: {str(e)}')
-
 def main(args=None):
     rclpy.init(args=args)
     node = NavigationController()

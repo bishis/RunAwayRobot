@@ -2,7 +2,7 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist, PoseStamped
-from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import LaserScan, PointCloud2, PointField
 from nav_msgs.msg import OccupancyGrid
 from visualization_msgs.msg import MarkerArray, Marker
 from nav2_msgs.action import NavigateToPose
@@ -17,6 +17,7 @@ from std_srvs.srv import Empty
 from tf2_ros import TransformException, Buffer, TransformListener
 import time
 from builtin_interfaces.msg import Time
+from nav2_msgs.srv import ClearEntireCostmap
 
 class NavigationController(Node):
     def __init__(self):
@@ -147,6 +148,23 @@ class NavigationController(Node):
         self.SPIN_SPEED = 0.8  # rad/s
         self.is_spinning = False
         self.spin_timer = None
+
+        # Add publishers for Nav2 obstacle layers
+        self.obstacle_pub = self.create_publisher(
+            PointCloud2, 
+            '/local_costmap/obstacle_layer/clearing_endpoints', 
+            1
+        )
+        
+        # Add service clients for costmap management
+        self.clear_global_costmap_client = self.create_client(
+            ClearEntireCostmap, 
+            '/global_costmap/clear_entirely_global_costmap'
+        )
+        self.clear_local_costmap_client = self.create_client(
+            ClearEntireCostmap, 
+            '/local_costmap/clear_entirely_local_costmap'
+        )
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -688,7 +706,7 @@ class NavigationController(Node):
             self.reset_escape_state()
 
     def update_human_position_in_map(self):
-        """Update the occupancy grid with the last known human position"""
+        """Update the occupancy grid with the last known human position and update Nav2 costmaps"""
         if self.current_map is None or self.last_human_position is None:
             return
 
@@ -698,7 +716,7 @@ class NavigationController(Node):
             updated_map.header = self.current_map.header
             updated_map.info = self.current_map.info
             
-            # Update header with current time and increment sequence number
+            # Update header with current time 
             updated_map.header.stamp = self.get_clock().now().to_msg()
             
             # Copy the map data
@@ -729,20 +747,99 @@ class NavigationController(Node):
                             index = cell_y * updated_map.info.width + cell_x
                             # Mark as occupied (100 represents occupied in occupancy grid)
                             updated_map.data[index] = 100
-                                        
-            # Also update our stored map
+
+            # Update our stored map
             self.current_map = updated_map
+            
+            # Publish updated map to influence SLAM and Nav2 global planner
+            self.map_pub.publish(updated_map)
+            
+            # Also update Nav2 costmaps directly
+            self.update_nav2_costmaps()
             
             self.get_logger().info(
                 f'Updated map with human obstacle at ({self.last_human_position[0]:.2f}, '
                 f'{self.last_human_position[1]:.2f})'
             )
-            
-            # Call refresh_map to ensure the map gets refreshed
-            self.refresh_map()
 
         except Exception as e:
             self.get_logger().error(f'Error updating human position in map: {str(e)}')
+
+    def update_nav2_costmaps(self):
+        """Update Nav2 costmaps directly to ensure planning around human"""
+        if self.last_human_position is None:
+            return
+        
+        try:
+            # Create a point cloud message for the human position
+            pc2 = PointCloud2()
+            pc2.header.stamp = self.get_clock().now().to_msg()
+            pc2.header.frame_id = "map"
+            
+            # Configure the point cloud fields (x,y,z)
+            fields = [
+                PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+                PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+                PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+            ]
+            pc2.fields = fields
+            
+            # Generate points in a circle around the human
+            points = []
+            human_x, human_y = self.last_human_position
+            radius = 0.3  # slightly larger than human_radius for costmap
+            num_points = 16  # More points create a more solid obstacle
+            
+            # Add center point
+            points.append((human_x, human_y, 0.0))
+            
+            # Add points in a circle
+            for i in range(num_points):
+                angle = 2.0 * np.pi * i / num_points
+                x = human_x + radius * np.cos(angle)
+                y = human_y + radius * np.sin(angle)
+                points.append((x, y, 0.0))
+                
+            # Convert points to binary data
+            pc2.height = 1
+            pc2.width = len(points)
+            pc2.point_step = 12  # 3 fields * 4 bytes
+            pc2.row_step = pc2.point_step * pc2.width
+            pc2.is_dense = True
+            
+            # Pack points into binary array
+            point_data = bytearray()
+            for p in points:
+                point_data.extend(struct.pack('fff', *p))
+            pc2.data = point_data
+            
+            # Publish the point cloud to Nav2's obstacle layer
+            self.obstacle_pub.publish(pc2)
+            
+            # Request costmap clearing to force refresh
+            self.refresh_costmaps()
+            
+            self.get_logger().info('Published human position to Nav2 costmaps')
+            
+        except Exception as e:
+            self.get_logger().error(f'Error updating Nav2 costmaps: {str(e)}')
+
+    def refresh_costmaps(self):
+        """Force Nav2 to refresh its costmaps"""
+        try:
+            # Make requests to clear and refresh both costmaps
+            if self.clear_global_costmap_client.service_is_ready():
+                request = ClearEntireCostmap.Request()
+                future = self.clear_global_costmap_client.call_async(request)
+                
+            if self.clear_local_costmap_client.service_is_ready():
+                request = ClearEntireCostmap.Request()
+                future = self.clear_local_costmap_client.call_async(request)
+                
+            self.get_logger().info('Requested costmap refresh')
+            
+        except Exception as e:
+            self.get_logger().error(f'Error refreshing costmaps: {str(e)}')
 
     def start_spin_defense(self):
         """Start spinning in place as last resort defense"""
@@ -794,38 +891,6 @@ class NavigationController(Node):
             self.get_logger().debug('Cleared visualization markers')
         except Exception as e:
             self.get_logger().error(f'Error clearing markers: {str(e)}')
-
-    def refresh_map(self):
-        """Refresh the map by republishing it with a new timestamp"""
-        if self.current_map is None:
-            self.get_logger().warn('Cannot refresh map: No map available')
-            return
-
-        try:
-            # Create a deep copy of the current map
-            refreshed_map = OccupancyGrid()
-            refreshed_map.header = self.current_map.header
-            refreshed_map.info = self.current_map.info
-            
-            # Update timestamp to current time to force refresh
-            refreshed_map.header.stamp = self.get_clock().now().to_msg()
-            
-            # Copy map data (no changes)
-            refreshed_map.data = list(self.current_map.data)
-            
-            # Republish the map
-            self.map_pub.publish(refreshed_map)
-            
-            # Update the stored map reference
-            self.current_map = refreshed_map
-            
-            # Also update waypoint generator
-            self.waypoint_generator.update_map(refreshed_map)
-            
-            self.get_logger().info('Map refreshed with new timestamp')
-            
-        except Exception as e:
-            self.get_logger().error(f'Error refreshing map: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)

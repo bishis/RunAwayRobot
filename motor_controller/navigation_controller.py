@@ -304,7 +304,7 @@ class NavigationController(Node):
             if not goal_handle.accepted:
                 self.get_logger().warn('Goal rejected')
                 if self.is_escape_waypoint(self.current_goal):
-                    self.handle_escape_failure("Goal rejected")
+                    self.reset_escape_state()
                 else:
                     self.reset_navigation_state()
                 return
@@ -332,7 +332,6 @@ class NavigationController(Node):
             #     self.start_spin_defense()
 
             if status != GoalStatus.STATUS_SUCCEEDED and self.is_escape_waypoint(self.current_goal):
-                self.handle_escape_failure("escape failed")
                 self.escape_attempts += 1
                 if self.escape_attempts < self.max_escape_attempts:
                     self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')

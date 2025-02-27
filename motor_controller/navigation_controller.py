@@ -733,9 +733,6 @@ class NavigationController(Node):
             # Also update our stored map
             self.current_map = updated_map
             
-            # Update waypoint generator with new map
-            self.waypoint_generator.update_map(updated_map)
-            
             self.get_logger().info(
                 f'Updated map with human obstacle at ({self.last_human_position[0]:.2f}, '
                 f'{self.last_human_position[1]:.2f})'

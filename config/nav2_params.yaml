@@ -335,7 +335,7 @@ global_costmap:
     footprint_padding: 0.05
     resolution: 0.05
     track_unknown_space: true
-    plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+    plugins: ["static_layer", "obstacle_layer", "inflation_layer", "human_layer"]
     always_send_full_costmap: true
     
     obstacle_layer:
@@ -367,6 +367,24 @@ global_costmap:
       plugin: "nav2_costmap_2d::InflationLayer"
       inflation_radius: 0.4
       cost_scaling_factor: 5.0
+
+    # Add human obstacle layer
+    human_layer:
+      plugin: "nav2_costmap_2d::ObstacleLayer"
+      enabled: true
+      observation_sources: human_obstacles
+      human_obstacles:
+        topic: /human_obstacles
+        max_obstacle_height: 2.0
+        clearing: false
+        marking: true
+        data_type: "PointCloud2"
+        expected_update_rate: 0.5
+        observation_persistence: 5.0
+        obstacle_max_range: 4.0
+        obstacle_min_range: 0.0
+        raytrace_max_range: 4.0
+        raytrace_min_range: 0.0
 
 collision_monitor:
   ros__parameters:

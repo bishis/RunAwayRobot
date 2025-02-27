@@ -146,19 +146,16 @@ class NavigationController(Node):
         # Add map publisher for human obstacle updates
         self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
 
-        # Create publisher for costmap updates using the obstacle layer plugin
-        self.costmap_updates_pub = self.create_publisher(
-            OccupancyGrid, 
-            '/map',  # Primary map topic
-            qos_profile=10
+
+        # Publisher for human obstacles (PointCloud2)
+        self.human_obstacles_pub = self.create_publisher(
+            PointCloud2, 
+            '/human_obstacles', 
+            10
         )
         
-        # Directly publish to the static layer subscribed topic
-        self.static_layer_pub = self.create_publisher(
-            OccupancyGrid,
-            '/map_updates',  # Nav2 static layer listens to this topic
-            qos_profile=10
-        )
+        # Timer to regularly update human obstacles
+        self.human_obstacle_timer = self.create_timer(0.5, self.update_human_obstacles)
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -552,6 +549,11 @@ class NavigationController(Node):
                     # Store position with timestamp (even during escape)
                     self.last_human_position = (human_map_x, human_map_y)
                     self.last_human_timestamp = self.get_clock().now()
+
+                    # After updating human position and before potential escape:
+                    # Add human position to costmap via the dedicated layer
+                    if self.last_human_position is not None:
+                        self.update_human_obstacles()
                     
                     self.get_logger().info(
                         f'Updated human position: ({human_map_x:.2f}, {human_map_y:.2f})'
@@ -564,6 +566,7 @@ class NavigationController(Node):
                     
                 except Exception as e:
                     self.get_logger().warn(f'Could not transform human position: {e}')
+
             
             # Only proceed with avoidance and escape logic if not already escaping
             if self.is_tracking_human:
@@ -612,7 +615,7 @@ class NavigationController(Node):
                     f'Human tracking: dist={human_distance:.2f}m, '
                     f'backing_up={avoidance_cmd.linear.x:.2f}m/s'
                 )
-                
+
         except Exception as e:
             self.get_logger().error(f'Error in tracking cmd callback: {str(e)}')
             self.wheel_speeds_pub.publish(Twist())  # Stop on error
@@ -708,56 +711,79 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error clearing markers: {str(e)}')
             
-    def add_human_to_costmap(self):
-        """Add human obstacle to the map using the static layer"""
-        if self.current_map is None or self.last_human_position is None:
+
+    def update_human_obstacles(self):
+        """Publish human obstacle positions as PointCloud2 for the dedicated costmap layer"""
+        if self.last_human_position is None:
             return
         
+        # Check if human position is recent (within last 5 seconds)
+        if self.last_human_timestamp is None:
+            return
+        
+        time_since_detection = (self.get_clock().now() - self.last_human_timestamp).nanoseconds / 1e9
+        if time_since_detection > 5.0:
+            return  # Human detection is too old
+        
         try:
-            # Create updated map with human obstacle
-            updated_map = OccupancyGrid()
-            updated_map.header = self.current_map.header
-            updated_map.header.stamp = self.get_clock().now().to_msg()
-            updated_map.info = self.current_map.info
+            import struct
+            import numpy as np
             
-            # Copy the map data
-            updated_map.data = list(self.current_map.data)
+            # Create a point cloud message for the human position
+            pc2 = PointCloud2()
+            pc2.header.stamp = self.get_clock().now().to_msg()
+            pc2.header.frame_id = "map"  # Must be in map frame
             
-            # Add human obstacle to the map
+            # Configure fields (x, y, z, intensity)
+            fields = [
+                PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+                PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+                PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+                PointField(name='intensity', offset=12, datatype=PointField.FLOAT32, count=1),
+            ]
+            pc2.fields = fields
+            
+            # Generate points for human obstacle (dense sphere)
+            points = []
             human_x, human_y = self.last_human_position
-            map_x = int((human_x - updated_map.info.origin.position.x) / updated_map.info.resolution)
-            map_y = int((human_y - updated_map.info.origin.position.y) / updated_map.info.resolution)
+            radius = 0.6  # Large enough to ensure the robot paths around it
             
-            # Create a circular obstacle
-            radius = 0.5  # meters
-            cells_radius = int(radius / updated_map.info.resolution)
+            # Create a dense cloud around the human
+            for r in np.linspace(0, radius, 5):  # 5 concentric circles
+                # More points for outer circles
+                n_points = max(8, int(16 * r / radius)) if r > 0 else 1
+                
+                if r == 0:  # Center point
+                    points.append((human_x, human_y, 0.0, 100.0))
+                else:
+                    for i in range(n_points):
+                        angle = 2.0 * np.pi * i / n_points
+                        x = human_x + r * np.cos(angle)
+                        y = human_y + r * np.sin(angle)
+                        # Higher intensity for inner points (100 = lethal)
+                        intensity = 100.0 * (1.0 - r/radius)
+                        points.append((x, y, 0.0, intensity))
             
-            for dx in range(-cells_radius, cells_radius + 1):
-                for dy in range(-cells_radius, cells_radius + 1):
-                    if dx*dx + dy*dy <= cells_radius*cells_radius:
-                        cell_x = map_x + dx
-                        cell_y = map_y + dy
-                        
-                        # Ensure within map bounds
-                        if (0 <= cell_x < updated_map.info.width and 
-                            0 <= cell_y < updated_map.info.height):
-                            index = cell_y * updated_map.info.width + cell_x
-                            updated_map.data[index] = 100  # Set as occupied
+            # Pack points into PointCloud2
+            pc2.height = 1
+            pc2.width = len(points)
+            pc2.point_step = 16  # 4 fields * 4 bytes
+            pc2.row_step = pc2.point_step * pc2.width
+            pc2.is_dense = True
             
-            # Publish to both topics to update visualization and costmap
-            self.costmap_updates_pub.publish(updated_map)
-            self.static_layer_pub.publish(updated_map)
+            # Pack points into binary array
+            point_data = bytearray()
+            for p in points:
+                point_data.extend(struct.pack('ffff', *p))
+            pc2.data = point_data
             
-            # Store updated map
-            self.current_map = updated_map
+            # Publish to the human_obstacles topic
+            self.human_obstacles_pub.publish(pc2)
             
-            # Also update waypoint generator
-            self.waypoint_generator.update_map(updated_map)
-            
-            self.get_logger().info(f'Added human obstacle at ({human_x:.2f}, {human_y:.2f})')
+            self.get_logger().debug(f'Published human obstacle at ({human_x:.2f}, {human_y:.2f})')
             
         except Exception as e:
-            self.get_logger().error(f'Error adding human to costmap: {str(e)}')
+            self.get_logger().error(f'Error publishing human obstacle: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)

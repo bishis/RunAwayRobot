@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist, PoseStamped
+from geometry_msgs.msg import Twist, PoseStamped, Point
 from sensor_msgs.msg import LaserScan, PointCloud2, PointField
 from nav_msgs.msg import OccupancyGrid
 from visualization_msgs.msg import MarkerArray, Marker
@@ -18,6 +18,8 @@ from tf2_ros import TransformException, Buffer, TransformListener
 import time
 from builtin_interfaces.msg import Time
 from nav2_msgs.srv import ClearEntireCostmap
+from nav2_msgs.msg import Costmap
+from std_msgs.msg import Header
 
 class NavigationController(Node):
     def __init__(self):
@@ -143,6 +145,20 @@ class NavigationController(Node):
 
         # Add map publisher for human obstacle updates
         self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
+
+        # Create publisher for costmap updates using the obstacle layer plugin
+        self.costmap_updates_pub = self.create_publisher(
+            OccupancyGrid, 
+            '/map',  # Primary map topic
+            qos_profile=10
+        )
+        
+        # Directly publish to the static layer subscribed topic
+        self.static_layer_pub = self.create_publisher(
+            OccupancyGrid,
+            '/map_updates',  # Nav2 static layer listens to this topic
+            qos_profile=10
+        )
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -692,6 +708,57 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error clearing markers: {str(e)}')
             
+    def add_human_to_costmap(self):
+        """Add human obstacle to the map using the static layer"""
+        if self.current_map is None or self.last_human_position is None:
+            return
+        
+        try:
+            # Create updated map with human obstacle
+            updated_map = OccupancyGrid()
+            updated_map.header = self.current_map.header
+            updated_map.header.stamp = self.get_clock().now().to_msg()
+            updated_map.info = self.current_map.info
+            
+            # Copy the map data
+            updated_map.data = list(self.current_map.data)
+            
+            # Add human obstacle to the map
+            human_x, human_y = self.last_human_position
+            map_x = int((human_x - updated_map.info.origin.position.x) / updated_map.info.resolution)
+            map_y = int((human_y - updated_map.info.origin.position.y) / updated_map.info.resolution)
+            
+            # Create a circular obstacle
+            radius = 0.5  # meters
+            cells_radius = int(radius / updated_map.info.resolution)
+            
+            for dx in range(-cells_radius, cells_radius + 1):
+                for dy in range(-cells_radius, cells_radius + 1):
+                    if dx*dx + dy*dy <= cells_radius*cells_radius:
+                        cell_x = map_x + dx
+                        cell_y = map_y + dy
+                        
+                        # Ensure within map bounds
+                        if (0 <= cell_x < updated_map.info.width and 
+                            0 <= cell_y < updated_map.info.height):
+                            index = cell_y * updated_map.info.width + cell_x
+                            updated_map.data[index] = 100  # Set as occupied
+            
+            # Publish to both topics to update visualization and costmap
+            self.costmap_updates_pub.publish(updated_map)
+            self.static_layer_pub.publish(updated_map)
+            
+            # Store updated map
+            self.current_map = updated_map
+            
+            # Also update waypoint generator
+            self.waypoint_generator.update_map(updated_map)
+            
+            self.get_logger().info(f'Added human obstacle at ({human_x:.2f}, {human_y:.2f})')
+            
+        except Exception as e:
+            self.get_logger().error(f'Error adding human to costmap: {str(e)}')
+
 def main(args=None):
     rclpy.init(args=args)
     node = NavigationController()

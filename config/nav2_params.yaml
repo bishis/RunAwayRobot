@@ -327,8 +327,8 @@ local_costmap:
 global_costmap:
   ros__parameters:
     use_sim_time: false
-    update_frequency: 5.0
-    publish_frequency: 5.0
+    update_frequency: 10.0
+    publish_frequency: 10.0
     global_frame: map
     robot_base_frame: base_link
     footprint: "[[-0.16, -0.19], [-0.16, 0.19], [0.16, 0.19], [0.16, -0.19]]" 

@@ -144,13 +144,22 @@ class NavigationController(Node):
         # Add map publisher for human obstacle updates
         self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
 
-        # Add publishers for Nav2 obstacle layers
-        self.obstacle_pub = self.create_publisher(
+        # Correct obstacle publishers for Nav2
+        self.local_obstacle_pub = self.create_publisher(
             PointCloud2, 
-            '/local_costmap/obstacle_layer/clearing_endpoints', 
+            '/local_costmap/obstacle_layer/obstacle_points', 
             1
         )
         
+        self.global_obstacle_pub = self.create_publisher(
+            PointCloud2, 
+            '/global_costmap/obstacle_layer/obstacle_points', 
+            1
+        )
+        
+        # Add timer to periodically republish human obstacles (every 2 seconds)
+        self.obstacle_timer = self.create_timer(2.0, self.republish_human_obstacles)
+
         # Add service clients for costmap management
         self.clear_global_costmap_client = self.create_client(
             ClearEntireCostmap, 
@@ -703,8 +712,9 @@ class NavigationController(Node):
             updated_map.header = self.current_map.header
             updated_map.info = self.current_map.info
             
-            # Update header with current time 
+            # Update header with current time and frame
             updated_map.header.stamp = self.get_clock().now().to_msg()
+            updated_map.header.frame_id = "map"  # Ensure correct frame
             
             # Copy the map data
             updated_map.data = list(self.current_map.data)
@@ -716,7 +726,7 @@ class NavigationController(Node):
                         updated_map.info.resolution)
 
             # Define radius of human obstacle (in meters)
-            human_radius = 0.23  # 0.25 meter radius
+            human_radius = 0.4  # Larger radius (0.4m) to ensure visibility
             cells_radius = int(human_radius / updated_map.info.resolution)
 
             # Mark cells around human position as occupied
@@ -738,11 +748,14 @@ class NavigationController(Node):
             # Update our stored map
             self.current_map = updated_map
             
-            # Publish updated map to influence SLAM and Nav2 global planner
+            # Publish updated map to influence planning
             self.map_pub.publish(updated_map)
             
-            # Also update Nav2 costmaps directly
+            # Update Nav2 costmaps
             self.update_nav2_costmaps()
+            
+            # Also update waypoint generator with new map
+            self.waypoint_generator.update_map(updated_map)
             
             self.get_logger().info(
                 f'Updated map with human obstacle at ({self.last_human_position[0]:.2f}, '
@@ -758,6 +771,8 @@ class NavigationController(Node):
             return
         
         try:
+            import struct
+            
             # Create a point cloud message for the human position
             pc2 = PointCloud2()
             pc2.header.stamp = self.get_clock().now().to_msg()
@@ -774,8 +789,8 @@ class NavigationController(Node):
             # Generate points in a circle around the human
             points = []
             human_x, human_y = self.last_human_position
-            radius = 0.3  # slightly larger than human_radius for costmap
-            num_points = 16  # More points create a more solid obstacle
+            radius = 0.4  # Larger radius for costmap (0.4m)
+            num_points = 32  # More points for a more solid obstacle
             
             # Add center point
             points.append((human_x, human_y, 0.0))
@@ -786,6 +801,12 @@ class NavigationController(Node):
                 x = human_x + radius * np.cos(angle)
                 y = human_y + radius * np.sin(angle)
                 points.append((x, y, 0.0))
+                
+                # Add more points with varying radii for better obstacle coverage
+                inner_radius = radius * 0.7
+                x_inner = human_x + inner_radius * np.cos(angle)
+                y_inner = human_y + inner_radius * np.sin(angle)
+                points.append((x_inner, y_inner, 0.0))
                 
             # Convert points to binary data
             pc2.height = 1
@@ -800,8 +821,9 @@ class NavigationController(Node):
                 point_data.extend(struct.pack('fff', *p))
             pc2.data = point_data
             
-            # Publish the point cloud to Nav2's obstacle layer
-            self.obstacle_pub.publish(pc2)
+            # Publish the point cloud to both local and global costmaps
+            self.local_obstacle_pub.publish(pc2)
+            self.global_obstacle_pub.publish(pc2)
             
             # Request costmap clearing to force refresh
             self.refresh_costmaps()
@@ -827,6 +849,21 @@ class NavigationController(Node):
             
         except Exception as e:
             self.get_logger().error(f'Error refreshing costmaps: {str(e)}')
+
+    def republish_human_obstacles(self):
+        """Periodically republish human obstacles to ensure they remain in the costmaps"""
+        if self.last_human_position is not None:
+            # Check if detection is recent (within last 10 seconds)
+            if self.last_human_timestamp is None:
+                return
+            
+            time_since_detection = (self.get_clock().now() - self.last_human_timestamp).nanoseconds / 1e9
+            if time_since_detection > 10.0:
+                return  # Human detection is too old
+            
+            # Republish to costmaps
+            self.update_nav2_costmaps()
+            self.get_logger().debug('Republished human obstacles to costmaps')
 
 def main(args=None):
     rclpy.init(args=args)

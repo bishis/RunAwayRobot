@@ -297,7 +297,7 @@ local_costmap:
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
       enabled: true
-      inflation_radius: 0.55
+      inflation_radius: 0.4
       cost_scaling_factor: 3.0
       inflate_unknown: false
       inflate_around_unknown: true

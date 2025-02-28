@@ -562,16 +562,24 @@ class NavigationController(Node):
                     human_map_x = transform.transform.translation.x + rotated_x
                     human_map_y = transform.transform.translation.y + rotated_y
                     
+                    self.get_logger().info(
+                        f'Updated human position: ({human_map_x:.2f}, {human_map_y:.2f})'
+                    )
+                    
                     # Store position with timestamp
                     self.last_human_position = (human_map_x, human_map_y)
                     self.last_human_timestamp = self.get_clock().now()
                     
-                    # Update obstacles immediately
+                    # Update obstacles and force replanning ALWAYS when human detected
                     self.update_human_obstacles()
                     
-                    self.get_logger().info(
-                        f'Updated human position: ({human_map_x:.2f}, {human_map_y:.2f})'
-                    )
+                    # Force replanning if we're navigating (even during escape)
+                    if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+                        self.clear_costmaps()
+                        self.request_path_replanning()
+                        self.get_logger().info('Forcing replan due to human detection')
+                        return
+
                     
                 except Exception as e:
                     self.get_logger().warn(f'Could not transform human position: {e}')
@@ -767,19 +775,16 @@ class NavigationController(Node):
             # Publish point cloud
             self.human_obstacles_pub.publish(pc2)
             
-            # Force replanning more aggressively
+            # Force immediate replanning if navigating
             if self.is_navigating:
-                # Clear both local and global costmaps
-                self.clear_costmaps()
-                # Then request replanning
-                self.request_path_replanning()
+                self.force_immediate_replan()
             
             self.get_logger().info(
                 f'Published human obstacle at ({human_x:.2f}, {human_y:.2f})'
             )
             
         except Exception as e:
-            self.get_logger().error(f'Error publishing human obstacle: {str(e)}')
+            self.get_logger().error(f'Error in update_human_obstacles: {str(e)}')
 
     def request_path_replanning(self):
         """Request Nav2 to replan the path without canceling goals"""
@@ -832,6 +837,28 @@ class NavigationController(Node):
             
         except Exception as e:
             self.get_logger().error(f'Error clearing costmaps: {str(e)}')
+
+    def force_immediate_replan(self):
+        """Force immediate replanning of current path"""
+        try:
+            # Clear costmaps first
+            self.clear_costmaps()
+            
+            # Small delay to allow costmap update
+            time.sleep(0.1)
+            
+            # If we have a current goal, replan to it
+            if self.current_goal is not None:
+                # Cancel current goal
+                if self._current_goal_handle is not None:
+                    self._current_goal_handle.cancel_goal_async()
+                
+                # Resend the same goal to force replanning
+                self.send_goal(self.current_goal)
+                self.get_logger().info('Forced immediate replan to current goal')
+                
+        except Exception as e:
+            self.get_logger().error(f'Error in force_immediate_replan: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)

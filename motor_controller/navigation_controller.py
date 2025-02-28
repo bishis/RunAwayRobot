@@ -160,7 +160,7 @@ class NavigationController(Node):
         )
         
         # Re-enable timer for regularly updating human obstacles (every 0.5 seconds)
-        self.human_obstacle_timer = self.create_timer(0.5, self.update_human_obstacles)
+        self.human_obstacle_timer = self.create_timer(0.1, self.update_human_obstacles)
         
         # Add a service client for triggering path replanning
         self.make_plan_client = self.create_client(Empty, '/global_costmap/global_costmap/clear_except_static')
@@ -562,24 +562,16 @@ class NavigationController(Node):
                     human_map_x = transform.transform.translation.x + rotated_x
                     human_map_y = transform.transform.translation.y + rotated_y
                     
-                    self.get_logger().info(
-                        f'Updated human position: ({human_map_x:.2f}, {human_map_y:.2f})'
-                    )
-
                     # Store position with timestamp
                     self.last_human_position = (human_map_x, human_map_y)
                     self.last_human_timestamp = self.get_clock().now()
                     
-                    # Update obstacles and force replanning ALWAYS when human detected
+                    # Update obstacles immediately
                     self.update_human_obstacles()
                     
-                    # Force replanning if we're navigating (even during escape)
-                    if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
-                        self.clear_costmaps()
-                        self.request_path_replanning()
-                        self.get_logger().info('Forcing replan due to human detection')
-                        return
-
+                    self.get_logger().info(
+                        f'Updated human position: ({human_map_x:.2f}, {human_map_y:.2f})'
+                    )
                     
                 except Exception as e:
                     self.get_logger().warn(f'Could not transform human position: {e}')
@@ -775,16 +767,19 @@ class NavigationController(Node):
             # Publish point cloud
             self.human_obstacles_pub.publish(pc2)
             
-            # Force immediate replanning if navigating
+            # Force replanning more aggressively
             if self.is_navigating:
-                self.force_immediate_replan()
+                # Clear both local and global costmaps
+                self.clear_costmaps()
+                # Then request replanning
+                self.request_path_replanning()
             
             self.get_logger().info(
                 f'Published human obstacle at ({human_x:.2f}, {human_y:.2f})'
             )
             
         except Exception as e:
-            self.get_logger().error(f'Error in update_human_obstacles: {str(e)}')
+            self.get_logger().error(f'Error publishing human obstacle: {str(e)}')
 
     def request_path_replanning(self):
         """Request Nav2 to replan the path without canceling goals"""
@@ -837,28 +832,6 @@ class NavigationController(Node):
             
         except Exception as e:
             self.get_logger().error(f'Error clearing costmaps: {str(e)}')
-
-    def force_immediate_replan(self):
-        """Force immediate replanning of current path"""
-        try:
-            # Clear costmaps first
-            self.clear_costmaps()
-            
-            # Small delay to allow costmap update
-            time.sleep(0.1)
-            
-            # If we have a current goal, replan to it
-            if self.current_goal is not None:
-                # Cancel current goal
-                if self._current_goal_handle is not None:
-                    self._current_goal_handle.cancel_goal_async()
-                
-                # Resend the same goal to force replanning
-                self.send_goal(self.current_goal)
-                self.get_logger().info('Forced immediate replan to current goal')
-                
-        except Exception as e:
-            self.get_logger().error(f'Error in force_immediate_replan: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)

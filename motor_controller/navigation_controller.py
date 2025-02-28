@@ -569,6 +569,9 @@ class NavigationController(Node):
                     # Update obstacles immediately
                     self.update_human_obstacles()
                     
+                    if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+                        return
+
                     self.get_logger().info(
                         f'Updated human position: ({human_map_x:.2f}, {human_map_y:.2f})'
                     )

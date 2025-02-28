@@ -281,6 +281,7 @@ local_costmap:
       observation_sources: scan
       scan:
         topic: /scan
+        sensor_frame: laser_frame
         max_obstacle_height: 2.0
         clearing: true
         marking: true
@@ -306,6 +307,7 @@ local_costmap:
         max_obstacle_height: 2.0
         clearing: false
         marking: true
+        sensor_frame: map
         data_type: "PointCloud2"
         expected_update_rate: 0.5
         observation_persistence: 10.0
@@ -337,6 +339,7 @@ global_costmap:
       scan:
         topic: /scan
         max_obstacle_height: 2.0
+        sensor_frame: laser_frame
         clearing: true
         marking: true
         data_type: "LaserScan"
@@ -370,6 +373,7 @@ global_costmap:
         max_obstacle_height: 2.0
         clearing: false
         marking: true
+        sensor_frame: map
         data_type: "PointCloud2"
         expected_update_rate: 0.5
         observation_persistence: 10.0  # Increased persistence

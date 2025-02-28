@@ -297,7 +297,7 @@ local_costmap:
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
       enabled: true
-      inflation_radius: 0.3
+      inflation_radius: 0.55
       cost_scaling_factor: 3.0
       inflate_unknown: false
       inflate_around_unknown: true
@@ -323,6 +323,29 @@ local_costmap:
         obstacle_max_range: 1.5
         obstacle_min_range: 0.02
         inf_is_valid: false
+
+    # Add human_layer to local costmap plugins
+    plugins: ["obstacle_layer", "inflation_layer", "human_layer"]
+    
+    # Add human layer config to local costmap
+    human_layer:
+      plugin: "nav2_costmap_2d::ObstacleLayer"
+      enabled: true
+      observation_sources: human_obstacles
+      human_obstacles:
+        topic: /human_obstacles
+        max_obstacle_height: 2.0
+        clearing: false
+        marking: true
+        data_type: "PointCloud2"
+        expected_update_rate: 0.5
+        observation_persistence: 10.0
+        obstacle_range: 5.0
+        raytrace_range: 5.0
+        obstacle_max_range: 5.0
+        obstacle_min_range: 0.0
+        inf_is_valid: false
+        mark_threshold: 1
 
 global_costmap:
   ros__parameters:

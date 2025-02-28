@@ -767,12 +767,15 @@ class NavigationController(Node):
             # Publish point cloud
             self.human_obstacles_pub.publish(pc2)
             
-            # Force costmap update
-            if hasattr(self, 'make_plan_client') and self.is_navigating:
+            # Force replanning more aggressively
+            if self.is_navigating:
+                # Clear both local and global costmaps
+                self.clear_costmaps()
+                # Then request replanning
                 self.request_path_replanning()
             
             self.get_logger().info(
-                f'Published human obstacle at ({human_x:.2f}, {human_y:.2f}) with {len(points)} points'
+                f'Published human obstacle at ({human_x:.2f}, {human_y:.2f})'
             )
             
         except Exception as e:
@@ -805,6 +808,30 @@ class NavigationController(Node):
             self.get_logger().info('Path replanning completed')
         except Exception as e:
             self.get_logger().error(f'Path replanning failed: {str(e)}')
+
+    def clear_costmaps(self):
+        """Clear both local and global costmaps except static layer"""
+        try:
+            # Create service clients if they don't exist
+            if not hasattr(self, 'clear_global_costmap'):
+                self.clear_global_costmap = self.create_client(
+                    ClearEntireCostmap,
+                    '/global_costmap/clear_entirely_global_costmap'
+                )
+            if not hasattr(self, 'clear_local_costmap'):
+                self.clear_local_costmap = self.create_client(
+                    ClearEntireCostmap,
+                    '/local_costmap/clear_entirely_local_costmap'
+                )
+            
+            # Send clear requests
+            if self.clear_global_costmap.service_is_ready():
+                self.clear_global_costmap.call_async(ClearEntireCostmap.Request())
+            if self.clear_local_costmap.service_is_ready():
+                self.clear_local_costmap.call_async(ClearEntireCostmap.Request())
+            
+        except Exception as e:
+            self.get_logger().error(f'Error clearing costmaps: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)

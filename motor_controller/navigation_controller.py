@@ -20,6 +20,7 @@ from builtin_interfaces.msg import Time
 from nav2_msgs.srv import ClearEntireCostmap
 from nav2_msgs.msg import Costmap
 from std_msgs.msg import Header
+import struct
 
 class NavigationController(Node):
     def __init__(self):
@@ -146,12 +147,16 @@ class NavigationController(Node):
         # Add map publisher for human obstacle updates
         self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
 
-
-        # Publisher for human obstacles (PointCloud2)
+        # Create publisher for human obstacles
         self.human_obstacles_pub = self.create_publisher(
             PointCloud2, 
-            '/human_obstacles', 
-            10
+            '/human_obstacles',  # Must match config
+            rclpy.qos.QoSProfile(
+                reliability=rclpy.qos.ReliabilityPolicy.RELIABLE,
+                durability=rclpy.qos.DurabilityPolicy.TRANSIENT_LOCAL,
+                history=rclpy.qos.HistoryPolicy.KEEP_LAST,
+                depth=1
+            )
         )
         
         # Re-enable timer for regularly updating human obstacles (every 0.5 seconds)
@@ -715,28 +720,17 @@ class NavigationController(Node):
             self.get_logger().error(f'Error clearing markers: {str(e)}')
             
     def update_human_obstacles(self):
-        """Publish human obstacle positions as PointCloud2 for the dedicated costmap layer"""
+        """Publish human obstacle positions as PointCloud2"""
         if self.last_human_position is None:
             return
         
-        # Check if human position is recent (within last 5 seconds)
-        if self.last_human_timestamp is None:
-            return
-        
-        time_since_detection = (self.get_clock().now() - self.last_human_timestamp).nanoseconds / 1e9
-        if time_since_detection > 5.0:
-            return  # Human detection is too old
-        
         try:
-            import struct
-            import numpy as np
-            
-            # Create a point cloud message for the human position
+            # Create point cloud message
             pc2 = PointCloud2()
             pc2.header.stamp = self.get_clock().now().to_msg()
-            pc2.header.frame_id = "map"  # Must be in map frame
+            pc2.header.frame_id = "map"
             
-            # Configure fields (x, y, z)
+            # Define fields for x, y, z coordinates
             fields = [
                 PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
                 PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
@@ -744,28 +738,17 @@ class NavigationController(Node):
             ]
             pc2.fields = fields
             
-            # Generate points for human obstacle with larger radius
+            # Generate dense point cloud around human
             points = []
             human_x, human_y = self.last_human_position
-            radius = 0.45  # Increase radius for better avoidance
+            radius = 0.5  # Increased radius
             
-            # Create a very dense point cloud for better obstacle representation
-            # 1. Create a solid circle of points
-            steps = 40  # More points for better resolution
-            for dx in np.linspace(-radius, radius, steps):
-                for dy in np.linspace(-radius, radius, steps):
-                    if dx*dx + dy*dy <= radius*radius:  # Only points inside the circle
-                        x = human_x + dx
-                        y = human_y + dy
-                        points.append((x, y, 0.0))
-                        
-            # 2. Add extra points at the perimeter for better boundary representation
-            perimeter_points = 64
-            for i in range(perimeter_points):
-                angle = 2.0 * np.pi * i / perimeter_points
-                x = human_x + radius * np.cos(angle)
-                y = human_y + radius * np.sin(angle)
-                points.append((x, y, 0.0))
+            # Create a very dense circular obstacle
+            resolution = 0.05  # 5cm resolution
+            for dx in np.arange(-radius, radius + resolution, resolution):
+                for dy in np.arange(-radius, radius + resolution, resolution):
+                    if dx*dx + dy*dy <= radius*radius:
+                        points.append((human_x + dx, human_y + dy, 0.0))
             
             # Pack points into PointCloud2
             pc2.height = 1
@@ -780,16 +763,16 @@ class NavigationController(Node):
                 point_data.extend(struct.pack('fff', *p))
             pc2.data = point_data
             
-            # Publish to the human_obstacles topic
+            # Publish point cloud
             self.human_obstacles_pub.publish(pc2)
             
-            # Log that we published an obstacle
-            self.get_logger().debug(f'Published human obstacle at ({human_x:.2f}, {human_y:.2f}) with {len(points)} points')
-            
-            # Request path replanning if we're navigating and not escaping
-            # This ensures plans stay updated as long as we have a recent human position
-            if self.is_navigating and not self.is_escape_waypoint(self.current_goal):
+            # Force costmap update
+            if hasattr(self, 'make_plan_client') and self.is_navigating:
                 self.request_path_replanning()
+            
+            self.get_logger().info(
+                f'Published human obstacle at ({human_x:.2f}, {human_y:.2f}) with {len(points)} points'
+            )
             
         except Exception as e:
             self.get_logger().error(f'Error publishing human obstacle: {str(e)}')

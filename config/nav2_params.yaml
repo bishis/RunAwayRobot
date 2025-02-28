@@ -368,7 +368,7 @@ global_costmap:
       inflation_radius: 0.4
       cost_scaling_factor: 5.0
 
-    # Add human obstacle layer
+    # Update human layer config
     human_layer:
       plugin: "nav2_costmap_2d::ObstacleLayer"
       enabled: true
@@ -376,15 +376,18 @@ global_costmap:
       human_obstacles:
         topic: /human_obstacles
         max_obstacle_height: 2.0
-        clearing: false  # Never clear these obstacles - only timeout will remove them
+        clearing: false
         marking: true
         data_type: "PointCloud2"
-        expected_update_rate: 0.2  # Match our publishing rate
-        observation_persistence: 10.0  # Keep obstacles for 10 seconds (longer persistence)
-        obstacle_max_range: 10.0  # Increased range
+        expected_update_rate: 0.5
+        observation_persistence: 10.0  # Increased persistence
+        obstacle_range: 5.0  # Increased range
+        raytrace_range: 5.0
+        obstacle_max_range: 5.0
         obstacle_min_range: 0.0
-        raytrace_max_range: 10.0
-        raytrace_min_range: 0.0
+        inf_is_valid: false
+        mark_threshold: 1
+        observation_sources: human_obstacles
 
 collision_monitor:
   ros__parameters:

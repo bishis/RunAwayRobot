@@ -13,7 +13,7 @@ slam_toolbox:
     transform_timeout: 0.5    # increased from 0.2 to allow extra time for fast movements
     update_timing: true
     publish_period: 0.5
-    map_update_interval: 5.0
+    map_update_interval: 1.0
     max_update_rate: 10.0
 
     # Map management
@@ -26,24 +26,47 @@ slam_toolbox:
     process_near_pose: true
     use_scan_matching: true
     use_scan_barycenter: true
-    # Lowering these thresholds to force more frequent updates during quick motions:
-    minimum_travel_distance: 0.1    # reduced from 0.2 m
-    minimum_travel_heading: 0.1       # reduced from 0.2 rad
+    minimum_travel_distance: 0.1
+    minimum_travel_heading: 0.1
     scan_buffer_size: 10
     scan_buffer_maximum_scan_distance: 10.0
-    link_match_minimum_response_fine: 0.15   # increased from 0.1 to filter out weak scan matches
-    link_scan_maximum_distance: 2.0    # increased from 1.5 to accommodate larger displacements
+    link_match_minimum_response_fine: 0.45
+    link_scan_maximum_distance: 2.0
 
-    # Loop closure parameters (added for improved consistency in smaller environments)
+    # Loop closure parameters
     do_loop_closing: true
-    loop_search_space_dimension: 4.0        # reduced from larger defaults (e.g., 8.0 m) for smaller areas
-    loop_search_space_resolution: 0.02        # finer resolution to improve matching in a compact space
-    loop_search_space_smear_deviation: 0.05     # slight increase to allow for minor noise variations
+    loop_search_space: 8.0
+    loop_match_minimum_chain_size: 3
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.35
+    loop_match_minimum_response_fine: 0.45
+
+    # Correlation parameters
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+
+    # Motion filter parameters
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 0.5
+    fine_search_angle_offset: 0.00349
+
+    # Increase these for better rotation stability
+    rotation_scoring_search_window: 10
+    rotation_scoring_points_per_window: 5
+    rotation_scoring_minimum_response: 0.1
+
+    # Add motion constraints
+    use_velocity_constraints: true
+    use_acceleration_constraints: true
+    max_velocity_linear: 0.5
+    max_velocity_angular: 1.0
+    max_acceleration_linear: 1.0
+    max_acceleration_angular: 1.0
 
     # (Optional) Coarse matching parameters – adjust if your environment is challenging:
     coarse_search_angle_offset: 0.349         # ~20° in radians
     coarse_angle_resolution: 0.0349           # ~2° in radians
-    loop_match_minimum_response_coarse: 0.3
 
     ## Graph Optimization Settings
     optimization_period: 10.0                 # How frequently (in seconds) to run pose graph optimization

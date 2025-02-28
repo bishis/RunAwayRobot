@@ -347,27 +347,25 @@ class NavigationController(Node):
                     self.get_logger().warn('Escape plan failed')
                     self.start_escape_monitoring()
                     return
-            else:                
-                if status != GoalStatus.STATUS_SUCCEEDED:
-
-                    self.get_logger().warn(f'Navigation failed with status: {status}')
-                    # Normal failure handling
-                    self.planning_attempts += 1
-                    
-                    if self.planning_attempts >= self.max_planning_attempts:
-                        self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
-                        self.planning_attempts = 0
-                        self.waypoint_generator.force_waypoint_change()
-                else:
-                    self.get_logger().info('Navigation succeeded')
-                    if self.current_goal is not None and not self.is_escape_waypoint(self.current_goal):
-                        self.planning_attempts = 0
-                        self.reset_navigation_state()
-                    if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
-                        self.get_logger().info('Escape plan succeeded - turning to face human')
-                        self.cancel_current_goal()
-                        self.reset_escape_state()
-                        self.start_escape_monitoring()
+            elif status != GoalStatus.STATUS_SUCCEEDED and not self.is_escape_waypoint(self.current_goal):
+                self.get_logger().warn(f'Navigation failed with status: {status}')
+                # Normal failure handling
+                self.planning_attempts += 1
+                
+                if self.planning_attempts >= self.max_planning_attempts:
+                    self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
+                    self.planning_attempts = 0
+                    self.waypoint_generator.force_waypoint_change()
+            else:
+                self.get_logger().info('Navigation succeeded')
+                if self.current_goal is not None and not self.is_escape_waypoint(self.current_goal):
+                    self.planning_attempts = 0
+                    self.reset_navigation_state()
+                if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+                    self.get_logger().info('Escape plan succeeded - turning to face human')
+                    self.cancel_current_goal()
+                    self.reset_escape_state()
+                    self.start_escape_monitoring()
                 
                 
         except Exception as e:
@@ -450,7 +448,7 @@ class NavigationController(Node):
         try:
             #check the distance to the goal
             if not self.is_escape_waypoint(self.current_goal):
-                if self.distance_to_goal(self.current_goal) < 0.5:
+                if self.distance_to_goal(self.current_goal) < 0.3:
                     self.get_logger().info('Goal reached, cancelling...')
                     self.cancel_current_goal()
                     self.reset_navigation_state()

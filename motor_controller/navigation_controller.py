@@ -160,7 +160,7 @@ class NavigationController(Node):
         )
         
         # Re-enable timer for regularly updating human obstacles (every 0.5 seconds)
-        self.human_obstacle_timer = self.create_timer(0.5, self.update_human_obstacles)
+        self.human_obstacle_timer = self.create_timer(0.1, self.update_human_obstacles)
         
         # Add a service client for triggering path replanning
         self.make_plan_client = self.create_client(Empty, '/global_costmap/global_costmap/clear_except_static')

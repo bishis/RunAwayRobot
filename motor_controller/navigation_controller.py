@@ -742,7 +742,7 @@ class NavigationController(Node):
             # Generate dense point cloud around human
             points = []
             human_x, human_y = self.last_human_position
-            radius = 0.5  # Increased radius
+            radius = 0.4  # Increased radius
             
             # Create a very dense circular obstacle
             resolution = 0.05  # 5cm resolution

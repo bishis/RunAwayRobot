@@ -159,14 +159,15 @@ class WaypointGenerator:
             if x == map_x and y == map_y:
                 return True
             
-            # Check all adjacent cells
-            for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+            # Check all adjacent cells (8-connected neighborhood)
+            for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0), 
+                          (1, 1), (-1, 1), (1, -1), (-1, -1)]:
                 next_x, next_y = x + dx, y + dy
                 
                 # Check bounds
                 if (0 <= next_x < width and 0 <= next_y < height and
                     not visited[next_y, next_x] and
-                    map_data[next_y, next_x] <= 50):  # Free or unknown space
+                    map_data[next_y, next_x] < 50):  # Free space
                     
                     queue.append((next_x, next_y))
                     visited[next_y, next_x] = True
@@ -365,6 +366,7 @@ class WaypointGenerator:
             
             # Check if point is connected to robot position
             if not self.is_connected_to_robot(map_x, map_y, robot_grid_x, robot_grid_y, map_data):
+                self.node.get_logger().debug(f'Skipping disconnected waypoint at ({map_x}, {map_y})')
                 continue
             
             # Convert to world coordinates
@@ -417,8 +419,13 @@ class WaypointGenerator:
                     continue
             
             if total_score > best_score:
-                best_score = total_score
-                best_point = (x, y)
+                # Verify connectivity one final time before accepting
+                if self.is_connected_to_robot(map_x, map_y, robot_grid_x, robot_grid_y, map_data):
+                    best_score = total_score
+                    best_point = (x, y)
+                else:
+                    self.node.get_logger().warn('Best point was disconnected - continuing search')
+                    continue
         
         if best_point is None:
             return None

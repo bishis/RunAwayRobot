@@ -536,8 +536,9 @@ class NavigationController(Node):
             # Always update human position when detected
             if human_distance > 0:
                 # Convert polar to cartesian coordinates relative to robot
-                human_x = human_distance * math.cos(human_angle)
-                human_y = human_distance * math.sin(human_angle)
+                # IMPORTANT: Fix the coordinate transformation
+                human_x = human_distance * math.cos(human_angle)  # Forward is X
+                human_y = human_distance * math.sin(human_angle)  # Left is Y
                 
                 try:
                     # Get robot's position in map frame
@@ -547,30 +548,30 @@ class NavigationController(Node):
                         rclpy.time.Time()
                     )
                     
-                    # Calculate human position in map coordinates
-                    human_map_x = transform.transform.translation.x + human_x
-                    human_map_y = transform.transform.translation.y + human_y
+                    # Get robot's orientation
+                    q = transform.transform.rotation
+                    yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                                    1.0 - 2.0 * (q.y * q.y + q.z * q.z))
                     
-                    # Store position with timestamp (even during escape)
+                    # Transform human position from robot frame to map frame
+                    # Apply rotation first
+                    rotated_x = human_x * math.cos(yaw) - human_y * math.sin(yaw)
+                    rotated_y = human_x * math.sin(yaw) + human_y * math.cos(yaw)
+                    
+                    # Then add robot's position
+                    human_map_x = transform.transform.translation.x + rotated_x
+                    human_map_y = transform.transform.translation.y + rotated_y
+                    
+                    # Store position with timestamp
                     self.last_human_position = (human_map_x, human_map_y)
                     self.last_human_timestamp = self.get_clock().now()
                     
-                    # Immediately update human obstacles when position changes
-                    self.update_human_obstacles()  # Force immediate update with new position
-                    
-                    # Request path replanning if we're navigating (and not escaping)
-                    if self.is_navigating and self.is_escape_waypoint(self.current_goal):
-                        # This is the key call that was missing!
-                        self.request_path_replanning()
+                    # Update obstacles immediately
+                    self.update_human_obstacles()
                     
                     self.get_logger().info(
                         f'Updated human position: ({human_map_x:.2f}, {human_map_y:.2f})'
                     )
-                    
-                    # If we're escaping, just update the position but don't modify behavior
-                    if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
-                        self.get_logger().info('Executing escape plan - tracking human position only')
-                        return  # Skip avoidance commands while escaping
                     
                 except Exception as e:
                     self.get_logger().warn(f'Could not transform human position: {e}')
@@ -741,7 +742,7 @@ class NavigationController(Node):
             # Generate dense point cloud around human
             points = []
             human_x, human_y = self.last_human_position
-            radius = 0.38  # Increased radius
+            radius = 0.5  # Increased radius
             
             # Create a very dense circular obstacle
             resolution = 0.05  # 5cm resolution

@@ -468,48 +468,48 @@ class NavigationController(Node):
                     self.start_escape_monitoring()
                     return
             
-            # current_time = self.get_clock().now()
-            # time_navigating = (current_time - self.goal_start_time).nanoseconds / 1e9
+            current_time = self.get_clock().now()
+            time_navigating = (current_time - self.goal_start_time).nanoseconds / 1e9
             
-            # # Use longer timeout for escape waypoints
-            # timeout = self.escape_timeout if self.is_escape_waypoint(self.current_goal) else self.goal_timeout
+            # Use longer timeout for escape waypoints
+            timeout = self.escape_timeout if self.is_escape_waypoint(self.current_goal) else self.goal_timeout
             
-            # if time_navigating > timeout:
-            #     self.get_logger().warn(f'Goal taking too long ({time_navigating:.1f}s), cancelling...')
-            #     self.cancel_current_goal()
+            if time_navigating > timeout:
+                self.get_logger().warn(f'Goal taking too long ({time_navigating:.1f}s), cancelling...')
+                self.cancel_current_goal()
                 
-            #     if self.is_escape_waypoint(self.current_goal):
-            #         self.escape_attempts += 1
-            #         if self.escape_attempts < self.max_escape_attempts:
-            #             self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
-            #             escape_point = self.human_avoidance.plan_escape()
-            #             if escape_point is not None:
-            #                 self.send_goal(escape_point)  # Retry escape point
-            #                 return
-            #             else:
-            #                 self.get_logger().error('Failed to find escape point!')
-            #         elif self.escape_attempts >= self.max_escape_attempts and self.last_human_position is not None:
-            #             self.get_logger().info('Trapped')
-            #             self.start_shake_defense()
-            #             return
-            #         else:
-            #             self.get_logger().error('Max escape attempts reached, giving up escape plan')
-            #             self.reset_escape_state()
-            #             self.cancel_current_goal()
-            #             self.start_escape_monitoring()
-            #             return
-            #     # Normal waypoint handling
-            #     else:
-            #         self.planning_attempts += 1
-            #         if self.planning_attempts >= self.max_planning_attempts:
-            #             self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
-            #             self.planning_attempts = 0
-            #             self.waypoint_generator.force_waypoint_change()
-            #             self.reset_navigation_state()
-            #         else:
-            #             self.get_logger().info('Retrying current waypoint')
-            #             if self.current_goal:
-            #                 self.send_goal(self.current_goal)
+                if self.is_escape_waypoint(self.current_goal):
+                    self.escape_attempts += 1
+                    if self.escape_attempts < self.max_escape_attempts:
+                        self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
+                        escape_point = self.human_avoidance.plan_escape()
+                        if escape_point is not None:
+                            self.send_goal(escape_point)  # Retry escape point
+                            return
+                        else:
+                            self.get_logger().error('Failed to find escape point!')
+                    elif self.escape_attempts >= self.max_escape_attempts and self.last_human_position is not None:
+                        self.get_logger().info('Trapped')
+                        self.start_shake_defense()
+                        return
+                    else:
+                        self.get_logger().error('Max escape attempts reached, giving up escape plan')
+                        self.reset_escape_state()
+                        self.cancel_current_goal()
+                        self.start_escape_monitoring()
+                        return
+                # Normal waypoint handling
+                else:
+                    self.planning_attempts += 1
+                    if self.planning_attempts >= self.max_planning_attempts:
+                        self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
+                        self.planning_attempts = 0
+                        self.waypoint_generator.force_waypoint_change()
+                        self.reset_navigation_state()
+                    else:
+                        self.get_logger().info('Retrying current waypoint')
+                        if self.current_goal:
+                            self.send_goal(self.current_goal)
             
         except Exception as e:
             self.get_logger().error(f'Error checking goal progress: {str(e)}')

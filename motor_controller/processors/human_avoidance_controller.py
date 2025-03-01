@@ -48,7 +48,7 @@ class HumanAvoidanceController:
         
         # Add turn timeout tracking
         self.turn_start_time = None
-        self.turn_timeout = 10.0  # 5 seconds max for turning
+        self.turn_timeout = 10.0  # 10 seconds max for turning
         
         # Tracking state
         self.last_image_x = None
@@ -67,28 +67,28 @@ class HumanAvoidanceController:
             image_center = 320
             normalized_error = (image_x - image_center) / image_center
             
+            # Get current time for timeout calculation
+            current_time = self.node.get_clock().now()
+            
             # Start turn timer if not already turning
             if not self.is_turning:
-                self.turn_start_time = self.node.get_clock().now()
+                self.turn_start_time = current_time
                 self.is_turning = True
                 self.node.get_logger().info(f'Starting turn attempt')
             
-            # Check if we've been turning too long
-            current_time = self.node.get_clock().now()
-            turn_duration = 0.0  # Initialize turn_duration
-            
+            # Always calculate turn duration when turning
+            turn_duration = 0.0
             if self.turn_start_time:
                 turn_duration = (current_time - self.turn_start_time).nanoseconds / 1e9
                 
-                # If we've been turning too long, stop
-                if turn_duration > self.turn_timeout:
-                    self.node.get_logger().warn(
-                        f'Turn timeout reached after {turn_duration:.1f}s - stopping turn'
-                    )
-                    self.is_turning = False
-                    self.turn_start_time = None
-                    
-                    return 0.0
+            # Check timeout first - this should take precedence over other conditions
+            if turn_duration > self.turn_timeout:
+                self.node.get_logger().warn(
+                    f'Turn timeout reached after {turn_duration:.1f}s - stopping turn'
+                )
+                self.is_turning = False
+                self.turn_start_time = None
+                return 0.0
             
             # Check if human is in center zone
             if abs(normalized_error) <= self.center_zone:
@@ -110,6 +110,8 @@ class HumanAvoidanceController:
             
         except Exception as e:
             self.node.get_logger().error(f'Error in calculate_turn_command: {str(e)}')
+            self.is_turning = False  # Reset turning state on error
+            self.turn_start_time = None
             return 0.0
 
     def check_rear_safety(self) -> tuple[str, float]:

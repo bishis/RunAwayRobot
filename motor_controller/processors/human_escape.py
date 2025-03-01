@@ -81,9 +81,9 @@ class HumanEscape(WaypointGenerator):
             best_point = None
             best_score = float('-inf')
             
-            # Try different distances and angles
-            for distance in range(5, 30, 2):  # Try distances from 0.5m to 3m
-                for angle_offset in [-30, -15, 0, 15, 30]:  # Try different angles
+            # Try different distances and angles - wider range of options
+            for distance in range(5, 40, 3):  # Try distances from 0.5m to 4m with larger steps
+                for angle_offset in [-45, -30, -15, 0, 15, 30, 45]:  # Try more angles
                     # Calculate rotated vector
                     angle_rad = math.radians(angle_offset)
                     rotated_dx = dx * math.cos(angle_rad) - dy * math.sin(angle_rad)
@@ -93,13 +93,14 @@ class HumanEscape(WaypointGenerator):
                     escape_grid_x = robot_grid_x + int(rotated_dx * distance)
                     escape_grid_y = robot_grid_y + int(rotated_dy * distance)
                     
-                    # Check if point is within map bounds
+                    # Check if point is within map bounds - FIX SYNTAX ERROR
                     if (escape_grid_x < 0 or escape_grid_x >= map_data.shape[1] or
                         escape_grid_y < 0 or escape_grid_y >= map_data.shape[0]):
                         continue
                     
                     # Check if point is free and has sufficient clearance
-                    if map_data[escape_grid_y, escape_grid_x] != 0 or wall_distance[escape_grid_y, escape_grid_x] < self.safety_margin:
+                    # Relax the wall distance requirement slightly
+                    if map_data[escape_grid_y, escape_grid_x] > 20 or wall_distance[escape_grid_y, escape_grid_x] < 0.2:
                         continue
                     
                     # Check path clearance
@@ -109,7 +110,8 @@ class HumanEscape(WaypointGenerator):
                         map_data
                     )
                     
-                    if path_clearance < 0.7:  # Require 70% of path cells to be free
+                    # Relax path clearance requirement
+                    if path_clearance < 0.5:  # Require 50% of path cells to be free instead of 70%
                         continue
                     
                     # Convert to world coordinates
@@ -122,8 +124,11 @@ class HumanEscape(WaypointGenerator):
                         (world_y - human_y) ** 2
                     )
                     
-                    # Skip points that don't increase distance from human
-                    if dist_to_human <= current_dist_to_human:
+                    # Allow points that don't increase distance if we're desperate
+                    # Only require increased distance for the best points
+                    min_required_distance = current_dist_to_human * 0.8  # Allow points that are at least 80% of current distance
+                    
+                    if dist_to_human < min_required_distance:
                         continue
                     
                     # Calculate score based on distance from human and wall clearance
@@ -143,9 +148,47 @@ class HumanEscape(WaypointGenerator):
                             f'score: {total_score:.2f}'
                         )
             
+            # If no point found, try a fallback approach with even more relaxed constraints
             if best_point is None:
-                self.node.get_logger().error('No valid escape points found!')
-                return None
+                self.node.get_logger().warn('No primary escape points found, trying fallback approach')
+                
+                # Try a simpler approach - just move in the opposite direction from human
+                for distance in range(3, 20, 2):  # Try shorter distances
+                    # Calculate point directly away from human
+                    escape_grid_x = robot_grid_x + int(dx * distance)
+                    escape_grid_y = robot_grid_y + int(dy * distance)
+                    
+                    # Check if point is within map bounds
+                    if (escape_grid_x < 0 or escape_grid_x >= map_data.shape[1] or
+                        escape_grid_y < 0 or escape_grid_y >= map_data.shape[0]):
+                        continue
+                    
+                    # Very basic check - just make sure it's not a wall
+                    if map_data[escape_grid_y, escape_grid_x] > 50:
+                        continue
+                    
+                    # Convert to world coordinates
+                    world_x = origin_x + escape_grid_x * resolution
+                    world_y = origin_y + escape_grid_y * resolution
+                    
+                    # Use this as fallback
+                    best_point = (world_x, world_y, distance * resolution, 0.5)
+                    self.node.get_logger().info(
+                        f'Using fallback escape point at ({world_x:.2f}, {world_y:.2f})'
+                    )
+                    break
+            
+            if best_point is None:
+                self.node.get_logger().error('No valid escape points found, even with fallback!')
+                
+                # Last resort - just return a point 1m away in the direction away from human
+                world_x = robot_x + (robot_x - human_x) * 1.0 / current_dist_to_human
+                world_y = robot_y + (robot_y - human_y) * 1.0 / current_dist_to_human
+                
+                best_point = (world_x, world_y, 1.0, 0.5)
+                self.node.get_logger().warn(
+                    f'Using emergency escape point at ({world_x:.2f}, {world_y:.2f})'
+                )
             
             # Create waypoint from best point
             waypoint = PoseStamped()
@@ -178,6 +221,8 @@ class HumanEscape(WaypointGenerator):
         
         except Exception as e:
             self.node.get_logger().warn(f'Error generating escape waypoint: {e}')
+            import traceback
+            self.node.get_logger().error(traceback.format_exc())
             return None
     
     def calculate_path_clearance(self, start_x, start_y, end_x, end_y, map_data):

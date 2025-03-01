@@ -132,8 +132,8 @@ class NavigationController(Node):
         self.human_avoidance = HumanAvoidanceController(self, self.waypoint_generator)
 
         # Add escape-specific parameters
-        self.escape_timeout = 45.0  # Longer timeout for escape attempts
-        self.max_escape_attempts = 3  # Number of retry attempts for escape
+        self.escape_timeout = 15.0  # Longer timeout for escape attempts
+        self.max_escape_attempts = 2  # Number of retry attempts for escape
         self.escape_attempts = 0  # Counter for escape attempts
         
         # Add storage for last seen human position

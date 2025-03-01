@@ -177,8 +177,8 @@ controller_server:
       oscillation_reset_angle: 0.75
       
       # Simplified obstacle handling
-      max_obstacle_dist: 0.5
-      min_obstacle_dist: 0.25
+      max_obstacle_dist: 0.8
+      min_obstacle_dist: 0.3
       
       # Additional parameters
       prune_plan: true
@@ -383,8 +383,6 @@ global_costmap:
         obstacle_min_range: 0.0
         inf_is_valid: false
         mark_threshold: 1
-        observation_sources: human_obstacles
-
 collision_monitor:
   ros__parameters:
     use_sim_time: false

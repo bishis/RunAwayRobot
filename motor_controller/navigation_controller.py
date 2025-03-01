@@ -750,39 +750,49 @@ class NavigationController(Node):
                 PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
                 PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
                 PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+                # Add intensity field for setting cost values
+                PointField(name='intensity', offset=12, datatype=PointField.FLOAT32, count=1),
             ]
             pc2.fields = fields
             
             # Generate dense point cloud around human
             points = []
             human_x, human_y = self.last_human_position
-            radius = 0.4  # Increased radius
+            radius = 0.7  # INCREASED radius to 0.7m
             
             # Create a very dense circular obstacle
-            resolution = 0.05  # 5cm resolution
+            resolution = 0.03  # Higher resolution for smoother obstacle
             for dx in np.arange(-radius, radius + resolution, resolution):
                 for dy in np.arange(-radius, radius + resolution, resolution):
-                    if dx*dx + dy*dy <= radius*radius:
-                        points.append((human_x + dx, human_y + dy, 0.0))
+                    dist_sq = dx*dx + dy*dy
+                    if dist_sq <= radius*radius:
+                        # Set higher intensity (cost) for points closer to center
+                        intensity = 254.0  # Make all points lethal obstacles
+                        points.append((human_x + dx, human_y + dy, 0.0, intensity))
             
             # Pack points into PointCloud2
             pc2.height = 1
             pc2.width = len(points)
-            pc2.point_step = 12  # 3 fields * 4 bytes
+            pc2.point_step = 16  # 4 fields * 4 bytes
             pc2.row_step = pc2.point_step * pc2.width
             pc2.is_dense = True
             
             # Pack points into binary array
             point_data = bytearray()
             for p in points:
-                point_data.extend(struct.pack('fff', *p))
+                point_data.extend(struct.pack('ffff', *p))
             pc2.data = point_data
             
             # Publish point cloud
             self.human_obstacles_pub.publish(pc2)
             
+            # Also trigger a path replan if we have a goal
+            if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+                self.get_logger().info('Human detected - requesting path replan')
+                self.request_path_replan()
+            
             self.get_logger().info(
-                f'Published human obstacle at ({human_x:.2f}, {human_y:.2f})'
+                f'Published human obstacle at ({human_x:.2f}, {human_y:.2f}) with radius {radius}m'
             )
             
         except Exception as e:
@@ -878,6 +888,18 @@ class NavigationController(Node):
                 self.shake_timer.cancel()
                 self.shake_timer = None
             self.reset_escape_state()
+
+    # Add this method to force path replanning
+    def request_path_replan(self):
+        """Request replanning when human obstacle is detected"""
+        try:
+            if self.make_plan_client.service_is_ready():
+                # Create an empty request
+                request = Empty.Request()
+                # Call the service
+                self.make_plan_client.call_async(request)
+        except Exception as e:
+            self.get_logger().error(f'Failed to request path replan: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)

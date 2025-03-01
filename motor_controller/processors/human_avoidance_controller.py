@@ -255,52 +255,71 @@ class HumanAvoidanceController:
             human_x, human_y = last_human_position
             
             # Get current robot position
-            transform = self.tf_buffer.lookup_transform(
-                'map',
-                'base_link',
-                rclpy.time.Time()
-            )
-            robot_x = transform.transform.translation.x
-            robot_y = transform.transform.translation.y
-            
-            # Calculate angle to human
-            dx = human_x - robot_x
-            dy = human_y - robot_y
-            angle_to_human = math.atan2(dy, dx)
-            
-            # Create a turn command
-            turn_cmd = Twist()
-            
-            # Keep turning until facing the human
-            while True:
-                # Get current robot orientation
-                current_transform = self.tf_buffer.lookup_transform(
+            try:
+                transform = self.tf_buffer.lookup_transform(
                     'map',
                     'base_link',
                     rclpy.time.Time()
                 )
-                q = current_transform.transform.rotation
-                current_yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 
-                                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+                robot_x = transform.transform.translation.x
+                robot_y = transform.transform.translation.y
                 
-                # Calculate angle difference
-                angle_diff = normalize_angle(current_yaw - angle_to_human)
+                # Calculate angle to human
+                dx = human_x - robot_x
+                dy = human_y - robot_y
+                angle_to_human = math.atan2(dy, dx)
                 
-                if abs(angle_diff) < 0.2:  # Adjust threshold
-                    self.node.get_logger().info('Aligned with human position')
-                    break
+                # Create a turn command
+                turn_cmd = Twist()
                 
-                # Proportional control for turn speed
-                turn_speed = min(abs(angle_diff), self.max_rotation_speed)
-                turn_cmd.angular.z = turn_speed if angle_diff > 0 else -turn_speed
+                # Add timeout tracking
+                start_time = self.node.get_clock().now()
+                max_turn_time = 5.0  # 5 seconds max for turning
                 
-                # Publish turn command
-                self.wheel_speeds_pub.publish(turn_cmd)
-                rclpy.spin_once(self.node, timeout_sec=0.1)
-            
-            # Stop turning
-            self.wheel_speeds_pub.publish(Twist())
-            self.node.get_logger().info('Stopped turning, ready to explore again')
+                # Keep turning until facing the human or timeout
+                while True:
+                    # Check for timeout
+                    current_time = self.node.get_clock().now()
+                    turn_duration = (current_time - start_time).nanoseconds / 1e9
+                    
+                    if turn_duration > max_turn_time:
+                        self.node.get_logger().warn(
+                            f'Turn timeout reached after {turn_duration:.1f}s - stopping turn'
+                        )
+                        break
+                    
+                    # Get current robot orientation
+                    current_transform = self.tf_buffer.lookup_transform(
+                        'map',
+                        'base_link',
+                        rclpy.time.Time()
+                    )
+                    q = current_transform.transform.rotation
+                    current_yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 
+                                              1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+                    
+                    # Calculate angle difference
+                    angle_diff = normalize_angle(current_yaw - angle_to_human)
+                    
+                    if abs(angle_diff) < 0.2:  # Adjust threshold
+                        self.node.get_logger().info('Aligned with human position')
+                        break
+                    
+                    # Proportional control for turn speed
+                    turn_speed = min(abs(angle_diff), self.max_rotation_speed)
+                    turn_cmd.angular.z = turn_speed if angle_diff > 0 else -turn_speed
+                    
+                    # Publish turn command
+                    self.wheel_speeds_pub.publish(turn_cmd)
+                    rclpy.spin_once(self.node, timeout_sec=0.1)
+                
+                # Stop turning
+                self.wheel_speeds_pub.publish(Twist())
+                self.node.get_logger().info('Stopped turning, ready to explore again')
+                
+            except Exception as e:
+                self.node.get_logger().error(f'Error turning to face human: {str(e)}')
+                self.wheel_speeds_pub.publish(Twist())  # Stop on error
 
     def turn_to_angle(self, target_angle):
         """

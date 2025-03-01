@@ -310,13 +310,16 @@ local_costmap:
         sensor_frame: map
         data_type: "PointCloud2"
         expected_update_rate: 0.5
-        observation_persistence: 10.0
-        obstacle_range: 5.0
-        raytrace_range: 5.0
-        obstacle_max_range: 5.0
+        observation_persistence: 15.0  # Increased persistence
+        obstacle_range: 10.0  # Increased range
+        raytrace_range: 10.0
+        obstacle_max_range: 10.0
         obstacle_min_range: 0.0
         inf_is_valid: false
         mark_threshold: 1
+        min_obstacle_height: 0.0
+        max_obstacle_height: 2.0
+        combination_method: 1  # Use maximum value for combining
 
 global_costmap:
   ros__parameters:
@@ -376,14 +379,16 @@ global_costmap:
         sensor_frame: map
         data_type: "PointCloud2"
         expected_update_rate: 0.5
-        observation_persistence: 10.0  # Increased persistence
-        obstacle_range: 5.0  # Increased range
-        raytrace_range: 5.0
-        obstacle_max_range: 5.0
+        observation_persistence: 15.0  # Increased persistence
+        obstacle_range: 10.0  # Increased range
+        raytrace_range: 10.0
+        obstacle_max_range: 10.0
         obstacle_min_range: 0.0
         inf_is_valid: false
         mark_threshold: 1
-        observation_sources: human_obstacles
+        min_obstacle_height: 0.0
+        max_obstacle_height: 2.0
+        combination_method: 1  # Use maximum value for combining
 
 collision_monitor:
   ros__parameters:

@@ -123,9 +123,9 @@ class HumanAvoidanceController:
             return 'safe', float('inf')  # Assume safe if no data
         
         try:
-            # Define rear arc from 105° to 235° for 130° total coverage
-            rear_start_angle = 105 * math.pi/180  # 105 degrees
-            rear_end_angle = 235 * math.pi/180    # 235 degrees
+            # Define rear arc from 100° to 240° for 140° total coverage
+            rear_start_angle = 100 * math.pi/180  # 100 degrees
+            rear_end_angle = 240 * math.pi/180    # 240 degrees
             
             # Convert angles to LIDAR indices
             start_idx = int((rear_start_angle - self.latest_scan.angle_min) / 

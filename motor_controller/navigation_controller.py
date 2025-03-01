@@ -810,14 +810,42 @@ class NavigationController(Node):
     def execute_shake_motion(self):
         """Execute one step of the shake motion"""
         try:
-            if self.shake_count >= self.max_shake_count and self.last_human_position is None:
-                # We've completed all shake cycles, stop and resume exploration
-                self.get_logger().info('Shake defense completed')
+            # Check if we should stop shaking
+            if self.shake_count >= self.max_shake_count:
+                # We've completed all shake cycles
+                self.get_logger().info('Shake defense completed maximum cycles')
                 self.wheel_speeds_pub.publish(Twist())  # Stop motion
-                self.shake_timer.cancel()
-                self.shake_timer = None
+                
+                if hasattr(self, 'shake_timer') and self.shake_timer:
+                    self.shake_timer.cancel()
+                    self.shake_timer = None
+                
+                # Reset escape state and start monitoring
                 self.reset_escape_state()
                 self.start_escape_monitoring()
+                return
+            
+            # Check if human is still present
+            current_time = self.get_clock().now()
+            human_still_present = False
+            
+            if self.last_human_timestamp is not None:
+                time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
+                # Consider human still present if seen in the last 2 seconds
+                human_still_present = time_since_human < 2.0
+            
+            if not human_still_present:
+                # Human is gone, we can stop shaking
+                self.get_logger().info('Human no longer detected, stopping shake defense')
+                self.wheel_speeds_pub.publish(Twist())  # Stop motion
+                
+                if hasattr(self, 'shake_timer') and self.shake_timer:
+                    self.shake_timer.cancel()
+                    self.shake_timer = None
+                
+                # Reset escape state and resume exploration
+                self.reset_escape_state()
+                self.resume_exploration()
                 return
             
             # Create shake command

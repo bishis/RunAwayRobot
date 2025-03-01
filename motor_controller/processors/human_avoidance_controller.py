@@ -75,6 +75,8 @@ class HumanAvoidanceController:
             
             # Check if we've been turning too long
             current_time = self.node.get_clock().now()
+            turn_duration = 0.0  # Initialize turn_duration
+            
             if self.turn_start_time:
                 turn_duration = (current_time - self.turn_start_time).nanoseconds / 1e9
                 

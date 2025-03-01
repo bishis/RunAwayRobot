@@ -745,79 +745,43 @@ class NavigationController(Node):
                 PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
                 PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
                 PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
-                # Add intensity field to increase obstacle weight
-                PointField(name='intensity', offset=12, datatype=PointField.FLOAT32, count=1),
             ]
             pc2.fields = fields
             
             # Generate dense point cloud around human
             points = []
             human_x, human_y = self.last_human_position
-            radius = 0.8  # Significantly increased radius for better avoidance
+            radius = 0.4  # Increased radius
             
             # Create a very dense circular obstacle
-            resolution = 0.03  # Higher resolution for denser obstacle
+            resolution = 0.05  # 5cm resolution
             for dx in np.arange(-radius, radius + resolution, resolution):
                 for dy in np.arange(-radius, radius + resolution, resolution):
-                    dist_sq = dx*dx + dy*dy
-                    if dist_sq <= radius*radius:
-                        # Add intensity value (higher at center, lower at edges)
-                        intensity = 100.0 * (1.0 - (math.sqrt(dist_sq) / radius))
-                        points.append((human_x + dx, human_y + dy, 0.0, intensity))
+                    if dx*dx + dy*dy <= radius*radius:
+                        points.append((human_x + dx, human_y + dy, 0.0))
             
             # Pack points into PointCloud2
             pc2.height = 1
             pc2.width = len(points)
-            pc2.point_step = 16  # 4 fields * 4 bytes
+            pc2.point_step = 12  # 3 fields * 4 bytes
             pc2.row_step = pc2.point_step * pc2.width
             pc2.is_dense = True
             
             # Pack points into binary array
             point_data = bytearray()
             for p in points:
-                point_data.extend(struct.pack('ffff', *p))
+                point_data.extend(struct.pack('fff', *p))
             pc2.data = point_data
             
             # Publish point cloud
             self.human_obstacles_pub.publish(pc2)
             
-            # Force costmap update by clearing and replanning
-            if self.is_navigating and not self.is_escape_waypoint(self.current_goal):
-                # Request costmap clearing to force replanning around human
-                self.request_costmap_update()
-            
             self.get_logger().info(
-                f'Published human obstacle at ({human_x:.2f}, {human_y:.2f}) with radius {radius}m'
+                f'Published human obstacle at ({human_x:.2f}, {human_y:.2f})'
             )
             
         except Exception as e:
             self.get_logger().error(f'Error publishing human obstacle: {str(e)}')
-
-    def request_costmap_update(self):
-        """Request costmap update to force replanning around human obstacles"""
-        try:
-            # Only request if we haven't recently requested
-            current_time = self.get_clock().now()
-            
-            # Create client for costmap clearing if it doesn't exist
-            if not hasattr(self, 'clear_costmap_client'):
-                self.clear_costmap_client = self.create_client(
-                    ClearEntireCostmap, 
-                    '/global_costmap/clear_entirely_global_costmap'
-                )
-                
-            # Wait for service to be available
-            if not self.clear_costmap_client.wait_for_service(timeout_sec=0.1):
-                self.get_logger().warn('Clear costmap service not available')
-                return
-                
-            # Send request
-            request = ClearEntireCostmap.Request()
-            future = self.clear_costmap_client.call_async(request)
-            self.get_logger().info('Requested costmap update to handle human obstacle')
-            
-        except Exception as e:
-            self.get_logger().error(f'Error requesting costmap update: {str(e)}')
 
 
 def main(args=None):

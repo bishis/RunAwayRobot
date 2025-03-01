@@ -46,6 +46,10 @@ class HumanAvoidanceController:
         # Frame zones - simpler tracking
         self.center_zone = 0.25  # Consider centered within ±25% of frame center
         
+        # Add turn timeout tracking
+        self.turn_start_time = None
+        self.turn_timeout = 10.0  # 5 seconds max for turning
+        
         # Tracking state
         self.last_image_x = None
         self.is_turning = False
@@ -58,27 +62,53 @@ class HumanAvoidanceController:
 
     def calculate_turn_command(self, image_x: float) -> float:
         """Calculate turn speed to face human."""
-        # Calculate normalized error from image center (-1 to 1)
-        image_center = 320
-        normalized_error = (image_x - image_center) / image_center
-        
-        # Check if human is in center zone
-        if abs(normalized_error) <= self.center_zone:
-            self.node.get_logger().info('Human centered - no turn needed')
-            self.is_turning = False
-            return 0.0
+        try:
+            # Calculate normalized error from image center (-1 to 1)
+            image_center = 320
+            normalized_error = (image_x - image_center) / image_center
             
-        # Calculate turn direction and speed
-        turn_direction = 1.0 if normalized_error > 0 else -1.0
-        
-        # Use constant turn speed based on direction
-        turn_speed = self.max_rotation_speed * turn_direction
-        
-        self.node.get_logger().info(
-            f'Turning to face human: error={normalized_error:.2f}, speed={turn_speed:.2f}'
-        )
-        self.is_turning = True
-        return turn_speed
+            # Start turn timer if not already turning
+            if not self.is_turning:
+                self.turn_start_time = self.node.get_clock().now()
+                self.is_turning = True
+                self.node.get_logger().info(f'Starting turn attempt')
+            
+            # Check if we've been turning too long
+            current_time = self.node.get_clock().now()
+            if self.turn_start_time:
+                turn_duration = (current_time - self.turn_start_time).nanoseconds / 1e9
+                
+                # If we've been turning too long, stop
+                if turn_duration > self.turn_timeout:
+                    self.node.get_logger().warn(
+                        f'Turn timeout reached after {turn_duration:.1f}s - stopping turn'
+                    )
+                    self.is_turning = False
+                    self.turn_start_time = None
+                    
+                    return 0.0
+            
+            # Check if human is in center zone
+            if abs(normalized_error) <= self.center_zone:
+                self.node.get_logger().info('Human centered - stopping turn')
+                self.is_turning = False
+                self.turn_start_time = None
+                return 0.0
+            
+            # Calculate turn direction and speed
+            turn_direction = 1.0 if normalized_error > 0 else -1.0
+            turn_speed = self.max_rotation_speed * turn_direction
+            
+            self.node.get_logger().info(
+                f'Turning to face human: error={normalized_error:.2f}, '
+                f'speed={turn_speed:.2f}, duration={turn_duration:.1f}s'
+            )
+            
+            return turn_speed
+            
+        except Exception as e:
+            self.node.get_logger().error(f'Error in calculate_turn_command: {str(e)}')
+            return 0.0
 
     def check_rear_safety(self) -> tuple[str, float]:
         """

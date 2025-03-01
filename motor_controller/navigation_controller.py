@@ -599,6 +599,12 @@ class NavigationController(Node):
                     # IMPORTANT: Always publish the avoidance command
                     self.wheel_speeds_pub.publish(avoidance_cmd)
                     
+                    # Log command details
+                    self.get_logger().info(
+                        f'Human tracking: dist={human_distance:.2f}m, '
+                        f'angle={human_angle:.2f}rad, turn={avoidance_cmd.angular.z:.3f}'
+                    )
+                    
                     # Check for escape BEFORE any other processing
                     if needs_escape:
                         self.get_logger().warn('Critical distance detected - initiating escape!')

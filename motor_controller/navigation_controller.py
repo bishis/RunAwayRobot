@@ -335,10 +335,6 @@ class NavigationController(Node):
             status = result.status
             self.get_logger().info(f'Navigation result status: {status}')
             
-            # if result.result == NavigateToPose.Result.NO_VALID_PATH and self.is_escape_waypoint(self.current_goal):
-            #     self.get_logger().warn('No valid path to escape!')
-            #     self.start_spin_defense()
-
             if status != GoalStatus.STATUS_SUCCEEDED and self.is_escape_waypoint(self.current_goal):
                 self.escape_attempts += 1
                 if self.escape_attempts < self.max_escape_attempts:
@@ -350,6 +346,7 @@ class NavigationController(Node):
                 elif self.escape_attempts >= self.max_escape_attempts and self.last_human_position is not None:
                     self.get_logger().info('Trapped start shaking')
                     self.start_shake_defense()
+                    return
                 else:
                     self.get_logger().error('Max escape attempts reached, giving up escape plan')
                     self.get_logger().warn('Escape plan failed')
@@ -493,11 +490,14 @@ class NavigationController(Node):
                             self.get_logger().error('Failed to find escape point!')
                     elif self.escape_attempts >= self.max_escape_attempts and self.last_human_position is not None:
                         self.get_logger().info('Trapped')
+                        self.start_shake_defense()
+                        return
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
                         self.reset_escape_state()
                         self.cancel_current_goal()
                         self.start_escape_monitoring()
+                        return
                 # Normal waypoint handling
                 else:
                     self.planning_attempts += 1

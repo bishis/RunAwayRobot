@@ -281,7 +281,7 @@ class HumanAvoidanceController:
                     # Check for timeout
                     current_time = self.node.get_clock().now()
                     turn_duration = (current_time - start_time).nanoseconds / 1e9
-                    
+                    self.node.get_logger().info(f'Turn duration: {turn_duration:.1f}s')
                     if turn_duration > max_turn_time:
                         self.node.get_logger().warn(
                             f'Turn timeout reached after {turn_duration:.1f}s - stopping turn'

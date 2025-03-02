@@ -165,6 +165,12 @@ class NavigationController(Node):
         # Add a service client for triggering path replanning
         self.make_plan_client = self.create_client(Empty, '/global_costmap/global_costmap/clear_except_static')
 
+        # Add position tracking for stuck detection
+        self.last_position_check = None
+        self.last_check_position = None
+        self.stuck_threshold = 0.05  # 5cm movement threshold
+        self.stuck_timeout = 10.0     # 5 seconds without movement = stuck
+
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
         self.latest_scan = msg
@@ -451,7 +457,7 @@ class NavigationController(Node):
             return
         
         try:
-            #check the distance to the goal
+            # Check the distance to the goal
             if not self.is_escape_waypoint(self.current_goal):
                 if self.distance_to_goal(self.current_goal) < 0.3:
                     self.get_logger().info('Goal reached, cancelling...')
@@ -468,16 +474,36 @@ class NavigationController(Node):
                     self.start_escape_monitoring()
                     return
             
+            """Check if the robot has moved in the past interval"""
+            if self.current_goal is None:
+                # Reset tracking when not navigating
+                self.last_position_check = None
+                self.last_check_position = None
+                return
+            
             current_time = self.get_clock().now()
-            time_navigating = (current_time - self.goal_start_time).nanoseconds / 1e9
+            current_position = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
             
-            # Use longer timeout for escape waypoints
-            timeout = self.escape_timeout if self.is_escape_waypoint(self.current_goal) else self.goal_timeout
+            # Initialize tracking on first call
+            if self.last_position_check is None or self.last_check_position is None:
+                self.last_position_check = current_time
+                self.last_check_position = current_position
+                return
             
-            if time_navigating > timeout:
-                self.get_logger().warn(f'Goal taking too long ({time_navigating:.1f}s), cancelling...')
+            # Calculate time and distance since last check
+            time_diff = (current_time - self.last_position_check).nanoseconds / 1e9
+            distance_moved = math.sqrt(
+                (current_position[0] - self.last_check_position[0]) ** 2 +
+                (current_position[1] - self.last_check_position[1]) ** 2
+            )
+            
+            # Check if we've been stuck for longer than the timeout
+            if distance_moved < self.stuck_threshold and time_diff > self.stuck_timeout:
+                self.get_logger().warn(
+                    f'Robot appears to be stuck! Moved only {distance_moved:.3f}m in {time_diff:.1f} seconds'
+                )
                 self.cancel_current_goal()
-                
+                # Different handling based on goal type
                 if self.is_escape_waypoint(self.current_goal):
                     self.escape_attempts += 1
                     if self.escape_attempts < self.max_escape_attempts:
@@ -498,7 +524,6 @@ class NavigationController(Node):
                         self.cancel_current_goal()
                         self.start_escape_monitoring()
                         return
-                # Normal waypoint handling
                 else:
                     self.planning_attempts += 1
                     if self.planning_attempts >= self.max_planning_attempts:
@@ -510,6 +535,15 @@ class NavigationController(Node):
                         self.get_logger().info('Retrying current waypoint')
                         if self.current_goal:
                             self.send_goal(self.current_goal)
+                
+                # Reset tracking
+                self.last_position_check = None
+                self.last_check_position = None
+            
+            # Update tracking if we've moved enough or enough time has passed
+            elif distance_moved > self.stuck_threshold or time_diff > 10.0:
+                self.last_position_check = current_time
+                self.last_check_position = current_position
             
         except Exception as e:
             self.get_logger().error(f'Error checking goal progress: {str(e)}')

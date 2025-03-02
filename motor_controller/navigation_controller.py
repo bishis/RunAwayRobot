@@ -45,7 +45,7 @@ class NavigationController(Node):
         self.declare_parameter('robot_radius', 0.16)
         self.declare_parameter('safety_margin', 0.3)
         self.declare_parameter('max_linear_speed', 0.07)
-        self.declare_parameter('max_angular_speed', 1.0)  # Actual max rotation speed
+        self.declare_parameter('max_angular_speed', 1.33)  # Actual max rotation speed
         self.declare_parameter('min_rotation_speed', 0.8)
         self.declare_parameter('goal_timeout', 30.0)
         
@@ -598,7 +598,7 @@ class NavigationController(Node):
                 # Pass information to human avoidance controller
                 if self.is_tracking_human:
                     cmd = Twist()
-                    image_x = None
+                    image_x = ((-human_angle / self.max_angular_speed) + 1) * 320
                     
                     cmd, should_escape = self.human_avoidance.get_avoidance_command(
                         human_distance, 

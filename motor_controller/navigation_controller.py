@@ -341,6 +341,14 @@ class NavigationController(Node):
             result = future.result()
             status = result.status
             self.get_logger().info(f'Navigation result status: {status}')
+
+            # Check if human is still present
+            human_still_present = False
+            current_time = self.get_clock().now()
+            if self.last_human_timestamp is not None:
+                time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
+                # Consider human still present if seen in the last 2 seconds
+                human_still_present = time_since_human < 2.0
             
             if status != GoalStatus.STATUS_SUCCEEDED and self.is_escape_waypoint(self.current_goal):
                 self.escape_attempts += 1
@@ -350,7 +358,7 @@ class NavigationController(Node):
                     if escape_point is not None:
                         self.send_goal(escape_point)  # Retry escape point
                     return
-                elif self.escape_attempts >= self.max_escape_attempts and self.last_human_position is not None:
+                elif self.escape_attempts >= self.max_escape_attempts and human_still_present:
                     self.get_logger().info('Trapped start shaking')
                     self.start_shake_defense()
                     return
@@ -856,7 +864,6 @@ class NavigationController(Node):
         
         # Create a timer for the shake motion
         self.shake_count = 0
-        self.max_shake_count = 10  # Number of shake cycles
         self.shake_direction = 1  # Start with right turn
         
         # Create a timer that runs the shake motion at 5Hz
@@ -869,21 +876,6 @@ class NavigationController(Node):
     def execute_shake_motion(self):
         """Execute one step of the shake motion"""
         try:
-            # Check if we should stop shaking
-            if self.shake_count >= self.max_shake_count:
-                # We've completed all shake cycles
-                self.get_logger().info('Shake defense completed maximum cycles')
-                self.wheel_speeds_pub.publish(Twist())  # Stop motion
-                
-                if hasattr(self, 'shake_timer') and self.shake_timer:
-                    self.shake_timer.cancel()
-                    self.shake_timer = None
-                
-                # Reset escape state and start monitoring
-                self.reset_escape_state()
-                self.start_escape_monitoring()
-                return
-            
             # Check if human is still present
             current_time = self.get_clock().now()
             human_still_present = False
@@ -923,8 +915,7 @@ class NavigationController(Node):
             
             # Publish command
             self.wheel_speeds_pub.publish(cmd)
-            self.get_logger().info(f'Shake motion {self.shake_count+1}/{self.max_shake_count}: ' +
-                                  f'angular={cmd.angular.z:.2f}, linear={cmd.linear.x:.2f}')
+            self.get_logger().info(f'Shake motion' + f'angular={cmd.angular.z:.2f}, linear={cmd.linear.x:.2f}')
             
             # Increment counter
             self.shake_count += 1

@@ -591,6 +591,11 @@ class NavigationController(Node):
             # Update last known human position
             self.last_human_position = (human_x, human_y)
             self.last_human_timestamp = self.get_clock().now()
+
+            if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+                return
+            if self.shake_timer:
+                return
             
             # Calculate distance to human using Euclidean distance
             if self.current_pose is not None:

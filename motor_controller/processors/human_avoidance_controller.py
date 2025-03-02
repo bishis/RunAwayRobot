@@ -65,30 +65,10 @@ class HumanAvoidanceController:
         try:
             # Calculate normalized error from image center (-1 to 1)
             image_center = 320
-            normalized_error = (image_x - image_center) / image_center
-            
-            # Get current time for timeout calculation
-            current_time = self.node.get_clock().now()
-            
-            # Start turn timer if not already turning
-            if not self.is_turning:
-                self.turn_start_time = current_time
-                self.is_turning = True
-                self.node.get_logger().info(f'Starting turn attempt')
-            
-            # Always calculate turn duration when turning
-            turn_duration = 0.0
-            if self.turn_start_time:
-                turn_duration = (current_time - self.turn_start_time).nanoseconds / 1e9
-                
-            # Check timeout first - this should take precedence over other conditions
-            if turn_duration > self.turn_timeout:
-                self.node.get_logger().warn(
-                    f'Turn timeout reached after {turn_duration:.1f}s - stopping turn'
-                )
-                self.is_turning = False
-                self.turn_start_time = None
-                return 0.0
+            normalized_error = (image_x - image_center) / image_center            
+
+
+
             
             # Check if human is in center zone
             if abs(normalized_error) <= self.center_zone:
@@ -103,15 +83,13 @@ class HumanAvoidanceController:
             
             self.node.get_logger().info(
                 f'Turning to face human: error={normalized_error:.2f}, '
-                f'speed={turn_speed:.2f}, duration={turn_duration:.1f}s'
+                f'speed={turn_speed:.2f}'
             )
             
             return turn_speed
             
         except Exception as e:
             self.node.get_logger().error(f'Error in calculate_turn_command: {str(e)}')
-            self.is_turning = False  # Reset turning state on error
-            self.turn_start_time = None
             return 0.0
 
     def check_rear_safety(self) -> tuple[str, float]:
@@ -247,86 +225,15 @@ class HumanAvoidanceController:
             self.node.get_logger().error('Failed to find escape point!')
             return None
 
-    def turn_to_face_human(self, last_human_position):
-        """Turn the robot to face the last known position of the human"""
-        if last_human_position is not None:
-            self.node.get_logger().info('Turning to face human...')
-            
-            human_x, human_y = last_human_position
-            
-            # Get current robot position
-            try:
-                transform = self.tf_buffer.lookup_transform(
-                    'map',
-                    'base_link',
-                    rclpy.time.Time()
-                )
-                robot_x = transform.transform.translation.x
-                robot_y = transform.transform.translation.y
-                
-                # Calculate angle to human
-                dx = human_x - robot_x
-                dy = human_y - robot_y
-                angle_to_human = math.atan2(dy, dx)
-                
-                # Create a turn command
-                turn_cmd = Twist()
-                
-                # Add timeout tracking
-                start_time = self.node.get_clock().now()
-                max_turn_time = 5.0  # 5 seconds max for turning
-                
-                # Keep turning until facing the human or timeout
-                while True:
-                    # Check for timeout
-                    current_time = self.node.get_clock().now()
-                    turn_duration = (current_time - start_time).nanoseconds / 1e9
-                    self.node.get_logger().info(f'Turn duration: {turn_duration:.1f}s')
-                    if turn_duration > max_turn_time:
-                        self.node.get_logger().warn(
-                            f'Turn timeout reached after {turn_duration:.1f}s - stopping turn'
-                        )
-                        break
-                    
-                    # Get current robot orientation
-                    current_transform = self.tf_buffer.lookup_transform(
-                        'map',
-                        'base_link',
-                        rclpy.time.Time()
-                    )
-                    q = current_transform.transform.rotation
-                    current_yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 
-                                              1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-                    
-                    # Calculate angle difference
-                    angle_diff = normalize_angle(current_yaw - angle_to_human)
-                    
-                    if abs(angle_diff) < 0.2:  # Adjust threshold
-                        self.node.get_logger().info('Aligned with human position')
-                        break
-                    
-                    # Proportional control for turn speed
-                    turn_speed = min(abs(angle_diff), self.max_rotation_speed)
-                    turn_cmd.angular.z = turn_speed if angle_diff > 0 else -turn_speed
-                    
-                    # Publish turn command
-                    self.wheel_speeds_pub.publish(turn_cmd)
-                    rclpy.spin_once(self.node, timeout_sec=0.1)
-                
-                # Stop turning
-                self.wheel_speeds_pub.publish(Twist())
-                self.node.get_logger().info('Stopped turning, ready to explore again')
-                
-            except Exception as e:
-                self.node.get_logger().error(f'Error turning to face human: {str(e)}')
-                self.wheel_speeds_pub.publish(Twist())  # Stop on error
-
     def turn_to_angle(self, target_angle):
         """
         Calculate speeds needed to turn to a specific angle.
         Returns Twist message with rotation speeds.
         """
         try:
+
+            start_time = self.node.get_clock().now()
+            max_turn_time = 5.0  
             # Get current robot orientation from tf
             transform = self.tf_buffer.lookup_transform(
                 'map',

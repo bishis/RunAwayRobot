@@ -835,10 +835,10 @@ class NavigationController(Node):
             # Publish point cloud
             self.human_obstacles_pub.publish(pc2)
             
-            # Also trigger a path replan if we have a goal
-            if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
-                self.get_logger().info('Human detected - requesting path replan')
-                self.request_path_replan()
+            # # Also trigger a path replan if we have a goal
+            # if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+            #     self.get_logger().info('Human detected - requesting path replan')
+            #     self.request_path_replan()
             
             self.get_logger().info(
                 f'Published human obstacle at ({human_x:.2f}, {human_y:.2f}) with radius {radius}m'

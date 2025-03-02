@@ -117,8 +117,8 @@ class NavigationController(Node):
         )
         
         self.tracking_cmd_sub = self.create_subscription(
-            Twist,
-            '/human_tracking_cmd',
+            PoseStamped,
+            '/human_coords',
             self.tracking_cmd_callback,
             10
         )
@@ -568,87 +568,54 @@ class NavigationController(Node):
             if self._current_goal_handle is not None:
                 self._current_goal_handle.cancel_goal_async()
 
-    def tracking_cmd_callback(self, msg):
-        """Handle human tracking commands with avoidance"""
+    def tracking_cmd_callback(self, msg: PoseStamped):
+        """Handle tracking information from human coordinates"""
         try:
-            # Extract human position data regardless of escape state
-            human_angle = -msg.angular.z  # Invert because cmd is opposite
-            human_distance = msg.linear.y  # Get real distance measurement
+            # Extract human position from PoseStamped
+            human_x = msg.pose.position.x
+            human_y = msg.pose.position.y
             
-            # Always update human position when detected
-            if human_distance > 0:
-                # Convert polar to cartesian coordinates relative to robot
-                # IMPORTANT: Fix the coordinate transformation
-                human_x = human_distance * math.cos(human_angle)  # Forward is X
-                human_y = human_distance * math.sin(human_angle)  # Left is Y
-                
-                try:
-                    # Get robot's position in map frame
-                    transform = self.tf_buffer.lookup_transform(
-                        'map',
-                        'base_link',
-                        rclpy.time.Time()
-                    )
-                    
-                    # Get robot's orientation
-                    q = transform.transform.rotation
-                    yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
-                                    1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-                    
-                    # Transform human position from robot frame to map frame
-                    # Apply rotation first
-                    rotated_x = human_x * math.cos(yaw) - human_y * math.sin(yaw)
-                    rotated_y = human_x * math.sin(yaw) + human_y * math.cos(yaw)
-                    
-                    # Then add robot's position
-                    human_map_x = transform.transform.translation.x + rotated_x
-                    human_map_y = transform.transform.translation.y + rotated_y
-                    
-                    # Store position with timestamp
-                    self.last_human_position = (human_map_x, human_map_y)
-                    self.last_human_timestamp = self.get_clock().now()
-                    
-                    # Update obstacles immediately
-                    self.update_human_obstacles()
-                    
-                    if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
-                        return
-
-                    self.get_logger().info(
-                        f'Updated human position: ({human_map_x:.2f}, {human_map_y:.2f})'
-                    )
-                    
-                except Exception as e:
-                    self.get_logger().warn(f'Could not transform human position: {e}')
-
+            # Update last known human position
+            self.last_human_position = (human_x, human_y)
+            self.last_human_timestamp = self.get_clock().now()
             
-            # Only proceed with avoidance and escape logic if not already escaping
-            if self.is_tracking_human:
-                # Initialize avoidance_cmd before using it
-                avoidance_cmd = Twist()
+            # Calculate distance to human using Euclidean distance
+            if self.current_pose is not None:
+                dx = human_x - self.current_pose.pose.position.x
+                dy = human_y - self.current_pose.pose.position.y
+                human_distance = math.sqrt(dx*dx + dy*dy)
                 
-                # Calculate normalized image position from angular command
-                image_x = ((-human_angle / self.max_angular_speed) + 1) * 320
+                # Calculate angle to human
+                human_angle = math.atan2(dy, dx)
                 
-                if human_distance > 0:  # Only if we have valid distance
-                    # Get avoidance command
-                    avoidance_cmd, needs_escape = self.human_avoidance.get_avoidance_command(
+                # Log human information
+                self.get_logger().info(
+                    f'Human detected at ({human_x:.2f}, {human_y:.2f}), '
+                    f'distance: {human_distance:.2f}m, '
+                    f'angle: {math.degrees(human_angle):.1f}°'
+                )
+                
+                # Pass information to human avoidance controller
+                if self.is_tracking_human:
+                    cmd = Twist()
+                    image_x = None
+                    
+                    cmd, should_escape = self.human_avoidance.get_avoidance_command(
                         human_distance, 
                         human_angle,
                         image_x
                     )
                     
                     # IMPORTANT: Always publish the avoidance command
-                    self.wheel_speeds_pub.publish(avoidance_cmd)
+                    self.wheel_speeds_pub.publish(cmd)
                     
                     # Log command details
                     self.get_logger().info(
                         f'Human tracking: dist={human_distance:.2f}m, '
-                        f'angle={human_angle:.2f}rad, turn={avoidance_cmd.angular.z:.3f}'
+                        f'angle={human_angle:.2f}rad, turn={cmd.angular.z:.3f}'
                     )
-                    
-                    # Check for escape BEFORE any other processing
-                    if needs_escape:
+                    # Check for escape BEFORE any other processing                    
+                    if should_escape:
                         self.get_logger().warn('Critical distance detected - initiating escape!')
                         
                         # Proceed with escape plan
@@ -673,11 +640,11 @@ class NavigationController(Node):
                     
                 self.get_logger().info(
                     f'Human tracking: dist={human_distance:.2f}m, '
-                    f'backing_up={avoidance_cmd.linear.x:.2f}m/s'
+                    f'backing_up={cmd.linear.x:.2f}m/s'
                 )
 
         except Exception as e:
-            self.get_logger().error(f'Error in tracking cmd callback: {str(e)}')
+            self.get_logger().error(f'Error in tracking command callback: {str(e)}')
             self.wheel_speeds_pub.publish(Twist())  # Stop on error
 
     def is_escape_waypoint(self, waypoint):

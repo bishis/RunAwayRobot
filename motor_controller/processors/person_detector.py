@@ -186,13 +186,6 @@ class PersonDetector(Node):
         self.p_gain_angular = 1.5  # Increase angular gain for faster turning
         self.p_gain_linear = 0.8   # Increase linear gain for faster approach
         
-        # Add publishers for human tracking
-        self.tracking_cmd_pub = self.create_publisher(
-            Twist,
-            '/human_tracking_cmd',
-            10
-        )
-        
         self.tracking_active_pub = self.create_publisher(
             Bool,
             '/human_tracking_active',
@@ -318,31 +311,9 @@ class PersonDetector(Node):
                     if target_person is not None:
                         x1, y1, x2, y2, track_id = target_person
                         person_center_x = (x1 + x2) / 2
-                        
-                        # Calculate distance using LIDAR data
-                        angle = -math.atan2((person_center_x - self.cx), self.fx)
-                        index = int((angle - self.latest_scan.angle_min) / self.latest_scan.angle_increment)
-                        
-                        # Create tracking command
-                        cmd = Twist()
-                        
-                        # Set distance in linear.y (using it as a communication channel)
-                        if 0 <= index < len(self.latest_scan.ranges):
-                            distance = self.latest_scan.ranges[index]
-                            if (distance >= self.latest_scan.range_min and 
-                                distance <= self.latest_scan.range_max):
-                                cmd.linear.y = distance  # Use linear.y to pass distance
-                                self.get_logger().info(f'Human distance: {distance:.2f}m')
-                        
+
                         # Calculate turning command as before
                         center_error = (person_center_x - image_center_x) / image_center_x
-                        deadzone = 0.5
-                        if abs(center_error) > deadzone:
-                            turning_gain = 0.5
-                            cmd.angular.z = -center_error * turning_gain
-                            cmd.angular.z = max(min(cmd.angular.z, 0.5), -0.5)
-                        
-                        self.tracking_cmd_pub.publish(cmd)
                         
                         # Publish tracking status
                         tracking_active = Bool()

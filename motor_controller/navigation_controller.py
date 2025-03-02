@@ -360,11 +360,13 @@ class NavigationController(Node):
                     return
                 elif self.escape_attempts >= self.max_escape_attempts and human_still_present:
                     self.get_logger().info('Trapped start shaking')
+                    self.cancel_current_goal()
                     self.start_shake_defense()
                     return
                 else:
                     self.get_logger().error('Max escape attempts reached, giving up escape plan')
                     self.get_logger().warn('Escape plan failed')
+                    self.cancel_current_goal()
                     self.start_escape_monitoring()
                     return
             elif status != GoalStatus.STATUS_SUCCEEDED and not self.is_escape_waypoint(self.current_goal):

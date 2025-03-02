@@ -466,23 +466,6 @@ class NavigationController(Node):
             return
         
         try:
-            # Check the distance to the goal
-            if not self.is_escape_waypoint(self.current_goal):
-                if self.distance_to_goal(self.current_goal) < 0.3:
-                    self.get_logger().info('Goal reached, cancelling...')
-                    self.cancel_current_goal()
-                    self.reset_navigation_state()
-                    self.waypoint_generator.force_waypoint_change()
-                    return
-            elif self.is_escape_waypoint(self.current_goal):
-                if self.distance_to_goal(self.current_goal) < 0.3:
-                    self.get_logger().info('Escape goal reached, cancelling...')
-                    self.escape_attempts = 0
-                    self.cancel_current_goal()
-                    self.reset_escape_state()
-                    self.start_escape_monitoring()
-                    return
-            
             """Check if the robot has moved in the past interval"""
             if self.current_goal is None:
                 # Reset tracking when not navigating

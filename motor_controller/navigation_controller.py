@@ -483,7 +483,6 @@ class NavigationController(Node):
             return
         
         try:
-
             # Check if human is still present
             human_still_present = False
             current_time = self.get_clock().now()

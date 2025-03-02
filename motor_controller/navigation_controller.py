@@ -879,7 +879,7 @@ class NavigationController(Node):
             if self.last_human_timestamp is not None:
                 time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
                 # Consider human still present if seen in the last 2 seconds
-                human_still_present = time_since_human < 2.0
+                human_still_present = time_since_human < 3.0
             
             if not human_still_present:
                 # Human is gone, we can stop shaking

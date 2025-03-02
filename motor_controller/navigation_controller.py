@@ -394,26 +394,38 @@ class NavigationController(Node):
             self.reset_navigation_state()
 
     def reset_goal_state(self):
-        """Reset goal state"""
+        """Reset all goal-related state"""
         self.current_goal = None
         self.is_navigating = False
         self.goal_start_time = None
+        self._current_goal_handle = None
+        # Reset stuck detection
+        self.last_position_check = None
+        self.last_check_position = None
 
     def reset_escape_state(self):
-        """Reset escape state"""
-        self.reset_goal_state()
+        """Reset all escape-related state"""
+        self.reset_goal_state()  # Reset base goal state first
         self.escape_attempts = 0
+        
+        # Cancel and reset escape monitoring
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
             self.escape_monitor_timer = None
 
     def reset_navigation_state(self):
         """Reset navigation state and try new waypoint"""
-        self.reset_goal_state()
+        self.reset_goal_state()  # Reset base goal state first
+        
         # Force waypoint generator to pick new point if we've failed too many times
         if self.planning_attempts >= self.max_planning_attempts:
             self.planning_attempts = 0
             self.waypoint_generator.force_waypoint_change()
+        else:
+            # Reset previous waypoint to avoid comparison issues
+            self.previous_waypoint = None
+            
+        # Force exploration loop to generate new waypoint
         self.exploration_loop()
 
     def feedback_callback(self, feedback_msg):

@@ -902,12 +902,10 @@ class NavigationController(Node):
             if self.shake_count % 2 == 0:
                 # Even counts: turn with some linear motion
                 cmd.angular.z = 0.8 * self.shake_direction
-                cmd.linear.x = 0.05 * self.shake_direction  # Small forward/backward
             else:
                 # Odd counts: turn the other way
                 self.shake_direction *= -1  # Flip direction
                 cmd.angular.z = 0.8 * self.shake_direction
-                cmd.linear.x = 0.05 * self.shake_direction
             
             # Publish command
             self.wheel_speeds_pub.publish(cmd)

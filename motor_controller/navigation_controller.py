@@ -104,6 +104,8 @@ class NavigationController(Node):
         self.goal_timeout = 15.0  # Shorter timeout for unreachable goals
         self.planning_attempts = 0
         self.max_planning_attempts = 2  # Max attempts before giving up
+
+        self.shake_timer = None
         
         # Add timer to check goal progress every 0.1 seconds
         self.goal_check_timer = self.create_timer(0.1, self.check_goal_progress)  

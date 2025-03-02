@@ -597,22 +597,22 @@ class NavigationController(Node):
                 
                 # Pass information to human avoidance controller
                 if self.is_tracking_human:
-                    cmd = Twist()
+                    cmd_vel = Twist()
                     image_x = ((-human_angle / self.max_angular_speed) + 1) * 320
                     
-                    cmd, should_escape = self.human_avoidance.get_avoidance_command(
+                    cmd_vel, should_escape = self.human_avoidance.get_avoidance_command(
                         human_distance, 
                         human_angle,
                         image_x
                     )
                     
                     # IMPORTANT: Always publish the avoidance command
-                    self.wheel_speeds_pub.publish(cmd)
+                    self.wheel_speeds_pub.publish(cmd_vel)
                     
                     # Log command details
                     self.get_logger().info(
                         f'Human tracking: dist={human_distance:.2f}m, '
-                        f'angle={human_angle:.2f}rad, turn={cmd.angular.z:.3f}'
+                        f'angle={human_angle:.2f}rad, turn={cmd_vel.angular.z:.3f}'
                     )
                     # Check for escape BEFORE any other processing                    
                     if should_escape:
@@ -638,10 +638,10 @@ class NavigationController(Node):
                         else:
                             self.get_logger().error('Failed to get escape point!')
                     
-                self.get_logger().info(
-                    f'Human tracking: dist={human_distance:.2f}m, '
-                    f'backing_up={cmd.linear.x:.2f}m/s'
-                )
+                    self.get_logger().info(
+                        f'Human tracking: dist={human_distance:.2f}m, '
+                        f'backing_up={cmd_vel.linear.x:.2f}m/s'
+                    )
 
         except Exception as e:
             self.get_logger().error(f'Error in tracking command callback: {str(e)}')

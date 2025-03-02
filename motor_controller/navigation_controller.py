@@ -466,6 +466,15 @@ class NavigationController(Node):
             return
         
         try:
+
+            # Check if human is still present
+            human_still_present = False
+            current_time = self.get_clock().now()
+            if self.last_human_timestamp is not None:
+                time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
+                # Consider human still present if seen in the last 2 seconds
+                human_still_present = time_since_human < 2.0
+
             """Check if the robot has moved in the past interval"""
             if self.current_goal is None:
                 # Reset tracking when not navigating
@@ -506,7 +515,7 @@ class NavigationController(Node):
                             return
                         else:
                             self.get_logger().error('Failed to find escape point!')
-                    elif self.escape_attempts >= self.max_escape_attempts and self.last_human_position is not None:
+                    elif self.escape_attempts >= self.max_escape_attempts and human_still_present:
                         self.get_logger().info('Trapped')
                         self.start_shake_defense()
                         return

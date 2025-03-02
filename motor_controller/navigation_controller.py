@@ -139,6 +139,7 @@ class NavigationController(Node):
         # Add storage for last seen human position
         self.last_human_position = None
         self.last_human_timestamp = None
+        self.turn_timeout = 10.0
 
         # Add timer for escape monitoring (initially disabled)
         self.escape_monitor_timer = None
@@ -704,11 +705,11 @@ class NavigationController(Node):
                 target_angle = math.atan2(dy, dx)
                 
                 # Get rotation speeds from human avoidance controller
-                cmd = self.human_avoidance.turn_to_angle(target_angle)
+                cmd, turn_time = self.human_avoidance.turn_to_angle(target_angle)
                 self.wheel_speeds_pub.publish(cmd)
                 
                 # Check if we have reached the target angle
-                if abs(cmd.angular.z) < 0.01:
+                if abs(cmd.angular.z) < 0.01 or turn_time > self.turn_timeout:
                     self.get_logger().info('Turned to face last known human position, resuming exploration')
                     self.cleanup_escape_monitoring()
                     self.resume_exploration()

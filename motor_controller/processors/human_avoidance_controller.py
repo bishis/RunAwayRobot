@@ -227,9 +227,8 @@ class HumanAvoidanceController:
         Returns Twist message with rotation speeds.
         """
         try:
-
-            start_time = self.node.get_clock().now()
-            max_turn_time = 5.0  
+            if self.start_time is None:
+                self.start_time = self.node.get_clock().now()
             # Get current robot orientation from tf
             transform = self.tf_buffer.lookup_transform(
                 'map',
@@ -258,6 +257,7 @@ class HumanAvoidanceController:
                 # Close enough to target angle
                 cmd = Twist()
                 cmd.angular.z = 0.0  # Stop turning
+                self.start_time = None
                 return cmd
             
             # Scale rotation speed based on angle difference
@@ -280,8 +280,12 @@ class HumanAvoidanceController:
                 f'diff={angle_diff:.2f}, '
                 f'speed={cmd.angular.z:.2f}'
             )
-            
-            return cmd
+            self.turn_time = (self.node.get_clock().now() - self.start_time).nanoseconds / 1e9
+            if self.turn_time > self.turn_timeout:
+                self.node.get_logger().warn(f'Turn timeout reached after {self.turn_time:.1f}s - stopping turn')
+                cmd.angular.z = 0.0
+                self.start_time = None
+            return cmd, self.turn_time
         
         except Exception as e:
             self.node.get_logger().error(f'Error calculating turn angle: {str(e)}')

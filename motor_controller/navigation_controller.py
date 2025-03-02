@@ -143,7 +143,6 @@ class NavigationController(Node):
 
         # Add timer for escape monitoring (initially disabled)
         self.escape_monitor_timer = None
-        self.escape_wait_start = None
 
         # Add map publisher for human obstacle updates
         self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
@@ -394,8 +393,15 @@ class NavigationController(Node):
             self.get_logger().error(f'Error getting navigation result: {str(e)}')
             self.reset_navigation_state()
 
+    def reset_goal_state(self):
+        """Reset goal state"""
+        self.current_goal = None
+        self.is_navigating = False
+        self.goal_start_time = None
+
     def reset_escape_state(self):
         """Reset escape state"""
+        self.reset_goal_state()
         self.escape_attempts = 0
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
@@ -403,14 +409,11 @@ class NavigationController(Node):
 
     def reset_navigation_state(self):
         """Reset navigation state and try new waypoint"""
-        self.is_navigating = False
-        self.current_goal = None
-        self.goal_start_time = None
+        self.reset_goal_state()
         # Force waypoint generator to pick new point if we've failed too many times
         if self.planning_attempts >= self.max_planning_attempts:
             self.planning_attempts = 0
             self.waypoint_generator.force_waypoint_change()
-        # Force exploration loop to generate new waypoint
         self.exploration_loop()
 
     def feedback_callback(self, feedback_msg):
@@ -565,8 +568,7 @@ class NavigationController(Node):
         
         if self.is_tracking_human and not was_tracking:
             # Cancel current navigation goal when starting to track
-            if self._current_goal_handle is not None:
-                self._current_goal_handle.cancel_goal_async()
+            self.cancel_current_goal()
 
     def tracking_cmd_callback(self, msg: PoseStamped):
         """Handle tracking information from human coordinates"""
@@ -714,7 +716,7 @@ class NavigationController(Node):
         """Clean up escape monitoring timers and state"""
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
-            self.escape_monitor_timer = None
+        self.escape_monitor_timer = None
         self.get_logger().info('Cleaned up escape monitoring')
 
     def resume_exploration(self):
@@ -726,7 +728,6 @@ class NavigationController(Node):
         self.clear_visualization_markers()
         
         self.exploration_loop_timer.reset()
-        self.waypoint_generator.force_waypoint_change()
         self.reset_navigation_state()
 
     def escape_again(self):

@@ -705,23 +705,37 @@ class NavigationController(Node):
                 target_angle = math.atan2(dy, dx)
                 
                 # Get rotation speeds from human avoidance controller
-                cmd, turn_time = self.human_avoidance.turn_to_angle(target_angle)
+                cmd = self.human_avoidance.turn_to_angle(target_angle)  # Fix: only get cmd, not turn_time
                 self.wheel_speeds_pub.publish(cmd)
                 
-                # Check if we have reached the target angle
+                # Check if we've been trying to turn for too long or if we're done turning
+                current_time = self.get_clock().now()
+                
+                # Initialize turn start time if not set
+                if not hasattr(self, 'turn_start_time') or self.turn_start_time is None:
+                    self.turn_start_time = current_time
+                    
+                # Calculate elapsed time
+                turn_time = (current_time - self.turn_start_time).nanoseconds / 1e9
+                
+                # Check if we have reached the target angle or timed out
                 if abs(cmd.angular.z) < 0.01 or turn_time > self.turn_timeout:
                     self.get_logger().info('Turned to face last known human position, resuming exploration')
+                    # Reset turn timer
+                    self.turn_start_time = None
                     self.cleanup_escape_monitoring()
                     self.resume_exploration()
                     return
             else:
                 # No known human position, cleanup and resume
+                self.turn_start_time = None  # Reset turn timer
                 self.cleanup_escape_monitoring()
                 self.resume_exploration()
                 return
             
         except Exception as e:
             self.get_logger().error(f'Error in escape monitoring: {str(e)}')
+            self.turn_start_time = None  # Reset turn timer
             self.cleanup_escape_monitoring()
             self.resume_exploration()
 

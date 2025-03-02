@@ -67,14 +67,10 @@ class HumanAvoidanceController:
             image_center = 320
             normalized_error = (image_x - image_center) / image_center            
 
-
-
-            
             # Check if human is in center zone
             if abs(normalized_error) <= self.center_zone:
                 self.node.get_logger().info('Human centered - stopping turn')
-                self.is_turning = False
-                self.turn_start_time = None
+
                 return 0.0
             
             # Calculate turn direction and speed

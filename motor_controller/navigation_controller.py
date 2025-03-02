@@ -687,6 +687,8 @@ class NavigationController(Node):
     def start_escape_monitoring(self):
         """Start monitoring after reaching escape point"""
         self.get_logger().info('Starting escape monitoring sequence')
+        if self.exploration_loop_timer:
+            self.exploration_loop_timer.cancel()
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
         self.escape_monitor_timer = self.create_timer(0.1, self.monitor_escape_sequence)

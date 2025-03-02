@@ -638,8 +638,6 @@ class NavigationController(Node):
                     if should_escape:
                         self.get_logger().warn('Critical distance detected - initiating escape!')
                         
-                        # Proceed with escape plan
-                        self.cancel_current_goal()
                         if self.exploration_loop_timer:
                             self.exploration_loop_timer.cancel()
                         self.waypoint_generator.cancel_waypoint()  # Clear any exploration waypoints

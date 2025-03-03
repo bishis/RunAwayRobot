@@ -37,7 +37,7 @@ class HumanAvoidanceController:
         
         # Distance thresholds
         self.min_safe_distance = 1.25  # Start backing up at 1m
-        self.ready_to_flee_distance = 0.45  # Distance to enter ready-to-flee mode
+        self.ready_to_flee_distance = 0.5  # Distance to enter ready-to-flee mode
         self.max_backup_speed = 0.15   # Increase backup speed
         
         # Tracking parameters

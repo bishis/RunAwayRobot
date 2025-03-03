@@ -556,6 +556,7 @@ class NavigationController(Node):
                 # Reset tracking
                 self.last_position_check = None
                 self.last_check_position = None
+                self.get_logger().info('Reset tracking')
             
             # Update tracking if we've moved enough or enough time has passed
             elif distance_moved > self.stuck_threshold or time_diff > 10.0:

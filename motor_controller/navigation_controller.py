@@ -530,19 +530,16 @@ class NavigationController(Node):
                         escape_point = self.human_avoidance.plan_escape()
                         if escape_point is not None:
                             self.send_goal(escape_point)  # Retry escape point
-                            return
                         else:
                             self.get_logger().error('Failed to find escape point!')
                     elif self.escape_attempts >= self.max_escape_attempts and human_still_present:
                         self.get_logger().info('Trapped')
                         self.start_shake_defense()
-                        return
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
                         self.reset_escape_state()
                         self.cancel_current_goal()
                         self.start_escape_monitoring()
-                        return
                 else:
                     self.planning_attempts += 1
                     if self.planning_attempts >= self.max_planning_attempts:

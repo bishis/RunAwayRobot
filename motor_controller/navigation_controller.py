@@ -1,599 +1,980 @@
 #!/usr/bin/env python3
-
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist, Point, Vector3
-from nav_msgs.msg import Odometry, OccupancyGrid
-from sensor_msgs.msg import LaserScan
-from visualization_msgs.msg import Marker, MarkerArray
-from std_msgs.msg import ColorRGBA
-import math
-from enum import Enum
-import random
+from geometry_msgs.msg import Twist, PoseStamped, Point
+from sensor_msgs.msg import LaserScan, PointCloud2, PointField
+from nav_msgs.msg import OccupancyGrid
+from visualization_msgs.msg import MarkerArray, Marker
+from nav2_msgs.action import NavigateToPose
+from rclpy.action import ActionClient
+from action_msgs.msg import GoalStatus
 import numpy as np
-from .processors.path_planner import PathPlanner
+import math
 from .processors.waypoint_generator import WaypointGenerator
-
-class RobotState(Enum):
-    ROTATING = 1
-    MOVING = 2
-    STOPPED = 3
-    BACKING = 4  # New state for backing away from obstacles
+from std_msgs.msg import Bool
+from .processors.human_avoidance_controller import HumanAvoidanceController
+from std_srvs.srv import Empty
+from tf2_ros import TransformException, Buffer, TransformListener
+import time
+from builtin_interfaces.msg import Time
+from nav2_msgs.srv import ClearEntireCostmap
+from nav2_msgs.msg import Costmap
+from std_msgs.msg import Header
+import struct
 
 class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
-        # Robot physical parameters
-        self.declare_parameter('robot.radius', 0.17)  # 17cm robot radius
-        self.declare_parameter('robot.safety_margin', 0.10)  # 10cm additional safety margin
+        # Initialize tf2 buffer and listener FIRST
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)  # Pass 'self' as the node
         
-        # Navigation parameters
-        self.declare_parameter('waypoint_threshold', 0.2)
-        self.declare_parameter('leg_length', 0.5)
-        self.declare_parameter('num_waypoints', 8)
+        # Initialize current_pose with proper structure
+        self.current_pose = PoseStamped()
+        self.current_pose.header.frame_id = 'map'
+        self.current_pose.pose.position.x = 0.0
+        self.current_pose.pose.position.y = 0.0
+        self.current_pose.pose.position.z = 0.0
+        self.current_pose.pose.orientation.w = 1.0
+        self.current_pose.pose.orientation.x = 0.0
+        self.current_pose.pose.orientation.y = 0.0
+        self.current_pose.pose.orientation.z = 0.0
+        
+        # Parameters
+        self.declare_parameter('robot_radius', 0.16)
+        self.declare_parameter('safety_margin', 0.3)
+        self.declare_parameter('max_linear_speed', 0.07)
+        self.declare_parameter('max_angular_speed', 1.0)  # Actual max rotation speed
+        self.declare_parameter('min_rotation_speed', 0.8)
+        self.declare_parameter('goal_timeout', 30.0)
         
         # Get parameters
-        self.robot_radius = self.get_parameter('robot.radius').value
-        self.safety_margin = self.get_parameter('robot.safety_margin').value
-        self.safety_radius = self.robot_radius + self.safety_margin  # Total safety distance
-        self.waypoint_threshold = self.get_parameter('waypoint_threshold').value
-        self.leg_length = self.get_parameter('leg_length').value
-        self.num_waypoints = self.get_parameter('num_waypoints').value
+        self.robot_radius = self.get_parameter('robot_radius').value
+        self.safety_margin = self.get_parameter('safety_margin').value
+        self.max_linear_speed = self.get_parameter('max_linear_speed').value
+        self.max_angular_speed = self.get_parameter('max_angular_speed').value
+        self.min_rotation_speed = self.get_parameter('min_rotation_speed').value
+        self.goal_timeout = self.get_parameter('goal_timeout').value
         
-        # Robot state
-        self.state = RobotState.STOPPED
-        self.current_pose = None
+        # Initialize waypoint generator AFTER tf setup
+        self.waypoint_generator = WaypointGenerator(
+            node=self,
+            min_distance=0.5,
+            safety_margin=self.safety_margin,
+            waypoint_size=0.3,
+            preferred_distance=1.0,
+            goal_tolerance=0.3
+        )
+        
+        # Add current_map storage
+        self.current_map = None
+        
+        # Publishers and subscribers
+        self.wheel_speeds_pub = self.create_publisher(Twist, 'wheel_speeds', 10)
+        self.cmd_vel_sub = self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
+        self.scan_sub = self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
+        self.map_sub = self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
+        self.marker_pub = self.create_publisher(MarkerArray, 'exploration_markers', 10)
+        
+        # Navigation action client
+        self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
+        
+        # Add debug logging for goal sending
+        self.get_logger().info('Waiting for navigation action server...')
+        while not self.nav_client.wait_for_server(timeout_sec=1.0):
+            self.get_logger().info('Still waiting for navigation action server...')
+        self.get_logger().info('Navigation server connected!')
+        
+        # State variables
         self.latest_scan = None
-        self.current_waypoint_index = 0
-        self.waypoints = []  # Initialize empty, will generate after getting initial pose
-        self.initial_pose_received = False
+        self.current_goal = None
+        self.is_navigating = False
+        self.goal_start_time = None
+        self.previous_waypoint = None
+
+        # Add state for Nav2 readiness
+        self.nav2_ready = False
+        self.nav2_check_timer = self.create_timer(1.0, self.check_nav2_ready)
         
-        # Publishers
-        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
-        self.waypoint_pub = self.create_publisher(MarkerArray, 'waypoints', 10)
+        # Create timer for exploration control every 0.1 seconds
+        self.exploration_loop_timer = self.create_timer(0.1, self.exploration_loop)
+
+        # Add timeout parameters
+        self.goal_timeout = 15.0  # Shorter timeout for unreachable goals
+        self.planning_attempts = 0
+        self.max_planning_attempts = 2  # Max attempts before giving up
+
+        self.shake_timer = None
         
-        # Subscribers
-        self.create_subscription(Odometry, 'odom_rf2o', self.odom_callback, 10)
-        self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
-        self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
+        # Add timer to check goal progress every 0.1 seconds
+        self.goal_check_timer = self.create_timer(0.1, self.check_goal_progress)  
         
-        # Timer
-        self.create_timer(0.1, self.control_loop)
+        # Add human tracking subscribers
+        self.tracking_active_sub = self.create_subscription(
+            Bool,
+            '/human_tracking_active',
+            self.tracking_active_callback,
+            10
+        )
+        
+        self.tracking_cmd_sub = self.create_subscription(
+            PoseStamped,
+            '/human_coords',
+            self.tracking_cmd_callback,
+            10
+        )
+        
+        self.is_tracking_human = False
         
         self.get_logger().info('Navigation controller initialized')
         
-        # Add map subscriber
-        self.map_data = None
-        self.map_info = None
+        self._current_goal_handle = None
+
+        self.human_avoidance = HumanAvoidanceController(self, self.waypoint_generator)
+
+        # Add escape-specific parameters
+        self.escape_timeout = 15.0  # Longer timeout for escape attempts
+        self.max_escape_attempts = 2  # Number of retry attempts for escape
+        self.escape_attempts = 0  # Counter for escape attempts
         
-        # Monte Carlo parameters
-        self.num_particles = 100
-        self.max_iterations = 50
-        self.step_size = 0.5  # meters
-        
-        # Add path planner
-        self.path_planner = PathPlanner(
-            safety_radius=self.safety_radius,
-            num_samples=20,
-            step_size=0.3
+        # Add storage for last seen human position
+        self.last_human_position = None
+        self.last_human_timestamp = None
+        self.turn_timeout = 10.0
+
+        # Add timer for escape monitoring (initially disabled)
+        self.escape_monitor_timer = None
+
+        # Add map publisher for human obstacle updates
+        self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
+
+        # Create publisher for human obstacles
+        self.human_obstacles_pub = self.create_publisher(
+            PointCloud2, 
+            '/human_obstacles',  # Must match config
+            rclpy.qos.QoSProfile(
+                reliability=rclpy.qos.ReliabilityPolicy.RELIABLE,
+                durability=rclpy.qos.DurabilityPolicy.TRANSIENT_LOCAL,
+                history=rclpy.qos.HistoryPolicy.KEEP_LAST,
+                depth=1
+            )
         )
         
-        # Add loop closure parameters
-        self.visited_positions = []
-        self.loop_closure_threshold = 0.5  # meters
-        self.min_travel_distance = 2.0  # minimum distance before considering loop closure
-        self.last_position = None
-        self.distance_traveled = 0.0
+        # Re-enable timer for regularly updating human obstacles (every 0.5 seconds)
+        self.human_obstacle_timer = self.create_timer(0.5, self.update_human_obstacles)
         
-        self.waypoint_generator = WaypointGenerator(
-            robot_radius=self.robot_radius,
-            safety_margin=self.safety_margin,
-            num_waypoints=self.num_waypoints
-        )
+        # Add a service client for triggering path replanning
+        self.make_plan_client = self.create_client(Empty, '/global_costmap/global_costmap/clear_except_static')
 
-    def generate_waypoints(self, preferred_angle=None):
-        """Generate waypoints using WaypointGenerator."""
-        return self.waypoint_generator.generate_waypoints(
-            self.current_pose,
-            self.map_data,
-            self.map_info,
-            self.is_valid_point,
-            self.map_to_world
-        )
+        # Add position tracking for stuck detection
+        self.last_position_check = None
+        self.last_check_position = None
+        self.stuck_threshold = 0.05  # 5cm movement threshold
+        self.stuck_timeout = 10.0     # 5 seconds without movement = stuck
 
-    def publish_waypoints(self):
-        """Publish waypoints for visualization."""
-        if not self.waypoints:  # Debug print
-            self.get_logger().warn('No waypoints to publish')
-            return
-        
-        marker_array = MarkerArray()
-        
-        # All waypoints as red spheres
-        waypoint_marker = Marker()
-        waypoint_marker.header.frame_id = 'map'  # Make sure frame is correct
-        waypoint_marker.header.stamp = self.get_clock().now().to_msg()
-        waypoint_marker.ns = 'waypoints'
-        waypoint_marker.id = 0
-        waypoint_marker.type = Marker.POINTS  # Changed to POINTS for better visibility
-        waypoint_marker.action = Marker.ADD
-        waypoint_marker.pose.orientation.w = 1.0
-        waypoint_marker.scale = Vector3(x=0.1, y=0.1, z=0.1)  # Smaller points
-        waypoint_marker.color = ColorRGBA(r=1.0, g=0.0, b=0.0, a=1.0)
-        
-        # Add all waypoints
-        for point in self.waypoints:
-            waypoint_marker.points.append(point)
-        
-        marker_array.markers.append(waypoint_marker)
-        
-        # Current target as green sphere
-        if self.current_waypoint_index < len(self.waypoints):
-            target_marker = Marker()
-            target_marker.header.frame_id = 'map'
-            target_marker.header.stamp = self.get_clock().now().to_msg()
-            target_marker.ns = 'current_target'
-            target_marker.id = 1
-            target_marker.type = Marker.SPHERE
-            target_marker.action = Marker.ADD
-            target_marker.pose.position = self.waypoints[self.current_waypoint_index]
-            target_marker.pose.orientation.w = 1.0
-            target_marker.scale = Vector3(x=0.2, y=0.2, z=0.2)
-            target_marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0)
-            marker_array.markers.append(target_marker)
-        
-        self.waypoint_pub.publish(marker_array)
-        self.get_logger().info(f'Published {len(self.waypoints)} waypoints')  # Debug print
-
-    def scan_callback(self, msg):
-        """Handle LIDAR scan updates."""
+    def scan_callback(self, msg: LaserScan):
+        """Store latest scan data"""
         self.latest_scan = msg
+        
+        # Update current_pose based on the latest transform
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+            # Update current_pose with the latest transform
+            self.current_pose.pose.position.x = transform.transform.translation.x
+            self.current_pose.pose.position.y = transform.transform.translation.y
+            self.current_pose.pose.position.z = transform.transform.translation.z
+            self.current_pose.pose.orientation = transform.transform.rotation
+        except TransformException:
+            self.get_logger().warn('Could not get robot position from transform')
+        
+        # Pass scan to human avoidance controller
+        if hasattr(self, 'human_avoidance'):
+            self.human_avoidance.latest_scan = msg
 
-    def check_obstacles(self):
-        """Check for obstacles in front of the robot."""
-        if not self.latest_scan:
-            return False, None
-        
-        # Check front sector (150° to 210°)
-        start_idx = int(150 * len(self.latest_scan.ranges) / 360)
-        end_idx = int(210 * len(self.latest_scan.ranges) / 360)
-        
-        min_distance = float('inf')
-        for i in range(start_idx, end_idx):
-            if i < len(self.latest_scan.ranges):
-                range_val = self.latest_scan.ranges[i]
-                if 0.1 < range_val < min_distance:
-                    min_distance = range_val
-        
-        return min_distance < self.safety_radius, min_distance
+    def map_callback(self, msg: OccupancyGrid):
+        """Update map in waypoint generator and store locally"""
+        self.current_map = msg  # Store map locally
+        self.waypoint_generator.update_map(msg)
 
-    def control_loop(self):
-        """Main control loop."""
-        if not self.current_pose or not self.latest_scan or not self.map_data is not None:
+    def cmd_vel_callback(self, msg: Twist):
+        """Handle incoming velocity commands"""
+        try:
+            # Simply pass through the commands
+            wheel_speeds = Twist()
+            wheel_speeds.linear.x = msg.linear.x
+            wheel_speeds.angular.z = msg.angular.z
+            self.wheel_speeds_pub.publish(wheel_speeds)
+            
+        except Exception as e:
+            self.get_logger().error(f'Error in cmd_vel callback: {str(e)}')
+            self.wheel_speeds_pub.publish(Twist())
+
+    def check_nav2_ready(self):
+        """Check if Nav2 stack is ready"""
+        try:
+            if not self.nav2_ready:
+                if self.nav_client.wait_for_server(timeout_sec=0.1):
+                    self.get_logger().info('Nav2 stack is ready!')
+                    self.nav2_ready = True
+                    # Stop checking once ready
+                    self.nav2_check_timer.cancel()
+        except Exception as e:
+            self.get_logger().warn(f'Error checking Nav2 readiness: {str(e)}')
+
+    def exploration_loop(self):
+        """Modified exploration loop to handle human tracking and map completion"""
+        if self.is_tracking_human:
             return
-
-        self.publish_waypoints()
-
-        # Check if we need to generate new waypoints
-        if not self.waypoints or self.current_waypoint_index >= len(self.waypoints):
-            self.get_logger().info('Generating new set of waypoints')
-            self.waypoints = self.generate_waypoints()
-            self.current_waypoint_index = 0
-            if not self.waypoints:
-                self.get_logger().warn('Failed to generate new waypoints')
+            
+        try:
+            if not self.nav2_ready:
                 return
-            return
+            if not self.is_navigating:
+                # Store current waypoint before generating new one
+                self.previous_waypoint = self.current_goal
+                
+                waypoint = self.waypoint_generator.generate_waypoint()
+                if waypoint:
+                    # Check if waypoint is same as previous
+                    if self.previous_waypoint and \
+                       abs(waypoint.pose.position.x - self.previous_waypoint.pose.position.x) < 0.1 and \
+                       abs(waypoint.pose.position.y - self.previous_waypoint.pose.position.y) < 0.1:
+                        self.get_logger().warn('bishi Generated waypoint is too similar to previous, forcing new one')
+                        self.waypoint_generator.force_waypoint_change()
+                        return
+                        
+                    # Check if waypoint is near wall
+                    if self.current_map and not self.waypoint_generator.is_near_wall(
+                        waypoint.pose.position.x,
+                        waypoint.pose.position.y,
+                        np.array(self.current_map.data).reshape(
+                            self.current_map.info.height,
+                            self.current_map.info.width
+                        ),
+                        self.current_map.info.resolution,
+                        self.current_map.info.origin.position.x,
+                        self.current_map.info.origin.position.y
+                    ):
+                        self.current_goal = waypoint  # Store new goal
+                        self.send_goal(waypoint)
+                        # Green for exploration
+                        markers = self.waypoint_generator.create_visualization_markers(waypoint, is_escape=False)
+                        self.marker_pub.publish(markers)
+                    else:
+                        self.get_logger().warn('Generated waypoint too close to wall, forcing new one')
+                        self.waypoint_generator.force_waypoint_change()
+        
+        except Exception as e:
+            self.get_logger().error(f'Error in exploration loop: {str(e)}')
 
-        current_target = self.waypoints[self.current_waypoint_index]
+    def send_goal(self, goal_msg: PoseStamped):
+        """Send navigation goal with proper error handling"""
+        try:
+            # Cancel any existing goal
+            self.cancel_current_goal()
+            
+            # Create the goal
+            nav_goal = NavigateToPose.Goal()
+            nav_goal.pose = goal_msg
+            
+            # Add check for escape goal and clear emergency stop
+            if self.is_escape_waypoint(goal_msg):
+                self.get_logger().info('Escape goal detected - clearing emergency stop state')
+                # Give the robot a moment to stabilize after emergency stop
+                time.sleep(0.5)  # Short delay
+                # Clear any velocity commands
+                stop_cmd = Twist()
+                self.wheel_speeds_pub.publish(stop_cmd)
+            
+            self.get_logger().info('Sending navigation goal:')
+            self.get_logger().info(f'    Position: ({goal_msg.pose.position.x:.2f}, {goal_msg.pose.position.y:.2f})')
+            self.get_logger().info(f'    Frame: {goal_msg.header.frame_id}')
+            self.get_logger().info(f'    Stamp: {goal_msg.header.stamp.sec}.{goal_msg.header.stamp.nanosec}')
+            
+            # Send the goal with timeout handling
+            send_goal_future = self.nav_client.send_goal_async(
+                nav_goal,
+                feedback_callback=self.feedback_callback
+            )
+            send_goal_future.add_done_callback(self.goal_response_callback)
+            
+            # Store goal and update state
+            self.current_goal = goal_msg
+            self.is_navigating = True
+            self.goal_start_time = self.get_clock().now()
+            
+        except Exception as e:
+            self.get_logger().error(f'Error sending navigation goal: {str(e)}')
+            self.reset_navigation_state()
+
+    def goal_response_callback(self, future):
+        """Handle the goal response with proper error handling"""
+        try:
+            goal_handle = future.result()
+            
+            if not goal_handle.accepted:
+                self.get_logger().warn('Goal rejected')
+                if self.is_escape_waypoint(self.current_goal):
+                    self.reset_escape_state()
+                else:
+                    self.reset_navigation_state()
+                return
+            
+            self.get_logger().info('Goal accepted')
+            self._current_goal_handle = goal_handle
+            
+            # Get result future with timeout handling
+            result_future = goal_handle.get_result_async()
+            result_future.add_done_callback(self.get_result_callback)
+            
+        except Exception as e:
+            self.get_logger().error(f'Error in goal response: {str(e)}')
+            self.reset_navigation_state()
+
+    def get_result_callback(self, future):
+        """Handle navigation result with timeout recovery"""
+        try:
+            result = future.result()
+            status = result.status
+            self.get_logger().info(f'Navigation result status: {status}')
+
+            # Check if human is still present
+            human_still_present = False
+            current_time = self.get_clock().now()
+            if self.last_human_timestamp is not None:
+                time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
+                # Consider human still present if seen in the last 2 seconds
+                human_still_present = time_since_human < 2.0
+            
+            if status != GoalStatus.STATUS_SUCCEEDED and self.is_escape_waypoint(self.current_goal):
+                self.escape_attempts += 1
+                if self.escape_attempts < self.max_escape_attempts:
+                    self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
+                    escape_point = self.human_avoidance.plan_escape()
+                    if escape_point is not None:
+                        self.send_goal(escape_point)  # Retry escape point
+                    return
+                elif self.escape_attempts >= self.max_escape_attempts and human_still_present:
+                    self.get_logger().info('Trapped start shaking')
+                    self.cancel_current_goal()
+                    self.start_shake_defense()
+                    return
+                else:
+                    self.get_logger().error('Max escape attempts reached, giving up escape plan')
+                    self.get_logger().warn('Escape plan failed')
+                    self.cancel_current_goal()
+                    self.start_escape_monitoring()
+                    return
+            elif status != GoalStatus.STATUS_SUCCEEDED and not self.is_escape_waypoint(self.current_goal):
+                self.get_logger().warn(f'Navigation failed with status: {status}')
+                # Normal failure handling
+                self.planning_attempts += 1
+                
+                if self.planning_attempts >= self.max_planning_attempts:
+                    self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
+                    self.planning_attempts = 0
+                    self.waypoint_generator.force_waypoint_change()
+            else:
+                self.get_logger().info('Navigation succeeded')
+                if self.current_goal is not None and not self.is_escape_waypoint(self.current_goal):
+                    self.planning_attempts = 0
+                    self.reset_navigation_state()
+                if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+                    self.get_logger().info('Escape plan succeeded - turning to face human')
+                    self.cancel_current_goal()
+                    self.reset_escape_state()
+                    self.start_escape_monitoring()
+                
+                
+        except Exception as e:
+            self.get_logger().error(f'Error getting navigation result: {str(e)}')
+            self.reset_navigation_state()
+
+    def reset_goal_state(self):
+        """Reset all goal-related state"""
+        self.current_goal = None
+        self.is_navigating = False
+        self.goal_start_time = None
+        self._current_goal_handle = None
+        # Reset stuck detection
+        self.last_position_check = None
+        self.last_check_position = None
+
+    def reset_escape_state(self):
+        """Reset all escape-related state"""
+        self.reset_goal_state()  # Reset base goal state first
+        self.escape_attempts = 0
         
-        # Check if path is blocked
-        is_blocked = self.check_path_to_target(current_target)
+        # Cancel and reset escape monitoring
+        if self.escape_monitor_timer:
+            self.escape_monitor_timer.cancel()
+            self.escape_monitor_timer = None
+
+    def reset_navigation_state(self):
+        """Reset navigation state and try new waypoint"""
+        self.reset_goal_state()  # Reset base goal state first
         
-        if is_blocked:
-            self.get_logger().info('Obstacle detected, finding alternative path')
-            # Find alternative path
-            alternative_point = self.path_planner.find_alternative_path(
-                self.current_pose.position,
-                current_target
+        # Force waypoint generator to pick new point if we've failed too many times
+        if self.planning_attempts >= self.max_planning_attempts:
+            self.planning_attempts = 0
+            self.waypoint_generator.force_waypoint_change()
+        else:
+            # Reset previous waypoint to avoid comparison issues
+            self.previous_waypoint = None
+            
+        # Force exploration loop to generate new waypoint
+        self.exploration_loop()
+
+    def feedback_callback(self, feedback_msg):
+        """Handle navigation feedback"""
+        # Log progress
+        feedback = feedback_msg.feedback
+        self.get_logger().debug(
+            f'Navigation feedback - Distance remaining: '
+            f'{feedback.distance_remaining:.2f}m'
+        )
+
+    def replan_to_waypoint(self):
+        """Replan path to current waypoint after obstacle avoidance"""
+        if self.current_goal:
+            self.get_logger().info('Replanning path to waypoint after avoidance')
+            self.send_goal(self.current_goal)
+        else:
+            self.exploration_loop()
+
+    def cancel_current_goal(self):
+        """Cancel the current navigation goal if one exists"""
+        if self._current_goal_handle is not None:
+            self.clear_visualization_markers()
+            if self.is_escape_waypoint(self.current_goal):
+                self.get_logger().info('Canceling escape goal')
+                # Reset escape-specific state
+                self.is_tracking_human = False  # Ensure tracking stays off
+            else:
+                self.get_logger().info('Canceling exploration goal')
+            
+            cancel_future = self._current_goal_handle.cancel_goal_async()
+            cancel_future.add_done_callback(self.cancel_done_callback)
+            self._current_goal_handle = None
+            self.current_goal = None
+            self.is_navigating = False
+
+    def cancel_done_callback(self, future):
+        """Handle goal cancellation result"""
+        cancel_response = future.result()
+        if len(cancel_response.goals_canceling) > 0:
+            self.get_logger().info('Goal successfully canceled')
+        else:
+            self.get_logger().warn('Goal cancellation failed')
+
+    def distance_to_goal(self, goal):
+        """Calculate the distance to the goal"""
+        return math.sqrt(
+            (goal.pose.position.x - self.current_pose.pose.position.x) ** 2 +
+            (goal.pose.position.y - self.current_pose.pose.position.y) ** 2
+        )
+
+    def check_goal_progress(self):
+        """Monitor progress of current navigation goal"""
+        if not self.is_navigating or self.current_goal is None:
+            return
+        
+        try:
+            # Check if human is still present
+            human_still_present = False
+            current_time = self.get_clock().now()
+            if self.last_human_timestamp is not None:
+                time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
+                # Consider human still present if seen in the last 2 seconds
+                human_still_present = time_since_human < 2.0
+
+            """Check if the robot has moved in the past interval"""
+            if self.current_goal is None:
+                # Reset tracking when not navigating
+                self.last_position_check = None
+                self.last_check_position = None
+                return
+            
+            current_time = self.get_clock().now()
+            current_position = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
+            
+            # Initialize tracking on first call
+            if self.last_position_check is None or self.last_check_position is None:
+                self.last_position_check = current_time
+                self.last_check_position = current_position
+                return
+            
+            # Calculate time and distance since last check
+            time_diff = (current_time - self.last_position_check).nanoseconds / 1e9
+            distance_moved = math.sqrt(
+                (current_position[0] - self.last_check_position[0]) ** 2 +
+                (current_position[1] - self.last_check_position[1]) ** 2
             )
             
-            if alternative_point:
-                self.get_logger().info(
-                    f'Found alternative path through ({alternative_point.x:.2f}, '
-                    f'{alternative_point.y:.2f})'
+            # Check if we've been stuck for longer than the timeout
+            if distance_moved < self.stuck_threshold and time_diff > self.stuck_timeout:
+                self.get_logger().warn(
+                    f'Robot appears to be stuck! Moved only {distance_moved:.3f}m in {time_diff:.1f} seconds'
                 )
-                # Move towards alternative point
-                dx = alternative_point.x - self.current_pose.position.x
-                dy = alternative_point.y - self.current_pose.position.y
-                target_angle = math.atan2(dy, dx)
-                current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
-                angle_diff = target_angle - current_angle
-                
-                # Normalize angle
-                while angle_diff > math.pi: angle_diff -= 2*math.pi
-                while angle_diff < -math.pi: angle_diff += 2*math.pi
-                
-                if abs(angle_diff) > math.radians(20):
-                    self.send_velocity_command(0.0, 1.0 if angle_diff > 0 else -1.0)
+                self.cancel_current_goal()
+                # Different handling based on goal type
+                if self.is_escape_waypoint(self.current_goal):
+                    self.escape_attempts += 1
+                    if self.escape_attempts < self.max_escape_attempts:
+                        self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
+                        escape_point = self.human_avoidance.plan_escape()
+                        if escape_point is not None:
+                            self.send_goal(escape_point)  # Retry escape point
+                        else:
+                            self.get_logger().error('Failed to find escape point!')
+                    elif self.escape_attempts >= self.max_escape_attempts and human_still_present:
+                        self.get_logger().info('Trapped')
+                        self.start_shake_defense()
+                    else:
+                        self.get_logger().error('Max escape attempts reached, giving up escape plan')
+                        self.reset_escape_state()
+                        self.cancel_current_goal()
+                        self.start_escape_monitoring()
                 else:
-                    self.send_velocity_command(1.0, 0.0)
-            else:
-                # No alternative found, back up and rotate
-                self.get_logger().warn('No alternative path found, backing up')
-                self.send_velocity_command(-1.0, 0.0)
-            return
-
-        # Normal waypoint navigation
-        dx = current_target.x - self.current_pose.position.x
-        dy = current_target.y - self.current_pose.position.y
-        distance = math.sqrt(dx*dx + dy*dy)
-        target_angle = math.atan2(dy, dx)
-        current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
-        angle_diff = target_angle - current_angle
-        
-        # Normalize angle
-        while angle_diff > math.pi: angle_diff -= 2*math.pi
-        while angle_diff < -math.pi: angle_diff += 2*math.pi
-
-        if distance < self.waypoint_threshold:
-            self.current_waypoint_index += 1
-            self.stop_robot()
-        elif abs(angle_diff) > math.radians(20):
-            self.send_velocity_command(0.0, 1.0 if angle_diff > 0 else -1.0)
-        else:
-            self.send_velocity_command(1.0, 0.0)
-
-    def stop_robot(self):
-        """Stop the robot using binary commands."""
-        self.send_velocity_command(0.0, 0.0)
-
-    def odom_callback(self, msg):
-        """Handle odometry updates with loop closure detection."""
-        current_pos = msg.pose.pose.position
-        
-        # Update distance traveled
-        if self.last_position:
-            dx = current_pos.x - self.last_position.x
-            dy = current_pos.y - self.last_position.y
-            self.distance_traveled += math.sqrt(dx*dx + dy*dy)
-        
-        self.last_position = current_pos
-        self.current_pose = msg.pose.pose
-        
-        # Check for loop closure if we've traveled minimum distance
-        if self.distance_traveled > self.min_travel_distance:
-            if self.check_loop_closure(current_pos):
-                self.handle_loop_closure()
-                self.distance_traveled = 0.0  # Reset distance after loop closure
-        
-        # Store position for future loop closure detection
-        if not self.visited_positions or self.distance_from_last_stored(current_pos) > 0.5:
-            self.visited_positions.append(current_pos)
-        
-        # Generate initial waypoints if needed
-        if not self.initial_pose_received and self.map_info is not None:
-            self.initial_pose_received = True
-            self.waypoints = self.generate_waypoints()
-
-    def check_loop_closure(self, current_pos):
-        """Check if we've returned to a previously visited location."""
-        if len(self.visited_positions) < 10:  # Need minimum number of positions
-            return False
-        
-        # Skip recent positions to ensure we've moved away
-        for old_pos in self.visited_positions[:-10]:
-            dx = current_pos.x - old_pos.x
-            dy = current_pos.y - old_pos.y
-            distance = math.sqrt(dx*dx + dy*dy)
-            
-            if distance < self.loop_closure_threshold:
-                self.get_logger().info(
-                    f'Loop closure detected! Distance to previous position: {distance:.2f}m'
-                )
-                return True
-        
-        return False
-
-    def handle_loop_closure(self):
-        """Handle loop closure by adjusting navigation strategy."""
-        self.get_logger().info('Handling loop closure')
-        
-        # Generate new waypoints in unexplored directions
-        current_yaw = self.get_yaw_from_quaternion(self.current_pose.orientation)
-        
-        # Find unexplored directions by checking visited positions
-        explored_angles = []
-        for pos in self.visited_positions:
-            dx = pos.x - self.current_pose.position.x
-            dy = pos.y - self.current_pose.position.y
-            if math.sqrt(dx*dx + dy*dy) > 1.0:  # Only consider points > 1m away
-                angle = math.atan2(dy, dx)
-                explored_angles.append(angle)
-        
-        # Find the largest unexplored angle gap
-        if explored_angles:
-            explored_angles.sort()
-            largest_gap = 0
-            best_angle = 0
-            
-            # Add the first angle again to check gap between last and first
-            explored_angles.append(explored_angles[0] + 2*math.pi)
-            
-            for i in range(len(explored_angles)-1):
-                gap = explored_angles[i+1] - explored_angles[i]
-                if gap > largest_gap:
-                    largest_gap = gap
-                    best_angle = explored_angles[i] + gap/2
-            
-            # Generate new waypoints in the unexplored direction
-            self.generate_waypoints(preferred_angle=best_angle)
-        else:
-            # If no explored angles, generate waypoints normally
-            self.generate_waypoints()
-
-    def distance_from_last_stored(self, current_pos):
-        """Calculate distance from last stored position."""
-        if not self.visited_positions:
-            return float('inf')
-        
-        last_pos = self.visited_positions[-1]
-        dx = current_pos.x - last_pos.x
-        dy = current_pos.y - last_pos.y
-        return math.sqrt(dx*dx + dy*dy)
-
-    def get_yaw_from_quaternion(self, q):
-        """Extract yaw from quaternion."""
-        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
-        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
-        return math.atan2(siny_cosp, cosy_cosp)
-
-    def determine_movement(self, sector_data):
-        if not sector_data:
-            return (0.0, 0.0)
-        
-        self.get_logger().info(f"State: {self.state.name}, Sector distances: {sector_data}")
-        
-        # Check if path is blocked
-        front_blocked = sector_data['front'] < self.safety_radius * 1.5
-        left_blocked = sector_data['front_left'] < self.safety_radius
-        right_blocked = sector_data['front_right'] < self.safety_radius
-        
-        if self.state == RobotState.FORWARD:
-            if front_blocked or left_blocked or right_blocked:
-                self.state = RobotState.ROTATING
-                self.rotation_direction = self.find_best_rotation(sector_data)
-                self.get_logger().info(f"Obstacle detected, starting rotation {'right' if self.rotation_direction < 0 else 'left'}")
-                # Use full rotation speed
-                return (0.0, 1.0 if self.rotation_direction > 0 else -1.0)
-            # Use full forward speed when clear
-            return (1.0, 0.0)
-        
-        elif self.state == RobotState.ROTATING:
-            # Keep rotating until we find a clear path
-            if not front_blocked and not left_blocked and not right_blocked:
-                self.state = RobotState.FORWARD
-                self.get_logger().info("Clear path found, moving forward")
-                # Use full forward speed when clear
-                return (1.0, 0.0)
-            # Use full rotation speed
-            return (0.0, 1.0 if self.rotation_direction > 0 else -1.0)
-        
-        return (0.0, 0.0)  # Default stop
-
-    def send_velocity_command(self, linear_x, angular_z):
-        """Send velocity command to the robot with binary values."""
-        cmd = Twist()
-        
-        # Convert to binary values (-1, 0, 1)
-        cmd.linear.x = 1.0 if linear_x > 0.1 else (-1.0 if linear_x < -0.1 else 0.0)
-        cmd.angular.z = 1.0 if angular_z > 0.1 else (-1.0 if angular_z < -0.1 else 0.0)
-        
-        self.cmd_vel_pub.publish(cmd)
-        self.get_logger().info(
-            f"Binary command sent - linear: {cmd.linear.x}, angular: {cmd.angular.z}"
-        )
-
-    def find_clear_path(self):
-        """Find a clear direction considering robot size."""
-        if not self.latest_scan:
-            return None
-        
-        scan_step = len(self.latest_scan.ranges) // 360
-        best_gap = 0
-        best_angle = None
-        min_gap_width = int(math.degrees(math.asin(self.robot_radius / self.safety_radius)))
-        
-        # Check full 360 degrees
-        for angle in range(360):
-            if self.latest_scan.ranges[angle * scan_step] > (self.robot_radius + self.safety_margin):
-                gap_width = self.measure_gap(angle)
-                if gap_width > best_gap and gap_width >= min_gap_width:
-                    best_gap = gap_width
-                    best_angle = angle - 180  # Convert to robot-relative angle
-        
-        return best_angle if best_gap >= min_gap_width else None
-
-    def measure_gap(self, center_angle):
-        """Measure the size of a gap centered at the given angle."""
-        scan_step = len(self.latest_scan.ranges) // 360
-        gap_size = 0
-        
-        # Check outward from center angle
-        for offset in range(0, 30):  # Check up to 30 degrees each direction
-            left_idx = ((center_angle + offset) % 360) * scan_step
-            right_idx = ((center_angle - offset) % 360) * scan_step
-            
-            if (left_idx < len(self.latest_scan.ranges) and 
-                right_idx < len(self.latest_scan.ranges)):
-                if (self.latest_scan.ranges[left_idx] > self.safety_radius and 
-                    self.latest_scan.ranges[right_idx] > self.safety_radius):
-                    gap_size = offset * 2
-                else:
-                    break
+                    self.planning_attempts += 1
+                    if self.planning_attempts >= self.max_planning_attempts:
+                        self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
+                        self.planning_attempts = 0
+                        self.waypoint_generator.force_waypoint_change()
+                        self.reset_navigation_state()
+                    else:
+                        self.get_logger().info('Retrying current waypoint')
+                        if self.current_goal:
+                            self.send_goal(self.current_goal)
                 
-        return gap_size
-
-    def map_callback(self, msg):
-        """Process incoming map data."""
-        try:
-            self.map_data = np.array(msg.data).reshape((msg.info.height, msg.info.width))
-            self.map_info = msg.info
-            self.path_planner.update_map(self.map_data, self.map_info)
-            self.get_logger().debug('Map data updated')
+                # Reset tracking
+                self.last_position_check = None
+                self.last_check_position = None
+            
+            # Update tracking if we've moved enough or enough time has passed
+            elif distance_moved > self.stuck_threshold or time_diff > 10.0:
+                self.last_position_check = current_time
+                self.last_check_position = current_position
+            
         except Exception as e:
-            self.get_logger().error(f'Error processing map data: {str(e)}')
-        
-    def world_to_map(self, x, y):
-        """Convert world coordinates to map coordinates."""
-        if not self.map_info:
-            return None, None
-        mx = int((x - self.map_info.origin.position.x) / self.map_info.resolution)
-        my = int((y - self.map_info.origin.position.y) / self.map_info.resolution)
-        if 0 <= mx < self.map_info.width and 0 <= my < self.map_info.height:
-            return mx, my
-        return None, None
-        
-    def map_to_world(self, mx, my):
-        """Convert map coordinates to world coordinates."""
-        if not self.map_info:
-            return None, None
-        x = mx * self.map_info.resolution + self.map_info.origin.position.x
-        y = my * self.map_info.resolution + self.map_info.origin.position.y
-        return x, y
+            self.get_logger().error(f'Error checking goal progress: {str(e)}')
 
-    def is_valid_point(self, x, y):
-        """Check if point is valid considering robot size."""
-        mx, my = self.world_to_map(x, y)
-        if mx is None or my is None:
-            return False
+    def tracking_active_callback(self, msg):
+        """Handle changes in tracking status"""
+        was_tracking = self.is_tracking_human
         
-        # Check area that covers entire robot plus safety margin
-        check_radius = int((self.robot_radius + self.safety_margin) / self.map_info.resolution)
-        
-        # Check circular area around point
-        for dx in range(-check_radius, check_radius + 1):
-            for dy in range(-check_radius, check_radius + 1):
-                # Only check points within circular radius
-                if dx*dx + dy*dy <= check_radius*check_radius:
-                    check_x = mx + dx
-                    check_y = my + dy
-                    if (0 <= check_x < self.map_info.width and 
-                        0 <= check_y < self.map_info.height):
-                        if self.map_data[check_y, check_x] > 50:  # Occupied
-                            return False
-        return True
-
-    def find_path_monte_carlo(self, start_x, start_y, goal_x, goal_y):
-        """Use Monte Carlo to find a clear path to goal."""
-        if not self.map_data is not None:
-            return None
-
-        best_path = None
-        best_cost = float('inf')
-        
-        for _ in range(self.max_iterations):
-            # Generate random path
-            current_x, current_y = start_x, start_y
-            path = [(current_x, current_y)]
-            blocked = False
+        # Don't start tracking if we're executing an escape
+        if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+            self.get_logger().info('Ignoring tracking request - currently executing escape plan')
+            self.is_tracking_human = False
+            return
             
-            while math.sqrt((current_x - goal_x)**2 + (current_y - goal_y)**2) > self.step_size:
-                # Generate random step towards goal with bias
-                dx = goal_x - current_x
-                dy = goal_y - current_y
-                distance = math.sqrt(dx*dx + dy*dy)
-                
-                # Add random variation
-                angle = math.atan2(dy, dx) + random.uniform(-math.pi/4, math.pi/4)
-                step_x = self.step_size * math.cos(angle)
-                step_y = self.step_size * math.sin(angle)
-                
-                new_x = current_x + step_x
-                new_y = current_y + step_y
-                
-                # Check if new position is valid
-                if not self.is_valid_point(new_x, new_y):
-                    blocked = True
-                    break
-                
-                current_x, current_y = new_x, new_y
-                path.append((current_x, current_y))
+        self.is_tracking_human = msg.data
+        
+        if self.is_tracking_human and not was_tracking:
+            # Cancel current navigation goal when starting to track
+            self.cancel_current_goal()
+
+    def tracking_cmd_callback(self, msg: PoseStamped):
+        """Handle tracking information from human coordinates"""
+        try:
+            # Extract human position from PoseStamped
+            human_x = msg.pose.position.x
+            human_y = msg.pose.position.y
             
-            if not blocked:
-                # Calculate path cost (length + clearance from obstacles)
-                cost = 0
-                for i in range(len(path)-1):
-                    x1, y1 = path[i]
-                    x2, y2 = path[i+1]
-                    cost += math.sqrt((x2-x1)**2 + (y2-y1)**2)
+            # Update last known human position
+            self.last_human_position = (human_x, human_y)
+            self.last_human_timestamp = self.get_clock().now()
+
+            if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+                return
+            if self.shake_timer:
+                return
+            
+            # Calculate distance to human using Euclidean distance
+            if self.current_pose is not None:
+                dx = human_x - self.current_pose.pose.position.x
+                dy = human_y - self.current_pose.pose.position.y
+                human_distance = math.sqrt(dx*dx + dy*dy)
+                
+                # Calculate angle to human
+                human_angle = math.atan2(dy, dx)
+                
+                # Log human information
+                self.get_logger().info(
+                    f'Human detected at ({human_x:.2f}, {human_y:.2f}), '
+                    f'distance: {human_distance:.2f}m, '
+                    f'angle: {math.degrees(human_angle):.1f}°'
+                )
+                
+                # Pass information to human avoidance controller
+                if self.is_tracking_human:
+                    cmd_vel = Twist()
                     
-                    # Add penalty for proximity to obstacles
-                    mx, my = self.world_to_map(x2, y2)
-                    if mx is not None and my is not None:
-                        for dx in [-1, 0, 1]:
-                            for dy in [-1, 0, 1]:
-                                if (0 <= mx+dx < self.map_info.width and 
-                                    0 <= my+dy < self.map_info.height):
-                                    if self.map_data[my+dy, mx+dx] > 50:
-                                        cost += 1.0
-                
-                if cost < best_cost:
-                    best_cost = cost
-                    best_path = path
-        
-        return best_path
+                    # UPDATED: Use direct pose and position instead of image_x
+                    cmd_vel, should_escape = self.human_avoidance.get_avoidance_command(
+                        human_distance, 
+                        human_angle,
+                        robot_pose=self.current_pose,
+                        human_pos=self.last_human_position
+                    )
+                    
+                    # Always publish the avoidance command
+                    self.wheel_speeds_pub.publish(cmd_vel)
+                    
+                    # Log command details
+                    self.get_logger().info(
+                        f'Human tracking: dist={human_distance:.2f}m, '
+                        f'angle={human_angle:.2f}rad, turn={cmd_vel.angular.z:.3f}'
+                    )
+                    
+                    # Check for escape BEFORE any other processing                    
+                    if should_escape:
+                        self.get_logger().warn('Critical distance detected - initiating escape!')
+                        
+                        # Cancel current navigation goal and exploration
+                        self.cancel_current_goal()
+                        if self.exploration_loop_timer:
+                            self.exploration_loop_timer.cancel()
+                        self.waypoint_generator.cancel_waypoint()  # Clear any exploration waypoints
+                        
+                        # MAJOR FIX: Update approach for escape planning
+                        # 1. First clear any existing costmap except static obstacles
+                        self.request_costmap_clear()
+                        # 2. Add slight delay for costmap updates to process
+                        time.sleep(0.2)
+                        # 3. Reduce the size of the human obstacle temporarily for planning
+                        self.publish_human_obstacle(radius=0.25)  # Reduced radius temporarily
+                        # 4. Add slight delay to let the costmap update
+                        time.sleep(0.2)
+                        # 5. Now plan the escape
+                        escape_point = self.human_avoidance.plan_escape()
+                        
+                        if escape_point is not None:
+                            self.get_logger().info(
+                                f'Got escape point at ({escape_point.pose.position.x:.2f}, '
+                                f'{escape_point.pose.position.y:.2f})'
+                            )
+                            # Force tracking off BEFORE sending escape goal
+                            self.is_tracking_human = False
+                            self.send_goal(escape_point)
+                            
+                            # Reset escape attempts counter for fresh start
+                            self.escape_attempts = 0
+                            
+                            # 6. Now update human obstacle to regular size
+                            self.publish_human_obstacle(radius=0.35)
+                            
+                            return
+                        else:
+                            self.get_logger().error('Failed to get escape point!')
+                    
+                    self.get_logger().info(
+                        f'Human tracking: dist={human_distance:.2f}m, '
+                        f'backing_up={cmd_vel.linear.x:.2f}m/s'
+                    )
 
-    def check_path_to_target(self, target):
-        """Check if there's a clear path to the target considering robot size."""
-        if not self.latest_scan:
+        except Exception as e:
+            self.get_logger().error(f'Error in tracking command callback: {str(e)}')
+            self.wheel_speeds_pub.publish(Twist())  # Stop on error
+
+    def is_escape_waypoint(self, waypoint):
+        """Check if waypoint is an escape waypoint"""
+        return waypoint is not None and waypoint.header.stamp.nanosec == 1
+
+    def start_escape_monitoring(self):
+        """Start monitoring after reaching escape point"""
+        self.get_logger().info('Starting escape monitoring sequence')
+        if self.exploration_loop_timer:
+            self.exploration_loop_timer.cancel()
+        if self.escape_monitor_timer:
+            self.escape_monitor_timer.cancel()
+        self.escape_monitor_timer = self.create_timer(0.1, self.monitor_escape_sequence)
+
+    def monitor_escape_sequence(self):
+        """Monitor the escape sequence: turn -> resume"""
+        try:
+            if self.is_tracking_human:
+                self.get_logger().info('Human detected, stopping turn.')
+                self.wheel_speeds_pub.publish(Twist())  # Stop turning
+                self.escape_again()  # Call escape again
+                return
+            
+            # Calculate angle to last known human position
+            elif self.last_human_position is not None:
+                dx = self.last_human_position[0] - self.current_pose.pose.position.x
+                dy = self.last_human_position[1] - self.current_pose.pose.position.y
+                target_angle = math.atan2(dy, dx)
+                
+                # Get rotation speeds from human avoidance controller
+                cmd = self.human_avoidance.turn_to_angle(target_angle)  # Fix: only get cmd, not turn_time
+                self.wheel_speeds_pub.publish(cmd)
+                
+                # Check if we've been trying to turn for too long or if we're done turning
+                current_time = self.get_clock().now()
+                
+                # Initialize turn start time if not set
+                if not hasattr(self, 'turn_start_time') or self.turn_start_time is None:
+                    self.turn_start_time = current_time
+                    
+                # Calculate elapsed time
+                turn_time = (current_time - self.turn_start_time).nanoseconds / 1e9
+                
+                # Check if we have reached the target angle or timed out
+                if abs(cmd.angular.z) < 0.01 or turn_time > self.turn_timeout:
+                    self.get_logger().info('Turned to face last known human position, resuming exploration')
+                    # Reset turn timer
+                    self.turn_start_time = None
+                    time.sleep(2)
+                    if self.is_tracking_human:
+                        return
+                    else:
+                        self.cleanup_escape_monitoring()
+                        self.resume_exploration()
+                    return
+            else:
+                # No known human position, cleanup and resume
+                self.turn_start_time = None  # Reset turn timer
+                self.cleanup_escape_monitoring()
+                self.resume_exploration()
+                return
+            
+        except Exception as e:
+            self.get_logger().error(f'Error in escape monitoring: {str(e)}')
+            self.turn_start_time = None  # Reset turn timer
+            self.cleanup_escape_monitoring()
+            self.resume_exploration()
+
+    def cleanup_escape_monitoring(self):
+        """Clean up escape monitoring timers and state"""
+        if self.escape_monitor_timer:
+            self.escape_monitor_timer.cancel()
+        self.escape_monitor_timer = None
+        self.get_logger().info('Cleaned up escape monitoring')
+
+    def resume_exploration(self):
+        """Clean up escape monitoring and resume exploration"""
+        self.cleanup_escape_monitoring()  # Make sure monitoring is cleaned up
+        self.escape_attempts = 0  # Reset escape attempts
+        
+        # Clear old markers before resuming
+        self.clear_visualization_markers()
+        
+        self.exploration_loop_timer.reset()
+        self.reset_navigation_state()
+
+    def escape_again(self):
+        """Escape again"""
+        self.get_logger().info('Escape again')
+        if self.escape_monitor_timer:
+            self.escape_monitor_timer.cancel()
+            self.reset_escape_state()
+
+    def clear_visualization_markers(self):
+        """Clear all visualization markers"""
+        try:
+            # Create an empty marker array
+            marker_array = MarkerArray()
+            
+            # Add a deletion marker
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.action = Marker.DELETEALL
+            marker_array.markers.append(marker)
+            
+            # Publish the deletion marker
+            self.marker_pub.publish(marker_array)
+            self.get_logger().debug('Cleared visualization markers')
+        except Exception as e:
+            self.get_logger().error(f'Error clearing markers: {str(e)}')
+            
+    def update_human_obstacles(self):
+        """Publish human obstacle positions as PointCloud2"""
+        self.publish_human_obstacle(radius=0.35)  # Use standard radius
+            
+    def publish_human_obstacle(self, radius=0.35):
+        """Publish human obstacle positions as PointCloud2 with specified radius"""
+        if self.last_human_position is None:
+            return
+        
+        try:
+            # Create point cloud message
+            pc2 = PointCloud2()
+            pc2.header.stamp = self.get_clock().now().to_msg()
+            pc2.header.frame_id = "map"
+            
+            # Define fields for x, y, z coordinates
+            fields = [
+                PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+                PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+                PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+                # Add intensity field for setting cost values
+                PointField(name='intensity', offset=12, datatype=PointField.FLOAT32, count=1),
+            ]
+            pc2.fields = fields
+            
+            # Generate dense point cloud around human
+            points = []
+            human_x, human_y = self.last_human_position
+            
+            # Create a very dense circular obstacle
+            resolution = 0.03  # Higher resolution for smoother obstacle
+            for dx in np.arange(-radius, radius + resolution, resolution):
+                for dy in np.arange(-radius, radius + resolution, resolution):
+                    dist_sq = dx*dx + dy*dy
+                    if dist_sq <= radius*radius:
+                        # Use slightly less than lethal obstacle intensity during escape planning
+                        # 254 = lethal, 253 = inscribed, 200 = high cost but traversable if necessary
+                        intensity = 250.0  # Still very high cost, but slightly traversable in emergency
+                        points.append((human_x + dx, human_y + dy, 0.0, intensity))
+            
+            # Pack points into PointCloud2
+            pc2.height = 1
+            pc2.width = len(points)
+            pc2.point_step = 16  # 4 fields * 4 bytes
+            pc2.row_step = pc2.point_step * pc2.width
+            pc2.is_dense = True
+            
+            # Pack points into binary array
+            point_data = bytearray()
+            for p in points:
+                point_data.extend(struct.pack('ffff', *p))
+            pc2.data = point_data
+            
+            # Publish point cloud
+            self.human_obstacles_pub.publish(pc2)
+            
+            self.get_logger().info(
+                f'Published human obstacle at ({human_x:.2f}, {human_y:.2f}) with radius {radius}m'
+            )
+            
+        except Exception as e:
+            self.get_logger().error(f'Error publishing human obstacle: {str(e)}')
+
+    def request_costmap_clear(self):
+        """Request clearing of the global costmap except static layer"""
+        try:
+            # Create service client for clearing costmap
+            clear_client = self.create_client(ClearEntireCostmap, '/global_costmap/clear_entirely_global_costmap')
+            
+            # Wait for service to be available with short timeout
+            if not clear_client.wait_for_service(timeout_sec=0.5):
+                self.get_logger().warn('Clear costmap service not available, skipping clear')
+                return False
+                
+            # Create request
+            request = ClearEntireCostmap.Request()
+            
+            # Call service asynchronously
+            future = clear_client.call_async(request)
+            
+            # Log the request
+            self.get_logger().info('Requested costmap clear for escape planning')
+            return True
+            
+        except Exception as e:
+            self.get_logger().error(f'Failed to clear costmap: {str(e)}')
             return False
+
+    def start_shake_defense(self):
+        """Start a shaking motion to try to escape when trapped"""
+        self.get_logger().warn('Starting shake defense - robot is trapped!')
         
-        # Calculate angle to target
-        dx = target.x - self.current_pose.position.x
-        dy = target.y - self.current_pose.position.y
-        target_angle = math.atan2(dy, dx)
-        current_angle = self.get_yaw_from_quaternion(self.current_pose.orientation)
+        # Cancel any current navigation goals
+        self.cancel_current_goal()
         
-        # Convert target angle to LIDAR frame
-        angle_diff = target_angle - current_angle
-        while angle_diff > math.pi: angle_diff -= 2*math.pi
-        while angle_diff < -math.pi: angle_diff += 2*math.pi
+        # Create a timer for the shake motion
+        self.shake_count = 0
+        self.shake_direction = 1  # Start with right turn
         
-        # Check wider arc to account for robot width
-        arc_width = 45  # Increased from 30 to 45 degrees
-        angle_deg = math.degrees(angle_diff) + 180
-        scan_idx = int(angle_deg * len(self.latest_scan.ranges) / 360)
+        # Create a timer that runs the shake motion at 5Hz
+        if hasattr(self, 'shake_timer') and self.shake_timer:
+            self.shake_timer.cancel()
+        self.shake_timer = self.create_timer(0.2, self.execute_shake_motion)
         
-        # Calculate indices for wider check
-        start_idx = max(0, scan_idx - arc_width)
-        end_idx = min(len(self.latest_scan.ranges), scan_idx + arc_width)
-        
-        distance_to_target = math.sqrt(dx*dx + dy*dy)
-        min_clearance = self.robot_radius + self.safety_margin
-        
-        # Check each point in the arc
-        for i in range(start_idx, end_idx):
-            if i < len(self.latest_scan.ranges):
-                range_val = self.latest_scan.ranges[i]
-                if 0.1 < range_val < min(distance_to_target, min_clearance):
-                    self.get_logger().info(f'Obstacle detected at {range_val}m, need {min_clearance}m clearance')
-                    return True
-        
-        return False
+        self.get_logger().info('Shake defense initiated')
+
+    def execute_shake_motion(self):
+        """Execute one step of the shake motion"""
+        try:
+            # Check if human is still present
+            current_time = self.get_clock().now()
+            human_still_present = False
+            
+            if self.last_human_timestamp is not None:
+                time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
+                # Consider human still present if seen in the last 2 seconds
+                human_still_present = time_since_human < 3.0
+            
+            if not human_still_present:
+                # Human is gone, we can stop shaking
+                self.get_logger().info('Human no longer detected, stopping shake defense')
+                self.wheel_speeds_pub.publish(Twist())  # Stop motion
+                
+                if hasattr(self, 'shake_timer') and self.shake_timer:
+                    self.shake_timer.cancel()
+                    self.shake_timer = None
+                
+                # Reset escape state and resume exploration
+                self.reset_escape_state()
+                self.resume_exploration()
+                return
+            
+            # Create shake command
+            cmd = Twist()
+            
+            # Alternate between turning left and right with some forward/backward motion
+            if self.shake_count % 2 == 0:
+                # Even counts: turn with some linear motion
+                cmd.angular.z = 0.8 * self.shake_direction
+            else:
+                # Odd counts: turn the other way
+                self.shake_direction *= -1  # Flip direction
+                cmd.angular.z = 0.8 * self.shake_direction
+            
+            # Publish command
+            self.wheel_speeds_pub.publish(cmd)
+            self.get_logger().info(f'Shake motion' + f'angular={cmd.angular.z:.2f}, linear={cmd.linear.x:.2f}')
+            
+            # Increment counter
+            self.shake_count += 1
+            
+        except Exception as e:
+            self.get_logger().error(f'Error in shake motion: {str(e)}')
+            # Stop motion on error
+            self.wheel_speeds_pub.publish(Twist())
+            if hasattr(self, 'shake_timer') and self.shake_timer:
+                self.shake_timer.cancel()
+                self.shake_timer = None
+            self.reset_escape_state()
+
+    # Add this method to force path replanning
+    def request_path_replan(self):
+        """Request replanning when human obstacle is detected"""
+        try:
+            if self.make_plan_client.service_is_ready():
+                # Create an empty request
+                request = Empty.Request()
+                # Call the service
+                self.make_plan_client.call_async(request)
+        except Exception as e:
+            self.get_logger().error(f'Failed to request path replan: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)
-    controller = NavigationController()
-    
+    node = NavigationController()
     try:
-        rclpy.spin(controller)
+        rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        controller.stop_robot()
-        controller.destroy_node()
+        node.destroy_node()
         rclpy.shutdown()
 
 if __name__ == '__main__':
-    main() 
+    main()

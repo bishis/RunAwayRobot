@@ -6,88 +6,97 @@ from geometry_msgs.msg import Twist
 from .controllers.motor_controller import MotorController
 
 class HardwareController(Node):
+    """Controls robot hardware using binary speed values"""
+    
     def __init__(self):
         super().__init__('hardware_controller')
         
-        # Initialize motor controller
-        self.motors = MotorController(
-            left_pin=self.declare_parameter('left_pin', 12).value,
-            right_pin=self.declare_parameter('right_pin', 13).value
+        # Declare parameters
+        self.declare_parameter('left_dir_pin', 27)
+        self.declare_parameter('left_pwm_pin', 18)
+        self.declare_parameter('right_dir_pin', 17)
+        self.declare_parameter('right_pwm_pin', 4)
+        self.declare_parameter('pwm_frequency', 1000)
+        
+        # Get parameters
+        left_dir_pin = self.get_parameter('left_dir_pin').value
+        left_pwm_pin = self.get_parameter('left_pwm_pin').value
+        right_dir_pin = self.get_parameter('right_dir_pin').value
+        right_pwm_pin = self.get_parameter('right_pwm_pin').value
+        pwm_frequency = self.get_parameter('pwm_frequency').value
+        
+        # Create motor controller with parameters
+        self.motor_controller = MotorController(
+            left_dir_pin=left_dir_pin,
+            left_pwm_pin=left_pwm_pin,
+            right_dir_pin=right_dir_pin,
+            right_pwm_pin=right_pwm_pin,
+            pwm_frequency=pwm_frequency
         )
         
-        # Subscribe to wheel speed commands
-        self.create_subscription(
+        # Create subscriber for wheel speeds
+        self.wheel_speeds_sub = self.create_subscription(
             Twist,
-            'cmd_vel',
-            self.velocity_callback,
+            'wheel_speeds',
+            self.wheel_speeds_callback,
             10
         )
         
-        # Add counter for received commands
-        self.command_count = 0
+        # Create publisher for actual speeds (for debugging)
+        self.actual_speeds_pub = self.create_publisher(
+            Twist,
+            'actual_speeds',
+            10
+        )
         
-        self.get_logger().info('Hardware controller initialized and ready for commands')
-        
-        # Create a timer to print status
-        self.create_timer(1.0, self.status_callback)
-        
-    def convert_to_binary_speed(self, speed):
-        """Convert decimal speed to binary (0 or 1)."""
-        threshold = 0.1  # Threshold for movement
-        if abs(speed) < threshold:
-            return 0
-        return 1 if speed > 0 else -1
-        
-    def velocity_callback(self, msg):
-        """Handle incoming velocity commands."""
+        self.get_logger().info('Hardware controller initialized')
+
+    def wheel_speeds_callback(self, msg: Twist):
         try:
-            # Extract velocities
+            # Get commanded speeds
             linear_x = msg.linear.x
+            linear_x = linear_x * 0.45
             angular_z = msg.angular.z
+            angular_z = angular_z * 4
+            # Send commands to motor controller and get actual speeds
+            left_speed, right_speed, left_pwm, right_pwm = self.motor_controller.set_speeds(linear_x, angular_z)
             
-            # Convert to wheel speeds
-            left_speed = linear_x - angular_z
-            right_speed = linear_x + angular_z
+            # Publish actual speeds for debugging
+            actual = Twist()
+            actual.linear.x = linear_x
+            actual.angular.z = angular_z
+            self.actual_speeds_pub.publish(actual)
             
-            # Print received command details
+            # Debug logging with normalized speeds and PWM values
             self.get_logger().info(
-                f"\nReceived cmd_vel:"
-                f"\n  Linear X: {linear_x:.2f}"
-                f"\n  Angular Z: {angular_z:.2f}"
-                f"\nCalculated wheel speeds:"
-                f"\n  Left: {left_speed:.2f}"
-                f"\n  Right: {right_speed:.2f}"
+                f'Speeds (-1 to 1) - Left: {left_speed:6.3f}, Right: {right_speed:6.3f} | ' +
+                f'PWM% - Left: {left_pwm*100:3.0f}%, Right: {right_pwm*100:3.0f}% | ' +
+                f'Input - Linear: {linear_x:6.3f}, Angular: {angular_z:6.3f}'
             )
             
-            # Apply speeds to motors (no binary conversion here)
-            self.motors.set_speeds(left_speed, right_speed)
-            
-            # Increment command counter
-            self.command_count += 1
-            
         except Exception as e:
-            self.get_logger().error(f'Error setting motor speeds: {str(e)}')
-    
-    def status_callback(self):
-        """Print periodic status updates."""
-        self.get_logger().info(f'Total commands received: {self.command_count}')
-    
+            self.get_logger().error(f'Error in wheel speeds callback: {str(e)}')
+            self.motor_controller.stop_motors()
+
     def __del__(self):
-        if hasattr(self, 'motors'):
-            self.motors.stop()
+        """Cleanup when node is destroyed"""
+        if hasattr(self, 'motor_controller'):
+            self.motor_controller.stop_motors()
+
 
 def main(args=None):
     rclpy.init(args=args)
-    controller = HardwareController()
-    
+    node = HardwareController()
     try:
-        rclpy.spin(controller)
+        rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        controller.motors.stop()
-        controller.destroy_node()
+        # Ensure motors are stopped
+        if hasattr(node, 'motor_controller'):
+            node.motor_controller.stop_motors()
+        node.destroy_node()
         rclpy.shutdown()
 
 if __name__ == '__main__':
-    main() 
+    main()

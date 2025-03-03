@@ -19,9 +19,9 @@ setup(
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='Ahmed Mazher',
-    maintainer_email='your_email@example.com',
+    maintainer_email='a.mazher1014@gmail.com',
     description='Wall following robot with SLAM',
-    license='TODO: License declaration',
+    license='GNU General Public License v3.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [

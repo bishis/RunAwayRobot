@@ -521,7 +521,6 @@ class NavigationController(Node):
                 self.get_logger().warn(
                     f'Robot appears to be stuck! Moved only {distance_moved:.3f}m in {time_diff:.1f} seconds'
                 )
-                self.cancel_current_goal()
                 # Different handling based on goal type
                 if self.is_escape_waypoint(self.current_goal):
                     self.escape_attempts += 1
@@ -534,17 +533,19 @@ class NavigationController(Node):
                             self.get_logger().error('Failed to find escape point!')
                     elif self.escape_attempts >= self.max_escape_attempts and human_still_present:
                         self.get_logger().info('Trapped')
+                        self.cancel_current_goal()
                         self.start_shake_defense()
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
-                        self.reset_escape_state()
                         self.cancel_current_goal()
+                        self.reset_escape_state()
                         self.start_escape_monitoring()
                 else:
                     self.planning_attempts += 1
                     if self.planning_attempts >= self.max_planning_attempts:
                         self.get_logger().warn('Max planning attempts reached, forcing new waypoint')
                         self.planning_attempts = 0
+                        self.cancel_current_goal()
                         self.waypoint_generator.force_waypoint_change()
                         self.reset_navigation_state()
                     else:

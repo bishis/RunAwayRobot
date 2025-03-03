@@ -731,8 +731,12 @@ class NavigationController(Node):
                     self.get_logger().info('Turned to face last known human position, resuming exploration')
                     # Reset turn timer
                     self.turn_start_time = None
-                    self.cleanup_escape_monitoring()
-                    self.resume_exploration()
+                    time.sleep(2)
+                    if self.is_tracking_human:
+                        return
+                    else:
+                        self.cleanup_escape_monitoring()
+                        self.resume_exploration()
                     return
             else:
                 # No known human position, cleanup and resume

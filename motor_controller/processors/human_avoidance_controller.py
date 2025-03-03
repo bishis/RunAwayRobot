@@ -152,6 +152,10 @@ class HumanAvoidanceController:
         
         # First check rear safety and get distance
         rear_status, rear_distance = self.check_rear_safety()
+
+        if rear_status == 'critical':
+            self.node.get_logger().warn('Critical distance detected - initiating escape!')
+            return cmd, True  # Trigger escape
         
         # Handle turning to face human
         if image_x is not None:

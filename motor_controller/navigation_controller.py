@@ -638,9 +638,22 @@ class NavigationController(Node):
                     if should_escape:
                         self.get_logger().warn('Critical distance detected - initiating escape!')
                         
+                        # Cancel current navigation goal and exploration
+                        self.cancel_current_goal()
                         if self.exploration_loop_timer:
                             self.exploration_loop_timer.cancel()
                         self.waypoint_generator.cancel_waypoint()  # Clear any exploration waypoints
+                        
+                        # MAJOR FIX: Update approach for escape planning
+                        # 1. First clear any existing costmap except static obstacles
+                        self.request_costmap_clear()
+                        # 2. Add slight delay for costmap updates to process
+                        time.sleep(0.2)
+                        # 3. Reduce the size of the human obstacle temporarily for planning
+                        self.publish_human_obstacle(radius=0.25)  # Reduced radius temporarily
+                        # 4. Add slight delay to let the costmap update
+                        time.sleep(0.2)
+                        # 5. Now plan the escape
                         escape_point = self.human_avoidance.plan_escape()
                         
                         if escape_point is not None:
@@ -651,6 +664,12 @@ class NavigationController(Node):
                             # Force tracking off BEFORE sending escape goal
                             self.is_tracking_human = False
                             self.send_goal(escape_point)
+                            
+                            # Reset escape attempts counter for fresh start
+                            self.escape_attempts = 0
+                            
+                            # 6. Now update human obstacle to regular size
+                            self.publish_human_obstacle(radius=0.35)
                             
                             return
                         else:
@@ -773,6 +792,10 @@ class NavigationController(Node):
             
     def update_human_obstacles(self):
         """Publish human obstacle positions as PointCloud2"""
+        self.publish_human_obstacle(radius=0.35)  # Use standard radius
+            
+    def publish_human_obstacle(self, radius=0.35):
+        """Publish human obstacle positions as PointCloud2 with specified radius"""
         if self.last_human_position is None:
             return
         
@@ -795,7 +818,6 @@ class NavigationController(Node):
             # Generate dense point cloud around human
             points = []
             human_x, human_y = self.last_human_position
-            radius = 0.35  # INCREASED radius to 0.7m
             
             # Create a very dense circular obstacle
             resolution = 0.03  # Higher resolution for smoother obstacle
@@ -803,8 +825,9 @@ class NavigationController(Node):
                 for dy in np.arange(-radius, radius + resolution, resolution):
                     dist_sq = dx*dx + dy*dy
                     if dist_sq <= radius*radius:
-                        # Set higher intensity (cost) for points closer to center
-                        intensity = 254.0  # Make all points lethal obstacles
+                        # Use slightly less than lethal obstacle intensity during escape planning
+                        # 254 = lethal, 253 = inscribed, 200 = high cost but traversable if necessary
+                        intensity = 250.0  # Still very high cost, but slightly traversable in emergency
                         points.append((human_x + dx, human_y + dy, 0.0, intensity))
             
             # Pack points into PointCloud2
@@ -823,17 +846,37 @@ class NavigationController(Node):
             # Publish point cloud
             self.human_obstacles_pub.publish(pc2)
             
-            # # Also trigger a path replan if we have a goal
-            # if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
-            #     self.get_logger().info('Human detected - requesting path replan')
-            #     self.request_path_replan()
-            
             self.get_logger().info(
                 f'Published human obstacle at ({human_x:.2f}, {human_y:.2f}) with radius {radius}m'
             )
             
         except Exception as e:
             self.get_logger().error(f'Error publishing human obstacle: {str(e)}')
+
+    def request_costmap_clear(self):
+        """Request clearing of the global costmap except static layer"""
+        try:
+            # Create service client for clearing costmap
+            clear_client = self.create_client(ClearEntireCostmap, '/global_costmap/clear_entirely_global_costmap')
+            
+            # Wait for service to be available with short timeout
+            if not clear_client.wait_for_service(timeout_sec=0.5):
+                self.get_logger().warn('Clear costmap service not available, skipping clear')
+                return False
+                
+            # Create request
+            request = ClearEntireCostmap.Request()
+            
+            # Call service asynchronously
+            future = clear_client.call_async(request)
+            
+            # Log the request
+            self.get_logger().info('Requested costmap clear for escape planning')
+            return True
+            
+        except Exception as e:
+            self.get_logger().error(f'Failed to clear costmap: {str(e)}')
+            return False
 
     def start_shake_defense(self):
         """Start a shaking motion to try to escape when trapped"""

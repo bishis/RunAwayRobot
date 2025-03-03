@@ -37,7 +37,7 @@ class HumanAvoidanceController:
         
         # Distance thresholds
         self.min_safe_distance = 1.25  # Start backing up at 1m
-        self.ready_to_flee_distance = 0.55  # Distance to enter ready-to-flee mode
+        self.ready_to_flee_distance = 0.45  # Distance to enter ready-to-flee mode
         self.max_backup_speed = 0.15   # Increase backup speed
         
         # Tracking parameters
@@ -60,25 +60,41 @@ class HumanAvoidanceController:
             self.latest_scan = node.latest_scan
             
 
-    def calculate_turn_command(self, image_x: float) -> float:
-        """Calculate turn speed to face human."""
+    def calculate_turn_command(self, robot_pose, human_x, human_y) -> float:
+        """Calculate turn speed to face human based on robot pose and human position."""
         try:
-            # Calculate normalized error from image center (-1 to 1)
-            image_center = 320
-            normalized_error = (image_x - image_center) / image_center            
-
-            # Check if human is in center zone
-            if abs(normalized_error) <= self.center_zone:
-                self.node.get_logger().info('Human centered - stopping turn')
-
+            # Extract robot position and orientation
+            robot_x = robot_pose.pose.position.x
+            robot_y = robot_pose.pose.position.y
+            
+            # Get robot orientation as Euler angles
+            quat = [
+                robot_pose.pose.orientation.x,
+                robot_pose.pose.orientation.y,
+                robot_pose.pose.orientation.z,
+                robot_pose.pose.orientation.w
+            ]
+            _, _, robot_yaw = tf_transformations.euler_from_quaternion(quat)
+            
+            # Calculate angle to human
+            dx = human_x - robot_x
+            dy = human_y - robot_y
+            desired_yaw = math.atan2(dy, dx)
+            
+            # Calculate the angle difference (shortest path)
+            angle_diff = normalize_angle(desired_yaw - robot_yaw)
+            
+            # Check if human is in center zone (robot is facing human)
+            if abs(angle_diff) <= 0.15:  # ~8.6 degrees tolerance
+                self.node.get_logger().info('Robot facing human - stopping turn')
                 return 0.0
             
             # Calculate turn direction and speed
-            turn_direction = 1.0 if normalized_error > 0 else -1.0
-            turn_speed = self.max_rotation_speed * turn_direction
+            # Scale turn speed based on how far we need to turn
+            turn_speed = min(0.8, max(0.2, abs(angle_diff) * 0.3)) * (1.0 if angle_diff > 0 else -1.0)
             
             self.node.get_logger().info(
-                f'Turning to face human: error={normalized_error:.2f}, '
+                f'Turning to face human: angle_diff={angle_diff:.2f}rad ({math.degrees(angle_diff):.1f}°), '
                 f'speed={turn_speed:.2f}'
             )
             
@@ -146,7 +162,7 @@ class HumanAvoidanceController:
             self.node.get_logger().error(f'Error checking rear safety: {str(e)}')
             return 'safe', float('inf')
 
-    def get_avoidance_command(self, human_distance, human_angle, image_x=None):
+    def get_avoidance_command(self, human_distance, human_angle, robot_pose=None, human_pos=None):
         """Calculate avoidance command based on human position"""
         cmd = Twist()
         
@@ -157,10 +173,12 @@ class HumanAvoidanceController:
             self.node.get_logger().warn('Critical distance detected - initiating escape!')
             return cmd, True  # Trigger escape
         
-        # Handle turning to face human
-        if image_x is not None:
+        # Handle turning to face human (using robot pose and human position)
+        if robot_pose is not None and human_pos is not None:
+            human_x, human_y = human_pos
+            
             # Calculate turn command
-            cmd.angular.z = self.calculate_turn_command(image_x)
+            cmd.angular.z = self.calculate_turn_command(robot_pose, human_x, human_y)
             
             if self.is_turning:
                 # If turning, only turn (no backup)
@@ -188,7 +206,7 @@ class HumanAvoidanceController:
                         
                         cmd.linear.x = -backup_speed
                         self.node.get_logger().info(
-                            f'Human centered - backing up at {backup_speed:.2f} m/s '
+                            f'Robot facing human - backing up at {backup_speed:.2f} m/s '
                             f'(wall distance: {rear_distance:.2f}m, target: {target_distance:.2f}m)'
                         )
                     else:
@@ -196,7 +214,7 @@ class HumanAvoidanceController:
                 
                 return cmd, False
             
-        else:  # No human detected
+        else:  # No human detected or missing pose data
             # Stop all motion
             stop_cmd = Twist()
             self.is_turning = False

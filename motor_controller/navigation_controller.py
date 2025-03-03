@@ -618,15 +618,16 @@ class NavigationController(Node):
                 # Pass information to human avoidance controller
                 if self.is_tracking_human:
                     cmd_vel = Twist()
-                    image_x = ((-human_angle / self.max_angular_speed) + 1) * 320
                     
+                    # UPDATED: Use direct pose and position instead of image_x
                     cmd_vel, should_escape = self.human_avoidance.get_avoidance_command(
                         human_distance, 
                         human_angle,
-                        image_x
+                        robot_pose=self.current_pose,
+                        human_pos=self.last_human_position
                     )
                     
-                    # IMPORTANT: Always publish the avoidance command
+                    # Always publish the avoidance command
                     self.wheel_speeds_pub.publish(cmd_vel)
                     
                     # Log command details
@@ -634,6 +635,7 @@ class NavigationController(Node):
                         f'Human tracking: dist={human_distance:.2f}m, '
                         f'angle={human_angle:.2f}rad, turn={cmd_vel.angular.z:.3f}'
                     )
+                    
                     # Check for escape BEFORE any other processing                    
                     if should_escape:
                         self.get_logger().warn('Critical distance detected - initiating escape!')

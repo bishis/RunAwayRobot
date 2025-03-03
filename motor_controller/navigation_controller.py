@@ -163,7 +163,7 @@ class NavigationController(Node):
         
         # Re-enable timer for regularly updating human obstacles (every 0.5 seconds)
         self.human_obstacle_timer = self.create_timer(0.5, self.update_human_obstacles)
-        
+
         # Add a service client for triggering path replanning
         self.make_plan_client = self.create_client(Empty, '/global_costmap/global_costmap/clear_except_static')
 
@@ -815,7 +815,6 @@ class NavigationController(Node):
                 PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
                 PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
                 PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
-                # Add intensity field for setting cost values
                 PointField(name='intensity', offset=12, datatype=PointField.FLOAT32, count=1),
             ]
             pc2.fields = fields
@@ -824,15 +823,20 @@ class NavigationController(Node):
             points = []
             human_x, human_y = self.last_human_position
             
-            # Create a very dense circular obstacle
+            # Create a donut-shaped obstacle with inner clearance
             resolution = 0.03  # Higher resolution for smoother obstacle
+            inner_radius = 0.2  # Keep center clear for robot to escape
+            
             for dx in np.arange(-radius, radius + resolution, resolution):
                 for dy in np.arange(-radius, radius + resolution, resolution):
                     dist_sq = dx*dx + dy*dy
-                    if dist_sq <= radius*radius:
-                        # Use slightly less than lethal obstacle intensity during escape planning
-                        # 254 = lethal, 253 = inscribed, 200 = high cost but traversable if necessary
-                        intensity = 250.0  # Still very high cost, but slightly traversable in emergency
+                    # Only add points between inner_radius and outer radius
+                    if inner_radius*inner_radius <= dist_sq <= radius*radius:
+                        # Gradually increase intensity from inner to outer radius
+                        # This creates a softer barrier that's still traversable in emergency
+                        dist = math.sqrt(dist_sq)
+                        intensity_ratio = (dist - inner_radius) / (radius - inner_radius)
+                        intensity = 200.0 + (50.0 * intensity_ratio)  # Scale from 200 to 250
                         points.append((human_x + dx, human_y + dy, 0.0, intensity))
             
             # Pack points into PointCloud2
@@ -852,7 +856,8 @@ class NavigationController(Node):
             self.human_obstacles_pub.publish(pc2)
             
             self.get_logger().info(
-                f'Published human obstacle at ({human_x:.2f}, {human_y:.2f}) with radius {radius}m'
+                f'Published donut-shaped human obstacle at ({human_x:.2f}, {human_y:.2f}) '
+                f'with outer radius {radius}m and inner radius {inner_radius}m'
             )
             
         except Exception as e:

@@ -87,7 +87,11 @@ class HumanAvoidanceController:
             # Check if human is in center zone (robot is facing human)
             if abs(angle_diff) <= 0.15:  # ~8.6 degrees tolerance
                 self.node.get_logger().info('Robot facing human - stopping turn')
+                self.is_turning = False  # Set turning flag to False when facing human
                 return 0.0
+            
+            # Set turning flag to True since we need to turn
+            self.is_turning = True
             
             # Calculate turn direction and speed
             # Scale turn speed based on how far we need to turn
@@ -171,6 +175,7 @@ class HumanAvoidanceController:
 
         if rear_status == 'critical':
             self.node.get_logger().warn('Critical distance detected - initiating escape!')
+            self.is_turning = False  # Reset turning flag
             return cmd, True  # Trigger escape
         
         # Handle turning to face human (using robot pose and human position)
@@ -217,7 +222,7 @@ class HumanAvoidanceController:
         else:  # No human detected or missing pose data
             # Stop all motion
             stop_cmd = Twist()
-            self.is_turning = False
+            self.is_turning = False  # Reset turning flag
             self.last_image_x = None
             return stop_cmd, False
 

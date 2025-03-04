@@ -95,7 +95,7 @@ class HumanAvoidanceController:
             
             # Calculate turn direction and speed
             # Scale turn speed based on how far we need to turn
-            turn_speed = min(0.8, max(0.2, abs(angle_diff) * 0.3)) * (1.0 if angle_diff > 0 else -1.0)
+            turn_speed = min(0.4, max(0.2, abs(angle_diff) * 0.3)) * (1.0 if angle_diff > 0 else -1.0)
             
             self.node.get_logger().info(
                 f'Turning to face human: angle_diff={angle_diff:.2f}rad ({math.degrees(angle_diff):.1f}°), '

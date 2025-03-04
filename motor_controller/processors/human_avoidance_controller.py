@@ -81,6 +81,10 @@ class HumanAvoidanceController:
             dy = human_y - robot_y
             desired_yaw = math.atan2(dy, dx)
             
+            # Use the turn_to_angle function to get the Twist command
+            cmd = self.turn_to_angle(desired_yaw)
+            turn_speed = cmd.angular.z
+            
             # Calculate the angle difference (shortest path)
             angle_diff = normalize_angle(desired_yaw - robot_yaw)
             
@@ -90,12 +94,8 @@ class HumanAvoidanceController:
                 self.is_turning = False  # Set turning flag to False when facing human
                 return 0.0
             
-            # Set turning flag to True since we need to turn
-            self.is_turning = True
-            
-            # Calculate turn direction and speed
-            # Scale turn speed based on how far we need to turn
-            turn_speed = min(self.max_rotation_speed, max(0.2, abs(angle_diff) * 0.3)) * (1.0 if angle_diff > 0 else -1.0)
+            # Set turning flag based on whether we need to turn
+            self.is_turning = abs(turn_speed) > 0.02
             
             self.node.get_logger().info(
                 f'Turning to face human: angle_diff={angle_diff:.2f}rad ({math.degrees(angle_diff):.1f}°), '

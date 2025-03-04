@@ -651,12 +651,9 @@ class NavigationController(Node):
                         # MAJOR FIX: Update approach for escape planning
                         # 1. First clear any existing costmap except static obstacles
                         self.request_costmap_clear()
-                        # 2. Add slight delay for costmap updates to process
-                        time.sleep(0.2)
                         # 3. Reduce the size of the human obstacle temporarily for planning
                         self.publish_human_obstacle(radius=0.2)  # Reduced radius temporarily
-                        # 4. Add slight delay to let the costmap update
-                        time.sleep(0.2)
+
                         # 5. Now plan the escape
                         escape_point = self.human_avoidance.plan_escape()
                         

@@ -311,7 +311,7 @@ local_costmap:
         marking: true
         sensor_frame: map
         data_type: "PointCloud2"
-        expected_update_rate: 5.0
+        expected_update_rate: 0.0
         observation_persistence: 10.0
         obstacle_range: 5.0
         raytrace_range: 5.0
@@ -380,7 +380,7 @@ global_costmap:
         marking: true
         sensor_frame: map
         data_type: "PointCloud2"
-        expected_update_rate: 5.0
+        expected_update_rate: 0.0
         observation_persistence: 10.0
         obstacle_range: 5.0
         raytrace_range: 5.0

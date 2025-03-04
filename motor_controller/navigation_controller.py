@@ -885,7 +885,7 @@ class NavigationController(Node):
 
     def update_human_obstacles(self):
         """Periodically update human obstacles with current intensity"""
-        self.publish_human_obstacle(radius=0.35)
+        self.publish_human_obstacle(radius=0.30)
 
     def request_costmap_clear(self):
         """Request clearing of the global costmap except static layer"""

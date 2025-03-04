@@ -839,11 +839,11 @@ class NavigationController(Node):
                     dist_sq = dx*dx + dy*dy
                     # Only add points between inner_radius and outer radius
                     if inner_radius*inner_radius <= dist_sq <= radius*radius:
-                        # Gradually increase intensity from inner to outer radius
-                        # This creates a softer barrier that's still traversable in emergency
+                        # Use lethal obstacle value (254) for outer ring
                         dist = math.sqrt(dist_sq)
                         intensity_ratio = (dist - inner_radius) / (radius - inner_radius)
-                        intensity = 200.0 + (50.0 * intensity_ratio)  # Scale from 200 to 250
+                        # Scale from 230 to 254 to ensure the planner treats it as an obstacle
+                        intensity = 230.0 + (24.0 * intensity_ratio)  
                         
                         # If human hasn't been seen recently, gradually reduce intensity
                         if self.last_human_timestamp is not None:

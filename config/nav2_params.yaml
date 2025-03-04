@@ -201,7 +201,7 @@ controller_server:
     min_speed_xy: 0.025
     
     # Increase clearance checking
-    robot_radius: 0.01
+    robot_radius: 0.16
     footprint: "[[-0.15, -0.16], [-0.15, 0.16], [0.17, 0.16], [0.17, -0.16]]"
     footprint_padding: 0.05
     inflation_layer:
@@ -319,6 +319,9 @@ local_costmap:
         obstacle_min_range: 0.0
         inf_is_valid: false
         mark_threshold: 1
+        min_obstacle_height: 0.0
+        max_obstacle_height: 2.0
+        obstacle_range: 5.0
 
 global_costmap:
   ros__parameters:
@@ -378,13 +381,16 @@ global_costmap:
         sensor_frame: map
         data_type: "PointCloud2"
         expected_update_rate: 0.5
-        observation_persistence: 10.0  # Increased persistence
-        obstacle_range: 5.0  # Increased range
+        observation_persistence: 10.0
+        obstacle_range: 5.0
         raytrace_range: 5.0
         obstacle_max_range: 5.0
         obstacle_min_range: 0.0
         inf_is_valid: false
         mark_threshold: 1
+        min_obstacle_height: 0.0
+        max_obstacle_height: 2.0
+        obstacle_range: 5.0
 collision_monitor:
   ros__parameters:
     use_sim_time: false

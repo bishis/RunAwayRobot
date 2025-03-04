@@ -34,8 +34,8 @@ bt_navigator:
       - compute_path_error_code
       - follow_path_error_code
 
-    action_server_result_timeout: 10.0
-    action_server_goal_timeout: 10.0
+    action_server_result_timeout: 20.0
+    action_server_goal_timeout: 20.0
     recovery_plugins: ["spin", "backup", "wait"]
     recovery_behavior_ids: ["spin", "backup", "wait"]
 
@@ -56,8 +56,8 @@ controller_server:
     cmd_vel_topic: "/cmd_vel"
     transform_tolerance: 0.5
     enable_controller_plugin_verification: false
-    controller_patience: 10.0
-    max_controller_duration: 1.0
+    controller_patience: 20.0
+    max_controller_duration: 5.0
     enable_heartbeat: true
     heartbeat_interval: 0.1
     heartbeat_timeout: 5.0
@@ -215,16 +215,16 @@ controller_server:
 
 planner_server:
   ros__parameters:
-    expected_planner_frequency: 20.0
+    expected_planner_frequency: 5.0
     use_sim_time: false
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
-      tolerance: 0.3
+      tolerance: 0.5
       use_astar: false  # Use RRT which handles tight spaces better
       allow_unknown: true  # Plan through unknown space
       visualize_potential: true
-      lethal_cost: 220
+      lethal_cost: 200
       neutral_cost: 50
       scale: 3
       cost_factor: 1.0
@@ -235,7 +235,7 @@ planner_server:
       allow_diagonal: false
       use_dijkstra: true
       track_unknown_space: true
-      lethal_cost_threshold: 250  # More permissive cost threshold
+      lethal_cost_threshold: 230  # More permissive cost threshold
 
 behavior_server:
   ros__parameters:

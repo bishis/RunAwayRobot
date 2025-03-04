@@ -161,8 +161,11 @@ class NavigationController(Node):
             )
         )
         
-        # Re-enable timer for regularly updating human obstacles (every 0.5 seconds)
-        self.human_obstacle_timer = self.create_timer(0.5, self.update_human_obstacles)
+        # Add timestamp tracking for human obstacle persistence
+        self.human_obstacle_timeout = 10.0  # Keep obstacles for 10 seconds
+        
+        # Create timer to periodically update human obstacles
+        self.obstacle_update_timer = self.create_timer(0.5, self.update_human_obstacles)
 
         # Add a service client for triggering path replanning
         self.make_plan_client = self.create_client(Empty, '/global_costmap/global_costmap/clear_except_static')
@@ -795,14 +798,21 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error clearing markers: {str(e)}')
             
-    def update_human_obstacles(self):
-        """Publish human obstacle positions as PointCloud2"""
-        self.publish_human_obstacle(radius=0.35)  # Use standard radius
-            
     def publish_human_obstacle(self, radius=0.35):
         """Publish human obstacle positions as PointCloud2 with specified radius"""
         if self.last_human_position is None:
             return
+            
+        # Check if we should still show the obstacle
+        if self.last_human_timestamp is not None:
+            current_time = self.get_clock().now()
+            time_since_detection = (current_time - self.last_human_timestamp).nanoseconds / 1e9
+            
+            if time_since_detection > self.human_obstacle_timeout:
+                # Clear the obstacle after timeout
+                self.last_human_position = None
+                self.get_logger().info('Clearing human obstacle - detection timeout')
+                return
         
         try:
             # Create point cloud message
@@ -837,6 +847,13 @@ class NavigationController(Node):
                         dist = math.sqrt(dist_sq)
                         intensity_ratio = (dist - inner_radius) / (radius - inner_radius)
                         intensity = 200.0 + (50.0 * intensity_ratio)  # Scale from 200 to 250
+                        
+                        # If human hasn't been seen recently, gradually reduce intensity
+                        if self.last_human_timestamp is not None:
+                            time_since_detection = (self.get_clock().now() - self.last_human_timestamp).nanoseconds / 1e9
+                            fade_ratio = max(0.0, (self.human_obstacle_timeout - time_since_detection) / self.human_obstacle_timeout)
+                            intensity *= fade_ratio
+                            
                         points.append((human_x + dx, human_y + dy, 0.0, intensity))
             
             # Pack points into PointCloud2
@@ -855,13 +872,23 @@ class NavigationController(Node):
             # Publish point cloud
             self.human_obstacles_pub.publish(pc2)
             
+            # Add time information to logging
+            time_info = ""
+            if self.last_human_timestamp is not None:
+                time_since = (self.get_clock().now() - self.last_human_timestamp).nanoseconds / 1e9
+                time_info = f" (last seen {time_since:.1f}s ago)"
+            
             self.get_logger().info(
                 f'Published donut-shaped human obstacle at ({human_x:.2f}, {human_y:.2f}) '
-                f'with outer radius {radius}m and inner radius {inner_radius}m'
+                f'with outer radius {radius}m and inner radius {inner_radius}m{time_info}'
             )
             
         except Exception as e:
             self.get_logger().error(f'Error publishing human obstacle: {str(e)}')
+
+    def update_human_obstacles(self):
+        """Periodically update human obstacles with current intensity"""
+        self.publish_human_obstacle(radius=0.35)
 
     def request_costmap_clear(self):
         """Request clearing of the global costmap except static layer"""

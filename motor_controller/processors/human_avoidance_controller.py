@@ -85,7 +85,7 @@ class HumanAvoidanceController:
             angle_diff = normalize_angle(desired_yaw - robot_yaw)
             
             # Check if human is in center zone (robot is facing human)
-            if abs(angle_diff) <= 0.15:  # ~8.6 degrees tolerance
+            if abs(angle_diff) <= 0.30:  # ~17.2 degrees tolerance
                 self.node.get_logger().info('Robot facing human - stopping turn')
                 self.is_turning = False  # Set turning flag to False when facing human
                 return 0.0

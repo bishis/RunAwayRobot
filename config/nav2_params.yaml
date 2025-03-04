@@ -201,8 +201,8 @@ controller_server:
     min_speed_xy: 0.025
     
     # Increase clearance checking
-    robot_radius: 0.0
-    footprint: "[[-0.15, -0.17], [-0.15, 0.17], [0.17, 0.17], [0.17, -0.17]]"
+    robot_radius: 0.01
+    footprint: "[[-0.15, -0.16], [-0.15, 0.16], [0.17, 0.16], [0.17, -0.16]]"
     footprint_padding: 0.05
     inflation_layer:
       inflation_radius: 0.5
@@ -327,8 +327,8 @@ global_costmap:
     publish_frequency: 10.0
     global_frame: map
     robot_base_frame: base_link
-    footprint: "[[-0.15, -0.17], [-0.15, 0.17], [0.17, 0.17], [0.17, -0.17]]"
-    footprint_padding: 0.05
+    footprint: "[[-0.15, -0.16], [-0.15, 0.16], [0.17, 0.16], [0.17, -0.16]]"
+    footprint_padding: 0.03
     resolution: 0.05
     track_unknown_space: true
     plugins: ["static_layer", "obstacle_layer", "inflation_layer", "human_layer"]
@@ -396,7 +396,7 @@ collision_monitor:
     polygons: ["robot_footprint"]
     robot_footprint:
       type: "polygon"
-      points: "[[-0.15, -0.17], [-0.15, 0.17], [0.17, 0.17], [0.17, -0.17]]"
+      points: "[[-0.15, -0.16], [-0.15, 0.16], [0.17, 0.16], [0.17, -0.16]]"  # 13cm radius square approximation
       action_type: "stop"  # Options: "stop", "slowdown", "limit"
       min_points: 2
       visualize: true

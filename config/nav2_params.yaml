@@ -220,14 +220,14 @@ planner_server:
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
-      tolerance: 0.2
+      tolerance: 0.3
       use_astar: false  # Use RRT which handles tight spaces better
       allow_unknown: true  # Plan through unknown space
       visualize_potential: true
-      lethal_cost: 250
+      lethal_cost: 220
       neutral_cost: 50
       scale: 3
-      cost_factor: 3.0
+      cost_factor: 1.0
       publish_potential: true
       use_quadratic: true
       orientation_mode: 0

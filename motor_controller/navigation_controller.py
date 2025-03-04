@@ -652,7 +652,7 @@ class NavigationController(Node):
                         # 1. First clear any existing costmap except static obstacles
                         self.request_costmap_clear()
                         # 3. Reduce the size of the human obstacle temporarily for planning
-                        self.publish_human_obstacle(radius=0.2)  # Reduced radius temporarily
+                        self.publish_human_obstacle(radius=0.2, escape_planning=True)  # Reduced radius temporarily
 
                         # 5. Now plan the escape
                         escape_point = self.human_avoidance.plan_escape()
@@ -795,7 +795,7 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error clearing markers: {str(e)}')
             
-    def publish_human_obstacle(self, radius=0.35):
+    def publish_human_obstacle(self, radius=0.35, escape_planning=False):
         """Publish human obstacle positions as PointCloud2 with specified radius"""
         if self.last_human_position is None:
             return
@@ -843,7 +843,7 @@ class NavigationController(Node):
                         dist = math.sqrt(dist_sq)
                         intensity_ratio = (dist - inner_radius) / (radius - inner_radius)
                         # Scale from 230 to 254 to ensure the planner treats it as an obstacle
-                        intensity = 230.0 + (24.0 * intensity_ratio)  
+                        intensity = 180.0 + (40.0 * intensity_ratio)  
                         
                         # If human hasn't been seen recently, gradually reduce intensity
                         if self.last_human_timestamp is not None:
@@ -852,6 +852,33 @@ class NavigationController(Node):
                             intensity *= fade_ratio
                             
                         points.append((human_x + dx, human_y + dy, 0.0, intensity))
+            
+            # Create a directional escape corridor when planning
+            if escape_planning:
+                # Calculate vector from human to robot
+                robot_x = self.current_pose.pose.position.x
+                robot_y = self.current_pose.pose.position.y
+                human_x, human_y = self.last_human_position
+                
+                # Normalize direction vector
+                dx = robot_x - human_x
+                dy = robot_y - human_y
+                dist = math.sqrt(dx*dx + dy*dy)
+                if dist > 0.001:  # Avoid division by zero
+                    dx /= dist
+                    dy /= dist
+                    
+                    # Create a corridor in this direction
+                    for point_idx in range(len(points)):
+                        px, py = points[point_idx][0], points[point_idx][1]
+                        
+                        # Project point onto escape vector
+                        proj = (px-human_x)*dx + (py-human_y)*dy
+                        
+                        # If point is in positive escape direction, reduce its cost
+                        if proj > 0:
+                            # Reduce cost for points in escape direction
+                            points[point_idx] = (px, py, 0.0, points[point_idx][3] * 0.7)
             
             # Pack points into PointCloud2
             pc2.height = 1

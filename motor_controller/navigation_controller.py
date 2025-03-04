@@ -129,7 +129,7 @@ class NavigationController(Node):
         
         self.get_logger().info('Navigation controller initialized')
         
-        self._current_goal_handle = None
+        self.current_goal_handle = None
 
         self.human_avoidance = HumanAvoidanceController(self, self.waypoint_generator)
 
@@ -329,7 +329,7 @@ class NavigationController(Node):
                 return
             
             self.get_logger().info('Goal accepted')
-            self._current_goal_handle = goal_handle
+            self.current_goal_handle = goal_handle
             
             # Get result future with timeout handling
             result_future = goal_handle.get_result_async()
@@ -403,7 +403,7 @@ class NavigationController(Node):
         self.current_goal = None
         self.is_navigating = False
         self.goal_start_time = None
-        self._current_goal_handle = None
+        self.current_goal_handle = None
         # Reset stuck detection
         self.last_position_check = None
         self.last_check_position = None
@@ -452,7 +452,7 @@ class NavigationController(Node):
 
     def cancel_current_goal(self):
         """Cancel the current navigation goal if one exists"""
-        if self._current_goal_handle is not None:
+        if self.current_goal_handle is not None:
             self.clear_visualization_markers()
             if self.is_escape_waypoint(self.current_goal):
                 self.get_logger().info('Canceling escape goal')
@@ -461,9 +461,9 @@ class NavigationController(Node):
             else:
                 self.get_logger().info('Canceling exploration goal')
             
-            cancel_future = self._current_goal_handle.cancel_goal_async()
+            cancel_future = self.current_goal_handle.cancel_goal_async()
             cancel_future.add_done_callback(self.cancel_done_callback)
-            self._current_goal_handle = None
+            self.current_goal_handle = None
             self.current_goal = None
             self.is_navigating = False
 

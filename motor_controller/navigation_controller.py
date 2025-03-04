@@ -176,6 +176,9 @@ class NavigationController(Node):
         self.stuck_threshold = 0.05  # 5cm movement threshold
         self.stuck_timeout = 10.0     # 5 seconds without movement = stuck
 
+        # Add tracking timeout parameters
+        self.human_tracking_timeout = 2.0  # Wait 2 seconds before ending tracking
+
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
         self.latest_scan = msg
@@ -231,6 +234,10 @@ class NavigationController(Node):
 
     def exploration_loop(self):
         """Modified exploration loop to handle human tracking and map completion"""
+        # First check if we've lost track of human
+        self.check_tracking_timeout()
+        
+        # Only proceed if not tracking
         if self.is_tracking_human:
             return
             
@@ -592,7 +599,7 @@ class NavigationController(Node):
             human_x = msg.pose.position.x
             human_y = msg.pose.position.y
             
-            # Update last known human position
+            # Update last known human position and timestamp
             self.last_human_position = (human_x, human_y)
             self.last_human_timestamp = self.get_clock().now()
 
@@ -1023,6 +1030,19 @@ class NavigationController(Node):
                 self.make_plan_client.call_async(request)
         except Exception as e:
             self.get_logger().error(f'Failed to request path replan: {str(e)}')
+
+    def check_tracking_timeout(self):
+        """Check if we should stop tracking due to not seeing human"""
+        if not self.is_tracking_human or self.last_human_timestamp is None:
+            return
+        
+        current_time = self.get_clock().now()
+        time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
+        
+        if time_since_human > self.human_tracking_timeout:
+            self.get_logger().info(f'Lost human for {time_since_human:.1f}s - ending tracking')
+            self.is_tracking_human = False
+            self.resume_exploration()
 
 def main(args=None):
     rclpy.init(args=args)

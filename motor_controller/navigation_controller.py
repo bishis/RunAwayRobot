@@ -654,7 +654,7 @@ class NavigationController(Node):
                         # 2. Add slight delay for costmap updates to process
                         time.sleep(0.2)
                         # 3. Reduce the size of the human obstacle temporarily for planning
-                        self.publish_human_obstacle(radius=0.25)  # Reduced radius temporarily
+                        self.publish_human_obstacle(radius=0.2)  # Reduced radius temporarily
                         # 4. Add slight delay to let the costmap update
                         time.sleep(0.2)
                         # 5. Now plan the escape
@@ -673,7 +673,7 @@ class NavigationController(Node):
                             self.escape_attempts = 0
                             
                             # 6. Now update human obstacle to regular size
-                            self.publish_human_obstacle(radius=0.35)
+                            self.publish_human_obstacle(radius=0.3)
                             
                             return
                         else:

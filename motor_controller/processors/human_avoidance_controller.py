@@ -8,6 +8,7 @@ import numpy as np
 import time
 from .human_escape import HumanEscape
 import tf_transformations
+import random
 
 def normalize_angle(angle):
     """Normalize an angle to the range [-pi, pi]."""
@@ -59,6 +60,10 @@ class HumanAvoidanceController:
         if hasattr(node, 'latest_scan'):
             self.latest_scan = node.latest_scan
             
+        # Add tracking for previous escape points
+        self.previous_escape_points = []
+        self.max_escape_history = 3
+        self.min_escape_distance = 0.7  # Minimum distance between escape points
 
     def calculate_turn_command(self, robot_pose, human_x, human_y) -> float:
         """Calculate turn speed to face human based on robot pose and human position."""
@@ -226,8 +231,11 @@ class HumanAvoidanceController:
             self.last_image_x = None
             return stop_cmd, False
 
-    def plan_escape(self):
-        """Plan escape route when human is too close"""
+    def plan_escape(self, add_randomness=False):
+        """Plan an escape path away from a human"""
+        if self.last_human_position is None:
+            return None
+        
         self.node.get_logger().info('Planning escape route...')
         
         # Ensure we have current map data
@@ -243,6 +251,134 @@ class HumanAvoidanceController:
                 f'Found escape point at ({escape_point.pose.position.x:.2f}, '
                 f'{escape_point.pose.position.y:.2f})'
             )
+            
+            # Evaluate the point against previous escape points
+            new_x = escape_point.pose.position.x
+            new_y = escape_point.pose.position.y
+            
+            # Calculate distances to previous escape points
+            distances_to_previous = []
+            directions_to_avoid = []
+            
+            for prev_point in self.previous_escape_points:
+                prev_x = prev_point.pose.position.x
+                prev_y = prev_point.pose.position.y
+                
+                # Calculate distance and direction to previous point
+                dx = prev_x - new_x
+                dy = prev_y - new_y
+                dist = math.sqrt(dx*dx + dy*dy)
+                
+                # Record distance
+                distances_to_previous.append(dist)
+                
+                # If point is close to previous one, record its direction to avoid
+                if dist < 1.0:
+                    angle = math.atan2(dy, dx)
+                    directions_to_avoid.append(angle)
+            
+            # If we have previous similar escape points, modify the escape direction
+            if directions_to_avoid or add_randomness:
+                # Start with current human-to-robot vector
+                robot_x = self.node.current_pose.pose.position.x
+                robot_y = self.node.current_pose.pose.position.y
+                human_x, human_y = self.last_human_position
+                
+                # Base escape direction (away from human)
+                base_dx = robot_x - human_x
+                base_dy = robot_y - human_y
+                base_angle = math.atan2(base_dy, base_dx)
+                
+                # Try different angles, starting with highest deviation
+                best_angle = base_angle
+                best_score = -float('inf')
+                
+                # Try angles up to 120 degrees in either direction from base angle
+                for angle_offset in np.linspace(-2.0, 2.0, 9):  # -120° to +120° in 9 steps
+                    test_angle = base_angle + angle_offset
+                    
+                    # Calculate score based on:
+                    # 1. How different this angle is from previous failed attempts
+                    # 2. How close it is to the ideal escape direction
+                    
+                    # Start with base score
+                    angle_score = 1.0
+                    
+                    # Penalize angles close to previous attempts
+                    for avoid_angle in directions_to_avoid:
+                        angle_diff = abs(normalize_angle(test_angle - avoid_angle))
+                        # Penalize more if angle is similar to a failed attempt
+                        if angle_diff < 0.5:  # About 30 degrees
+                            angle_score -= (0.5 - angle_diff) * 2.0
+                    
+                    # Penalize deviation from ideal escape direction
+                    ideal_deviation = abs(normalize_angle(test_angle - base_angle))
+                    angle_score -= ideal_deviation * 0.5  # Less penalty for deviation
+                    
+                    # Add randomness if requested
+                    if add_randomness:
+                        angle_score += random.uniform(0, 0.5)
+                    
+                    if angle_score > best_score:
+                        best_score = angle_score
+                        best_angle = test_angle
+                
+                # Use the best angle to generate a new escape point
+                distance = 2.0  # 2 meters away
+                new_x = human_x + distance * math.cos(best_angle)
+                new_y = human_y + distance * math.sin(best_angle)
+                
+                # Create a new escape point
+                escape_point.pose.position.x = new_x
+                escape_point.pose.position.y = new_y
+                
+                self.node.get_logger().info(
+                    f'Modified escape point to avoid previous paths: ({new_x:.2f}, {new_y:.2f})'
+                )
+            
+            # Add current point to history
+            self.previous_escape_points.append(escape_point)
+            if len(self.previous_escape_points) > self.max_escape_history:
+                self.previous_escape_points.pop(0)
+            
+            # Final check: Ensure this isn't exactly the same as a previous escape point
+            new_x = escape_point.pose.position.x
+            new_y = escape_point.pose.position.y
+            
+            # Check for exact matches with previous points
+            for prev_point in self.previous_escape_points:
+                prev_x = prev_point.pose.position.x
+                prev_y = prev_point.pose.position.y
+                
+                # If almost exactly the same point, add mandatory randomness
+                if abs(new_x - prev_x) < 0.1 and abs(new_y - prev_y) < 0.1:
+                    self.node.get_logger().warn('Generated identical escape point - forcing randomness')
+                    
+                    # Get current direction and add significant randomness
+                    robot_x = self.node.current_pose.pose.position.x
+                    robot_y = self.node.current_pose.pose.position.y
+                    human_x, human_y = self.last_human_position
+                    
+                    # Base direction but with large offset
+                    random_angle = random.uniform(-1.0, 1.0)  # Up to 60° in either direction
+                    base_angle = math.atan2(robot_y - human_y, robot_x - human_x) + random_angle
+                    
+                    # Set distance with randomness
+                    distance = random.uniform(1.5, 2.5)
+                    
+                    # Generate new point
+                    new_x = human_x + distance * math.cos(base_angle)
+                    new_y = human_y + distance * math.sin(base_angle)
+                    
+                    # Update escape point
+                    escape_point.pose.position.x = new_x
+                    escape_point.pose.position.y = new_y
+                    
+                    self.node.get_logger().info(
+                        f'Forced randomized escape point: ({new_x:.2f}, {new_y:.2f})'
+                    )
+                    break
+            
             return escape_point
         else:
             self.node.get_logger().error('Failed to find escape point!')

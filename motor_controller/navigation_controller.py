@@ -284,47 +284,18 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error in exploration loop: {str(e)}')
 
-    def send_goal(self, goal: PoseStamped, is_escape=False):
-        """Send navigation goal to Nav2 stack"""
-        if self.current_goal is not None:
-            # Check if new goal is too similar to current goal
-            current_x = self.current_goal.pose.position.x
-            current_y = self.current_goal.pose.position.y
-            new_x = goal.pose.position.x
-            new_y = goal.pose.position.y
-            
-            distance = math.sqrt((new_x - current_x)**2 + (new_y - current_y)**2)
-            
-            min_dist = 0.8 if not is_escape else 0.5  # Different threshold for escape
-            
-            if distance < min_dist:
-                self.get_logger().warn(
-                    f'New {"escape" if is_escape else "exploration"} goal too similar to current goal '
-                    f'({distance:.2f}m < {min_dist:.1f}m), adding randomness'
-                )
-                
-                # Add randomness based on goal type
-                if is_escape:
-                    # For escape goals, try a different angle
-                    self.get_logger().info('Requesting new escape path with more randomness')
-                    return self.human_avoidance.plan_escape(add_randomness=True)
-                else:
-                    # For exploration goals, force a new waypoint
-                    self.get_logger().info('Forcing different exploration waypoint')
-                    self.waypoint_generator.force_waypoint_change()
-                    return self.waypoint_generator.generate_waypoint()
-        
-        # Continue with normal goal sending...
+    def send_goal(self, goal_msg: PoseStamped):
+        """Send navigation goal with proper error handling"""
         try:
             # Cancel any existing goal
             self.cancel_current_goal()
             
             # Create the goal
             nav_goal = NavigateToPose.Goal()
-            nav_goal.pose = goal
+            nav_goal.pose = goal_msg
             
             # Add check for escape goal and clear emergency stop
-            if self.is_escape_waypoint(goal):
+            if self.is_escape_waypoint(goal_msg):
                 self.get_logger().info('Escape goal detected - clearing emergency stop state')
                 # Give the robot a moment to stabilize after emergency stop
                 time.sleep(0.5)  # Short delay
@@ -333,9 +304,9 @@ class NavigationController(Node):
                 self.wheel_speeds_pub.publish(stop_cmd)
             
             self.get_logger().info('Sending navigation goal:')
-            self.get_logger().info(f'    Position: ({goal.pose.position.x:.2f}, {goal.pose.position.y:.2f})')
-            self.get_logger().info(f'    Frame: {goal.header.frame_id}')
-            self.get_logger().info(f'    Stamp: {goal.header.stamp.sec}.{goal.header.stamp.nanosec}')
+            self.get_logger().info(f'    Position: ({goal_msg.pose.position.x:.2f}, {goal_msg.pose.position.y:.2f})')
+            self.get_logger().info(f'    Frame: {goal_msg.header.frame_id}')
+            self.get_logger().info(f'    Stamp: {goal_msg.header.stamp.sec}.{goal_msg.header.stamp.nanosec}')
             
             # Send the goal with timeout handling
             send_goal_future = self.nav_client.send_goal_async(
@@ -345,7 +316,7 @@ class NavigationController(Node):
             send_goal_future.add_done_callback(self.goal_response_callback)
             
             # Store goal and update state
-            self.current_goal = goal
+            self.current_goal = goal_msg
             self.is_navigating = True
             self.goal_start_time = self.get_clock().now()
             
@@ -1057,8 +1028,8 @@ class NavigationController(Node):
                 # Create an empty request
                 request = Empty.Request()
                 # Call the service
-                future = self.make_plan_client.call_async(request)
-                self.get_logger().info('Path replanning requested due to human obstacle')
+                self.make_plan_client.call_async(request)
+                self.get_logger().info(f'REPLANNED PATH: {str(e)}')
         except Exception as e:
             self.get_logger().error(f'Failed to request path replan: {str(e)}')
 

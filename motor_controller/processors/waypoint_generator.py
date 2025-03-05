@@ -82,11 +82,7 @@ class WaypointGenerator:
 
         # Add last goal tracking
         self.last_goal = None
-        self.min_goal_distance = 0.8  # Increased from 0.3 to ensure more separation
-
-        # Add storage for recently used waypoints
-        self.recent_waypoints = []
-        self.max_recent_waypoints = 5  # Store last 5 waypoints to avoid repetition
+        self.min_goal_distance = 0.3  # Minimum distance between consecutive goals
 
     def map_callback(self, msg):
         """Process incoming map updates"""
@@ -350,34 +346,6 @@ class WaypointGenerator:
         start_time = self.node.get_clock().now()
         max_search_time = 1.0  # Maximum time to search in seconds
         
-        # Modify the separation score calculation to favor points far from ALL recent waypoints
-        def calculate_separation_score(x, y):
-            if not self.recent_waypoints:
-                return 1.0  # Maximum score if no previous waypoints
-            
-            # Calculate distances to all recent waypoints
-            distances = []
-            for recent in self.recent_waypoints:
-                rx = recent.pose.position.x
-                ry = recent.pose.position.y
-                dist = math.sqrt((x - rx)**2 + (y - ry)**2)
-                distances.append(dist)
-            
-            # Use the minimum distance to closest recent waypoint
-            min_dist = min(distances) if distances else 0.0
-            
-            # Scale exponentially to strongly favor distant points
-            # This gives much higher scores to points far from ANY recent waypoint
-            separation_score = math.exp(min_dist - 0.5)  # exp(distance - 0.5) gives good scaling
-            
-            # Log for debugging purposes
-            if random.random() < 0.05:  # Only log 5% of calculations to reduce spam
-                self.node.get_logger().debug(
-                    f'Separation score for ({x:.2f}, {y:.2f}): {separation_score:.2f} (min dist: {min_dist:.2f}m)'
-                )
-            
-            return separation_score
-        
         while True:
             # Check if we've exceeded our time limit
             current_time = self.node.get_clock().now()
@@ -429,14 +397,19 @@ class WaypointGenerator:
             distance_score = 1.0 - abs(dist_to_robot - self.preferred_distance) / self.preferred_distance
             
             # Add separation score
-            separation_score = calculate_separation_score(x, y)
+            separation_score = 1.0
+            if self.last_goal is not None:
+                dist_to_prev = math.sqrt(
+                    (x - prev_x)**2 + (y - prev_y)**2
+                )
+                separation_score = min(dist_to_prev / MIN_WAYPOINT_SEPARATION, 2.0)
             
             # Updated score calculation
             total_score = (
                 3.0 * unknown_score +     # Prioritize exploring unknown areas
                 2.0 * wall_score +         # Prefer staying away from walls
-                1.0 * distance_score +    # Consider distance from robot
-                4.0 * separation_score    # INCREASED weight for separation (was 2.0)
+                1.0 * distance_score +     # Consider distance from robot
+                2.0 * separation_score     # Prefer points far from previous waypoint
             )
             
             # Only accept new waypoint if score is significantly better
@@ -456,23 +429,6 @@ class WaypointGenerator:
         
         if best_point is None:
             return None
-        
-        # Before returning the waypoint, check against recent waypoints
-        if self.current_waypoint:
-            new_x, new_y = best_point[0], best_point[1]
-            
-            # Check distance to previous waypoints
-            for recent in self.recent_waypoints:
-                rx = recent.pose.position.x
-                ry = recent.pose.position.y
-                dist = math.sqrt((new_x - rx)**2 + (new_y - ry)**2)
-                
-                if dist < self.min_goal_distance:
-                    self.node.get_logger().info(
-                        f'Rejected waypoint at ({new_x:.2f}, {new_y:.2f}) - too close to recent waypoint ({rx:.2f}, {ry:.2f})'
-                    )
-                    # Try a different point with more randomness
-                    continue
         
         # Once we find a valid waypoint, stick to it
         if best_point is not None:
@@ -508,13 +464,6 @@ class WaypointGenerator:
             self.reached_waypoint = False
             self.node.get_logger().info('New waypoint selected')
             
-            # Add to recent waypoints history
-            if self.current_waypoint:
-                self.recent_waypoints.append(self.current_waypoint)
-                # Keep only the most recent waypoints
-                if len(self.recent_waypoints) > self.max_recent_waypoints:
-                    self.recent_waypoints.pop(0)
-        
         # Update last change time when we do change waypoint
         self.last_waypoint_change = current_time
         return self.current_waypoint

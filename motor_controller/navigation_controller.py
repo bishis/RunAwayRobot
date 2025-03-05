@@ -654,11 +654,11 @@ class NavigationController(Node):
                             self.exploration_loop_timer.cancel()
                         self.waypoint_generator.cancel_waypoint()  # Clear any exploration waypoints
                         
-                        # MAJOR FIX: Update approach for escape planning
-                        # 1. First clear any existing costmap except static obstacles
-                        self.request_costmap_clear()
-                        # # 3. Reduce the size of the human obstacle temporarily for planning
-                        self.publish_human_obstacle(radius=0.3, escape_planning=True)  # Reduced radius temporarily
+                        # # MAJOR FIX: Update approach for escape planning
+                        # # 1. First clear any existing costmap except static obstacles
+                        # self.request_costmap_clear()
+                        # # # 3. Reduce the size of the human obstacle temporarily for planning
+                        # self.publish_human_obstacle(radius=0.3, escape_planning=True)  # Reduced radius temporarily
                     
                         time.sleep(0.5)
 

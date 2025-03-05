@@ -806,17 +806,6 @@ class NavigationController(Node):
         """Publish human obstacle positions as PointCloud2 with specified radius"""
         if self.last_human_position is None:
             return
-            
-        # Check if we should still show the obstacle
-        if self.last_human_timestamp is not None:
-            current_time = self.get_clock().now()
-            time_since_detection = (current_time - self.last_human_timestamp).nanoseconds / 1e9
-            
-            if time_since_detection > self.human_obstacle_timeout:
-                # Clear the obstacle after timeout
-                self.last_human_position = None
-                self.get_logger().info('Clearing human obstacle - detection timeout')
-                return
         
         try:
             # Create point cloud message
@@ -841,24 +830,28 @@ class NavigationController(Node):
             resolution = 0.03  # Higher resolution for smoother obstacle
             inner_radius = 0.2  # Keep center clear for robot to escape
             
-            for dx in np.arange(-radius, radius + resolution, resolution):
-                for dy in np.arange(-radius, radius + resolution, resolution):
-                    dist_sq = dx*dx + dy*dy
-                    # Only add points between inner_radius and outer radius
-                    if inner_radius*inner_radius <= dist_sq <= radius*radius:
-                        # Use lethal obstacle value (254) for outer ring
-                        dist = math.sqrt(dist_sq)
-                        intensity_ratio = (dist - inner_radius) / (radius - inner_radius)
-                        # Scale from 230 to 254 to ensure the planner treats it as an obstacle
-                        intensity = 180.0 + (40.0 * intensity_ratio)  
-                        
-                        # If human hasn't been seen recently, gradually reduce intensity
-                        if self.last_human_timestamp is not None:
-                            time_since_detection = (self.get_clock().now() - self.last_human_timestamp).nanoseconds / 1e9
-                            fade_ratio = max(0.0, (self.human_obstacle_timeout - time_since_detection) / self.human_obstacle_timeout)
-                            intensity *= fade_ratio
+            # Use multiple height levels for the voxel representation (between 0.1m and 1.7m)
+            height_levels = [0.1, 0.4, 0.7, 1.0, 1.3, 1.7]  # Represent human at various heights
+            
+            for height in height_levels:
+                for dx in np.arange(-radius, radius + resolution, resolution):
+                    for dy in np.arange(-radius, radius + resolution, resolution):
+                        dist_sq = dx*dx + dy*dy
+                        # Only add points between inner_radius and outer radius
+                        if inner_radius*inner_radius <= dist_sq <= radius*radius:
+                            # Calculate intensity as before
+                            dist = math.sqrt(dist_sq)
+                            intensity_ratio = (dist - inner_radius) / (radius - inner_radius)
+                            intensity = 180.0 + (40.0 * intensity_ratio)
                             
-                        points.append((human_x + dx, human_y + dy, 0.0, intensity))
+                            # Adjust for fade based on time
+                            if self.last_human_timestamp is not None:
+                                time_since_detection = (self.get_clock().now() - self.last_human_timestamp).nanoseconds / 1e9
+                                fade_ratio = max(0.0, (self.human_obstacle_timeout - time_since_detection) / self.human_obstacle_timeout)
+                                intensity *= fade_ratio
+                            
+                            # Add point with proper z-coordinate 
+                            points.append((human_x + dx, human_y + dy, height, intensity))
             
             # Create a directional escape corridor when planning
             if escape_planning:

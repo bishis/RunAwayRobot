@@ -656,9 +656,11 @@ class NavigationController(Node):
                         
                         # MAJOR FIX: Update approach for escape planning
                         # 1. First clear any existing costmap except static obstacles
-                        # self.request_costmap_clear()
+                        self.request_costmap_clear()
                         # # 3. Reduce the size of the human obstacle temporarily for planning
-                        # self.publish_human_obstacle(radius=0.2, escape_planning=True)  # Reduced radius temporarily
+                        self.publish_human_obstacle(radius=0.3, escape_planning=True)  # Reduced radius temporarily
+                    
+                        time.sleep(0.5)
 
                         # 5. Now plan the escape
                         escape_point = self.human_avoidance.plan_escape()
@@ -674,10 +676,6 @@ class NavigationController(Node):
                             
                             # Reset escape attempts counter for fresh start
                             self.escape_attempts = 0
-                            
-                            # # 6. Now update human obstacle to regular size
-                            # self.publish_human_obstacle(radius=0.30)
-                            # time.sleep(0.5)  # Give costmap time to update
 
                             return
                         else:
@@ -925,8 +923,15 @@ class NavigationController(Node):
             self.get_logger().error(f'Error publishing human obstacle: {str(e)}')
 
     def update_human_obstacles(self):
-        """Periodically update human obstacles with current intensity"""
-        self.publish_human_obstacle(radius=0.30)
+        """Periodically update human obstacle representation"""
+        if self.last_human_position is not None and self.last_human_timestamp is not None:
+            time_since = (self.get_clock().now() - self.last_human_timestamp).nanoseconds / 1e9
+            # Only log every few seconds to avoid spamming
+            if int(time_since) % 3 == 0:  
+                self.get_logger().debug(
+                    f'Human obstacle active for {time_since:.1f}s (timeout: {self.human_obstacle_timeout}s)'
+                )
+            self.publish_human_obstacle()
 
     def request_costmap_clear(self):
         """Request clearing of the global costmap except static layer"""

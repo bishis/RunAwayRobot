@@ -1057,8 +1057,8 @@ class NavigationController(Node):
                 # Create an empty request
                 request = Empty.Request()
                 # Call the service
-                self.make_plan_client.call_async(request)
-                self.get_logger().info(f'REPLANNED PATH: {str(e)}')
+                future = self.make_plan_client.call_async(request)
+                self.get_logger().info('Path replanning requested due to human obstacle')
         except Exception as e:
             self.get_logger().error(f'Failed to request path replan: {str(e)}')
 

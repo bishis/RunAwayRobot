@@ -312,7 +312,7 @@ class NavigationController(Node):
                     # For exploration goals, force a new waypoint
                     self.get_logger().info('Forcing different exploration waypoint')
                     self.waypoint_generator.force_waypoint_change()
-                    return self.waypoint_generator.get_waypoint()
+                    return self.waypoint_generator.generate_waypoint()
         
         # Continue with normal goal sending...
         try:

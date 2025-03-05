@@ -162,7 +162,7 @@ class NavigationController(Node):
         )
         
         # Add timestamp tracking for human obstacle persistence
-        self.human_obstacle_timeout = 10.0  # Keep obstacles for 10 seconds
+        self.human_obstacle_timeout = 7.0  # Keep obstacles for 7 seconds
         
         # Create timer to periodically update human obstacles
         self.obstacle_update_timer = self.create_timer(0.5, self.update_human_obstacles)
@@ -807,6 +807,20 @@ class NavigationController(Node):
         if self.last_human_position is None:
             return
         
+        # Check if we should still show the obstacle
+        if self.last_human_timestamp is not None:
+            current_time = self.get_clock().now()
+            time_since_detection = (current_time - self.last_human_timestamp).nanoseconds / 1e9
+            
+            if time_since_detection > self.human_obstacle_timeout:
+                # Clear the obstacle after timeout
+                self.last_human_position = None
+                self.get_logger().info('Clearing human obstacle - detection timeout')
+                
+                # Publish an empty point cloud to clear the obstacle
+                self.publish_empty_pointcloud()
+                return
+        
         try:
             # Create point cloud message
             pc2 = PointCloud2()
@@ -1035,6 +1049,36 @@ class NavigationController(Node):
             self.get_logger().info(f'Lost human for {time_since_human:.1f}s - ending tracking')
             self.is_tracking_human = False
             self.resume_exploration()
+
+    def publish_empty_pointcloud(self):
+        """Publish empty point cloud to clear obstacles"""
+        try:
+            # Create empty point cloud
+            pc2 = PointCloud2()
+            pc2.header.stamp = self.get_clock().now().to_msg()
+            pc2.header.frame_id = "map"
+            
+            # Define fields but no points
+            fields = [
+                PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+                PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+                PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+                PointField(name='intensity', offset=12, datatype=PointField.FLOAT32, count=1),
+            ]
+            pc2.fields = fields
+            pc2.height = 1
+            pc2.width = 0  # Empty
+            pc2.point_step = 16
+            pc2.row_step = 0
+            pc2.is_dense = True
+            pc2.data = bytearray()
+            
+            # Publish empty point cloud
+            self.human_obstacles_pub.publish(pc2)
+            self.get_logger().info('Published empty point cloud to clear human obstacles')
+            
+        except Exception as e:
+            self.get_logger().error(f'Error publishing empty point cloud: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)

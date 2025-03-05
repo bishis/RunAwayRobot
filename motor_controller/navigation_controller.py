@@ -235,7 +235,8 @@ class NavigationController(Node):
     def exploration_loop(self):
         """Modified exploration loop to handle human tracking and map completion"""
         # First check if we've lost track of human
-        self.check_tracking_timeout()
+        if self.check_tracking_timeout():
+            return
         
         # Only proceed if not tracking
         if self.is_tracking_human:
@@ -1022,15 +1023,13 @@ class NavigationController(Node):
     def check_tracking_timeout(self):
         """Check if we should stop tracking due to not seeing human"""
         if not self.is_tracking_human or self.last_human_timestamp is None:
-            return
+            return False
         
         current_time = self.get_clock().now()
         time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
         
-        if time_since_human > self.human_tracking_timeout:
-            self.get_logger().info(f'Lost human for {time_since_human:.1f}s - ending tracking')
-            self.is_tracking_human = False
-            self.resume_exploration()
+        if time_since_human < self.human_tracking_timeout:
+            return True
 
     def publish_empty_pointcloud(self):
         """Publish empty point cloud to clear obstacles"""

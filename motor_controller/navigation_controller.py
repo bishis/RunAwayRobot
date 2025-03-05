@@ -394,7 +394,7 @@ class NavigationController(Node):
                 if self.current_goal is not None and not self.is_escape_waypoint(self.current_goal):
                     self.planning_attempts = 0
                     self.reset_navigation_state()
-                if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+                elif self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
                     self.get_logger().info('Escape plan succeeded - turning to face human')
                     self.reset_escape_state()
                     self.start_escape_monitoring()
@@ -746,6 +746,7 @@ class NavigationController(Node):
                     return
             else:
                 # No known human position, cleanup and resume
+                self.get_logger().info("No last know position")
                 self.turn_start_time = None  # Reset turn timer
                 self.cleanup_escape_monitoring()
                 self.resume_exploration()

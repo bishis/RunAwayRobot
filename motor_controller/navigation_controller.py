@@ -854,7 +854,7 @@ class NavigationController(Node):
                             # Calculate intensity as before
                             dist = math.sqrt(dist_sq)
                             intensity_ratio = (dist - inner_radius) / (radius - inner_radius)
-                            intensity = 180.0 + (40.0 * intensity_ratio)
+                            intensity = 235.0 + (15.0 * intensity_ratio)
                             
                             # Adjust for fade based on time
                             if self.last_human_timestamp is not None:

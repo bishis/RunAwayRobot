@@ -838,9 +838,8 @@ class NavigationController(Node):
             points = []
             human_x, human_y = self.last_human_position
             
-            # Create a donut-shaped obstacle with inner clearance
+            # Create a solid circle obstacle instead of a donut
             resolution = 0.03  # Higher resolution for smoother obstacle
-            inner_radius = 0.2  # Keep center clear for robot to escape
             
             # Use multiple height levels for the voxel representation (between 0.1m and 1.7m)
             height_levels = [0.1, 0.4, 0.7, 1.0, 1.3, 1.7]  # Represent human at various heights
@@ -849,12 +848,13 @@ class NavigationController(Node):
                 for dx in np.arange(-radius, radius + resolution, resolution):
                     for dy in np.arange(-radius, radius + resolution, resolution):
                         dist_sq = dx*dx + dy*dy
-                        # Only add points between inner_radius and outer radius
-                        if inner_radius*inner_radius <= dist_sq <= radius*radius:
-                            # Calculate intensity as before
+                        # Only add points within radius (solid circle)
+                        if dist_sq <= radius*radius:
+                            # Calculate intensity - higher at center, slightly lower at edges
                             dist = math.sqrt(dist_sq)
-                            intensity_ratio = (dist - inner_radius) / (radius - inner_radius)
-                            intensity = 235.0 + (15.0 * intensity_ratio)
+                            intensity_ratio = dist / radius  # 0 at center, 1 at edge
+                            # Use 254 (lethal) near center, decreasing to 245 at edges
+                            intensity = 254.0 - (1.0 * intensity_ratio)
                             
                             # Adjust for fade based on time
                             if self.last_human_timestamp is not None:
@@ -888,8 +888,8 @@ class NavigationController(Node):
                 time_info = f" (last seen {time_since:.1f}s ago)"
             
             self.get_logger().info(
-                f'Published donut-shaped human obstacle at ({human_x:.2f}, {human_y:.2f}) '
-                f'with outer radius {radius}m and inner radius {inner_radius}m{time_info}'
+                f'Published solid circle human obstacle at ({human_x:.2f}, {human_y:.2f}) '
+                f'with radius {radius}m{time_info}'
             )
             
         except Exception as e:

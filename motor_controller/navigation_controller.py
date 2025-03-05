@@ -881,6 +881,9 @@ class NavigationController(Node):
             # Publish point cloud
             self.human_obstacles_pub.publish(pc2)
             
+            if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+                self.request_path_replan()
+
             # Add time information to logging
             time_info = ""
             if self.last_human_timestamp is not None:
@@ -1012,6 +1015,7 @@ class NavigationController(Node):
                 request = Empty.Request()
                 # Call the service
                 self.make_plan_client.call_async(request)
+                self.get_logger().info(f'REPLANNED PATH: {str(e)}')
         except Exception as e:
             self.get_logger().error(f'Failed to request path replan: {str(e)}')
 

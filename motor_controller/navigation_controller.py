@@ -845,16 +845,38 @@ class NavigationController(Node):
             # Use multiple height levels for the voxel representation (between 0.1m and 1.7m)
             height_levels = [0.1, 0.4, 0.7, 1.0, 1.3, 1.7]  # Represent human at various heights
             
+            # Get current robot position to ensure robot can escape if inside
+            robot_inside = False
+            try:
+                robot_x = self.current_pose.pose.position.x
+                robot_y = self.current_pose.pose.position.y
+                human_x, human_y = self.last_human_position
+                
+                # Check if robot is inside the obstacle
+                dist_sq = (robot_x - human_x)**2 + (robot_y - human_y)**2
+                robot_inside = dist_sq <= radius*radius
+            except:
+                pass
+            
+            # Create a larger inner radius if robot is inside
+            effective_inner_radius = inner_radius
+            if robot_inside:
+                # If robot is inside, create a larger clear area around robot
+                effective_inner_radius = max(inner_radius, 
+                                           math.sqrt(dist_sq) + 0.2)  # 20cm clearance
+                self.get_logger().info(f'Robot inside human obstacle - creating larger clearance: {effective_inner_radius:.2f}m')
+            
             for height in height_levels:
                 for dx in np.arange(-radius, radius + resolution, resolution):
                     for dy in np.arange(-radius, radius + resolution, resolution):
                         dist_sq = dx*dx + dy*dy
                         # Only add points between inner_radius and outer radius
-                        if inner_radius*inner_radius <= dist_sq <= radius*radius:
+                        if effective_inner_radius*effective_inner_radius <= dist_sq <= radius*radius:
                             # Calculate intensity as before
                             dist = math.sqrt(dist_sq)
-                            intensity_ratio = (dist - inner_radius) / (radius - inner_radius)
-                            intensity = 180.0 + (40.0 * intensity_ratio)
+                            intensity_ratio = (dist - effective_inner_radius) / (radius - effective_inner_radius)
+                            # Ensure all obstacle points are above the lethal threshold of 230
+                            intensity = 235.0 + (15.0 * intensity_ratio)  # Range from 235-250, all above lethal_cost_threshold
                             
                             # Adjust for fade based on time
                             if self.last_human_timestamp is not None:
@@ -916,7 +938,7 @@ class NavigationController(Node):
             
             self.get_logger().info(
                 f'Published donut-shaped human obstacle at ({human_x:.2f}, {human_y:.2f}) '
-                f'with outer radius {radius}m and inner radius {inner_radius}m{time_info}'
+                f'with outer radius {radius}m and inner radius {effective_inner_radius}m{time_info}'
             )
             
         except Exception as e:

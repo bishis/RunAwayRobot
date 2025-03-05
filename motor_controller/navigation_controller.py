@@ -675,9 +675,9 @@ class NavigationController(Node):
                             # Reset escape attempts counter for fresh start
                             self.escape_attempts = 0
                             
-                            # 6. Now update human obstacle to regular size
-                            self.publish_human_obstacle(radius=0.30)
-                            time.sleep(0.5)  # Give costmap time to update
+                            # # 6. Now update human obstacle to regular size
+                            # self.publish_human_obstacle(radius=0.30)
+                            # time.sleep(0.5)  # Give costmap time to update
 
                             return
                         else:

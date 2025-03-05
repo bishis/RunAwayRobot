@@ -101,9 +101,10 @@ class NavigationController(Node):
         self.exploration_loop_timer = self.create_timer(0.1, self.exploration_loop)
 
         # Add timeout parameters
-        self.goal_timeout = 15.0  # Shorter timeout for unreachable goals
+        self.goal_timeout = 20.0  # 20 seconds total timeout per goal
         self.planning_attempts = 0
         self.max_planning_attempts = 2  # Max attempts before giving up
+        self.goal_start_time = None
 
         self.shake_timer = None
         
@@ -503,6 +504,17 @@ class NavigationController(Node):
                 # Consider human still present if seen in the last 2 seconds
                 human_still_present = time_since_human < 2.0
 
+            # Check for overall goal timeout
+            goal_timeout_reached = False
+            if self.goal_start_time is not None:
+                goal_duration = (current_time - self.goal_start_time).nanoseconds / 1e9
+                goal_timeout_reached = goal_duration > self.goal_timeout
+                
+                if goal_timeout_reached:
+                    self.get_logger().warn(
+                        f'Goal timeout exceeded! {goal_duration:.1f}s elapsed (limit: {self.goal_timeout}s)'
+                    )
+
             """Check if the robot has moved in the past interval"""
             if self.current_goal is None:
                 # Reset tracking when not navigating
@@ -510,7 +522,6 @@ class NavigationController(Node):
                 self.last_check_position = None
                 return
             
-            current_time = self.get_clock().now()
             current_position = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
             
             # Initialize tracking on first call
@@ -526,11 +537,13 @@ class NavigationController(Node):
                 (current_position[1] - self.last_check_position[1]) ** 2
             )
             
-            # Check if we've been stuck for longer than the timeout
-            if distance_moved < self.stuck_threshold and time_diff > self.stuck_timeout:
-                self.get_logger().warn(
-                    f'Robot appears to be stuck! Moved only {distance_moved:.3f}m in {time_diff:.1f} seconds'
-                )
+            # Check if we've been stuck for longer than the timeout OR if goal timeout was reached
+            if (distance_moved < self.stuck_threshold and time_diff > self.stuck_timeout) or goal_timeout_reached:
+                if not goal_timeout_reached:
+                    self.get_logger().warn(
+                        f'Robot appears to be stuck! Moved only {distance_moved:.3f}m in {time_diff:.1f} seconds'
+                    )
+                
                 # Different handling based on goal type
                 if self.is_escape_waypoint(self.current_goal):
                     self.escape_attempts += 1

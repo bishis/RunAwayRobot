@@ -845,7 +845,6 @@ class NavigationController(Node):
             
             if time_since_detection > self.human_obstacle_timeout:
                 # Clear the obstacle after timeout
-                self.last_human_position = None
                 self.get_logger().info('Clearing human obstacle - detection timeout')
                 
                 # Publish an empty point cloud to clear the obstacle

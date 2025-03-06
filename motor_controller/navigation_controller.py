@@ -166,7 +166,7 @@ class NavigationController(Node):
         )
         
         # Add timestamp tracking for human obstacle persistence
-        self.human_obstacle_timeout = 7.0  # Keep obstacles for 7 seconds
+        self.human_obstacle_timeout = 2.0  # Keep obstacles for 2 seconds
         
         # Create timer to periodically update human obstacles
         self.obstacle_update_timer = self.create_timer(0.2, self.update_human_obstacles)
@@ -846,15 +846,6 @@ class NavigationController(Node):
             if time_since_detection > self.human_obstacle_timeout:
                 # Clear the obstacle after timeout
                 self.get_logger().info('Clearing human obstacle - detection timeout')
-                
-                # Publish an empty point cloud to clear the obstacle
-                self.publish_empty_pointcloud()
-                
-                # Also request a full costmap clear to ensure all residual obstacles are gone
-                if self.clear_after_human:
-                    self.request_costmap_clear()
-                    self.get_logger().info('Requested full costmap clear after human obstacle timeout')
-                
                 return
         
         try:
@@ -919,8 +910,6 @@ class NavigationController(Node):
             # Publish point cloud
             self.human_obstacles_pub.publish(pc2)
             
-            if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
-                self.request_path_replan()
 
             # Add time information to logging
             time_info = ""
@@ -939,38 +928,7 @@ class NavigationController(Node):
     def update_human_obstacles(self):
         """Periodically update human obstacle representation"""
         if self.last_human_position is not None and self.last_human_timestamp is not None:
-            time_since = (self.get_clock().now() - self.last_human_timestamp).nanoseconds / 1e9
-            # Only log every few seconds to avoid spamming
-            if int(time_since) % 3 == 0:  
-                self.get_logger().debug(
-                    f'Human obstacle active for {time_since:.1f}s (timeout: {self.human_obstacle_timeout}s)'
-                )
             self.publish_human_obstacle()
-
-    def request_costmap_clear(self):
-        """Request clearing of the global costmap except static layer"""
-        try:
-            # Create service client for clearing costmap
-            clear_client = self.create_client(ClearEntireCostmap, '/global_costmap/clear_entirely_global_costmap')
-            
-            # Wait for service to be available with short timeout
-            if not clear_client.wait_for_service(timeout_sec=0.5):
-                self.get_logger().warn('Clear costmap service not available, skipping clear')
-                return False
-                
-            # Create request
-            request = ClearEntireCostmap.Request()
-            
-            # Call service asynchronously
-            future = clear_client.call_async(request)
-            
-            # Log the request
-            self.get_logger().info('Requested costmap clear for escape planning')
-            return True
-            
-        except Exception as e:
-            self.get_logger().error(f'Failed to clear costmap: {str(e)}')
-            return False
 
     def start_shake_defense(self):
         """Start a shaking motion to try to escape when trapped"""

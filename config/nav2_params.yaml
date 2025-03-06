@@ -275,12 +275,6 @@ local_costmap:
     height: 3
     resolution: 0.05
     
-    # Add explicit transform tolerance settings
-    transform_tolerance: 1.0
-    
-    # Add to handle transform timing issues
-    use_message_filter: false  # Disable message filter that's dropping messages
-    
     plugins: ["obstacle_layer", "inflation_layer", "human_layer"]  # List plugins first
     
     obstacle_layer:
@@ -297,13 +291,6 @@ local_costmap:
         raytrace_max_range: 10.0
         obstacle_max_range: 10.0
         obstacle_min_range: 0.02
-        # Add buffer sizes to handle transform timing issues
-        marking_buffers: 5  # Increase buffer size
-        clearing_buffers: 5  # Increase buffer size
-        # Adjust transform handling
-        expected_update_rate: 0.0  # Don't expect a fixed rate
-        observation_persistence: 0.0  # Don't persist observations
-        tf_tolerance: 1.0  # Be more tolerant of tf issues
     
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
@@ -416,7 +403,6 @@ global_costmap:
       combination_method: 1
       track_unknown_space: false
       footprint_clearing_enabled: true
-      
 collision_monitor:
   ros__parameters:
     use_sim_time: false

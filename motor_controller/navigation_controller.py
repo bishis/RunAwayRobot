@@ -948,6 +948,31 @@ class NavigationController(Node):
         
         self.get_logger().info('Shake defense initiated')
 
+    def request_costmap_clear(self):
+        """Request clearing of the global costmap except static layer"""
+        try:
+            # Create service client for clearing costmap
+            clear_client = self.create_client(ClearEntireCostmap, '/global_costmap/clear_entirely_global_costmap')
+            
+            # Wait for service to be available with short timeout
+            if not clear_client.wait_for_service(timeout_sec=0.5):
+                self.get_logger().warn('Clear costmap service not available, skipping clear')
+                return False
+                
+            # Create request
+            request = ClearEntireCostmap.Request()
+            
+            # Call service asynchronously
+            future = clear_client.call_async(request)
+            
+            # Log the request
+            self.get_logger().info('Requested costmap clear for escape planning')
+            return True
+            
+        except Exception as e:
+            self.get_logger().error(f'Failed to clear costmap: {str(e)}')
+            return False
+        
     def execute_shake_motion(self):
         """Execute one step of the shake motion"""
         try:

@@ -147,6 +147,9 @@ class NavigationController(Node):
         # Add timer for escape monitoring (initially disabled)
         self.escape_monitor_timer = None
 
+        #Previous escape waypoint
+        self.previous_escape_waypoint_failed = False
+
         # Add map publisher for human obstacle updates
         self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
 
@@ -367,10 +370,15 @@ class NavigationController(Node):
                 self.escape_attempts += 1
                 if self.escape_attempts < self.max_escape_attempts:
                     self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
-                    escape_point = self.human_avoidance.plan_escape()
+                    
+                    # Pass the failure flag to plan_escape
+                    escape_point = self.human_avoidance.plan_escape(self.previous_escape_waypoint_failed)
+                    
                     if escape_point is not None:
                         self.send_goal(escape_point)  # Retry escape point
-                    return
+                    else:
+                        self.get_logger().error('Failed to find escape point!')
+                        self.previous_escape_waypoint_failed = True
                 elif self.escape_attempts >= self.max_escape_attempts and human_still_present:
                     self.get_logger().info('Trapped start shaking')
                     self.cancel_current_goal()
@@ -549,7 +557,10 @@ class NavigationController(Node):
                     self.escape_attempts += 1
                     if self.escape_attempts < self.max_escape_attempts:
                         self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
-                        escape_point = self.human_avoidance.plan_escape()
+                        
+                        # Pass the failure flag to plan_escape
+                        escape_point = self.human_avoidance.plan_escape(self.previous_escape_waypoint_failed)
+                        
                         if escape_point is not None:
                             self.send_goal(escape_point)  # Retry escape point
                         else:

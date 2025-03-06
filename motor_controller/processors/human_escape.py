@@ -12,10 +12,37 @@ class HumanEscape(WaypointGenerator):
     def __init__(self, node):
         super().__init__(node)
         
-    def get_furthest_waypoint(self):
-        """Generate a waypoint at the furthest reachable point from human position"""
+    def get_furthest_waypoint(self, previous_attempt_failed=False):
+        """
+        Generate a waypoint at the furthest reachable point from human position
+        
+        Args:
+            previous_attempt_failed: If True, indicates previous navigation attempt failed
+        """
+        # Track previously failed waypoints to avoid reusing them
+        if not hasattr(self, 'failed_waypoints'):
+            self.failed_waypoints = []
+        
+        # If previous attempt failed, add that waypoint to failed list
+        if previous_attempt_failed and self.previous_escape_waypoint is not None:
+            # Get coordinates of the failed waypoint
+            failed_x = self.previous_escape_waypoint.pose.position.x
+            failed_y = self.previous_escape_waypoint.pose.position.y
+            
+            # Add to failed list if not already there
+            failed_waypoint = (failed_x, failed_y)
+            if failed_waypoint not in self.failed_waypoints:
+                self.failed_waypoints.append(failed_waypoint)
+                self.node.get_logger().info(
+                    f'Adding failed waypoint ({failed_x:.2f}, {failed_y:.2f}) to excluded points list'
+                )
+        
         if self.current_map is None:
             self.node.get_logger().error('No map available for escape planning')
+            # Try returning previous waypoint if available
+            if self.previous_escape_waypoint is not None and not previous_attempt_failed:
+                self.node.get_logger().info('Using previous escape waypoint due to missing map')
+                return self.previous_escape_waypoint
             return None
             
         try:
@@ -36,6 +63,9 @@ class HumanEscape(WaypointGenerator):
                 )
             else:
                 self.node.get_logger().warn('No human position available for escape planning')
+                if self.previous_escape_waypoint is not None and not previous_attempt_failed:
+                    self.node.get_logger().info('Using previous escape waypoint due to missing human position')
+                    return self.previous_escape_waypoint
                 return None
             
             # Calculate current distance from human
@@ -76,6 +106,17 @@ class HumanEscape(WaypointGenerator):
                     world_x = origin_x + x * resolution
                     world_y = origin_y + y * resolution
                     
+                    # Skip points too close to previously failed waypoints
+                    too_close_to_failed = False
+                    for fx, fy in self.failed_waypoints:
+                        dist_to_failed = math.sqrt((world_x - fx)**2 + (world_y - fy)**2)
+                        if dist_to_failed < 0.5:  # 0.5m exclusion radius
+                            too_close_to_failed = True
+                            break
+                    
+                    if too_close_to_failed:
+                        continue
+                    
                     # Calculate distance to human
                     dist_to_human = math.sqrt(
                         (world_x - human_x) ** 2 + 
@@ -113,6 +154,16 @@ class HumanEscape(WaypointGenerator):
             
             if best_point is None:
                 self.node.get_logger().error('No valid escape points found that increase distance from human!')
+                
+                # If we've tried many points and none work, start fresh
+                if len(self.failed_waypoints) > 5:
+                    self.node.get_logger().warn('Too many failed waypoints, clearing failed list')
+                    self.failed_waypoints = []
+                
+                # Use previous waypoint if available and not already failed
+                if self.previous_escape_waypoint is not None and not previous_attempt_failed:
+                    self.node.get_logger().info('Using previous escape waypoint as fallback')
+                    return self.previous_escape_waypoint
                 return None
             
             # Create waypoint from best point
@@ -141,10 +192,21 @@ class HumanEscape(WaypointGenerator):
             markers = self.create_visualization_markers(waypoint, is_escape=True)
             self.node.marker_pub.publish(markers)
             
+            # Store this waypoint for future use if needed
+            self.previous_escape_waypoint = waypoint
+            
+            # Clear failed waypoints list when we successfully find a new waypoint
+            if len(self.failed_waypoints) > 0:
+                self.node.get_logger().info(f'Found new waypoint, clearing {len(self.failed_waypoints)} failed waypoints')
+                self.failed_waypoints = []
+            
             return waypoint
         
         except Exception as e:
             self.node.get_logger().warn(f'Could not get robot position: {e}')
+            if self.previous_escape_waypoint is not None and not previous_attempt_failed:
+                self.node.get_logger().info('Using previous escape waypoint due to error')
+                return self.previous_escape_waypoint
             return None
     
     def calculate_path_clearance(self, start_x, start_y, end_x, end_y, map_data):

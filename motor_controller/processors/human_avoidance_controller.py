@@ -226,7 +226,7 @@ class HumanAvoidanceController:
             self.last_image_x = None
             return stop_cmd, False
 
-    def plan_escape(self):
+    def plan_escape(self, previous_attempt_failed=False):
         """Plan escape route when human is too close"""
         self.node.get_logger().info('Planning escape route...')
         
@@ -236,7 +236,7 @@ class HumanAvoidanceController:
             return None
         
         # Use dedicated escape planner
-        escape_point = self.escape_planner.get_furthest_waypoint()
+        escape_point = self.escape_planner.get_furthest_waypoint(previous_attempt_failed)
         
         if escape_point is not None:
             self.node.get_logger().info(

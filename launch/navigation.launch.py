@@ -1,5 +1,5 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -19,13 +19,13 @@ def generate_launch_description():
     
     # Launch configuration variables specific to simulation
     lifecycle_nodes = [
+        'controller_server',
+        'planner_server',
+        'behavior_server',
         'bt_navigator',
         'collision_monitor',
-        'planner_server',
-        'controller_server',
-        'behavior_server',
-        'local_costmap',
-        'global_costmap'
+        'global_costmap',
+        'local_costmap'
     ]
 
     # Declare the launch arguments
@@ -85,13 +85,17 @@ def generate_launch_description():
         output='screen',
         parameters=[configured_params])
 
-    # Costmap nodes
+    # Costmap nodes - adjust local costmap for transform issues
     start_local_costmap_cmd = Node(
         package='nav2_costmap_2d',
         executable='nav2_costmap_2d',
         name='local_costmap',
         output='screen',
-        parameters=[configured_params])
+        parameters=[configured_params],
+        remappings=[
+            ('/tf', 'tf'),
+            ('/tf_static', 'tf_static')
+        ])
 
     start_global_costmap_cmd = Node(
         package='nav2_costmap_2d',
@@ -107,6 +111,7 @@ def generate_launch_description():
         output='screen',
         parameters=[configured_params])
 
+    # Adjust lifecycle manager with increased timeout
     start_lifecycle_manager_cmd = Node(
         package='nav2_lifecycle_manager',
         executable='lifecycle_manager',
@@ -114,9 +119,9 @@ def generate_launch_description():
         output='screen',
         parameters=[{'use_sim_time': use_sim_time,
                     'autostart': autostart,
-                    'node_names': lifecycle_nodes}])
+                    'node_names': lifecycle_nodes,
+                    'bond_timeout': 10.0}])  # Increased bond timeout
 
-    # Add this as a proper Node action in the LaunchDescription
     start_navigation_controller_cmd = Node(
         package='motor_controller',
         executable='navigation_controller',
@@ -147,17 +152,33 @@ def generate_launch_description():
     ld.add_action(declare_params_file_cmd)
     ld.add_action(declare_autostart_cmd)
 
-    # Add the actions to launch all of the navigation nodes
-    ld.add_action(start_controller_server_cmd)
-    ld.add_action(start_planner_server_cmd)
-    ld.add_action(start_bt_navigator_cmd)
-    ld.add_action(start_collision_monitor_cmd)
-    ld.add_action(start_recoveries_server_cmd)
-    ld.add_action(start_local_costmap_cmd)
+    # Add the actions to launch all of the navigation nodes with proper sequencing
+    # First launch costmaps
     ld.add_action(start_global_costmap_cmd)
-    ld.add_action(start_lifecycle_manager_cmd)
+    ld.add_action(start_local_costmap_cmd)
+    
+    # Then add a delay before starting other components
+    ld.add_action(TimerAction(
+        period=2.0,  # 2-second delay
+        actions=[
+            start_controller_server_cmd,
+            start_planner_server_cmd,
+            start_recoveries_server_cmd,
+            start_bt_navigator_cmd,
+            start_collision_monitor_cmd
+        ]
+    ))
+    
+    # Add a further delay before starting the lifecycle manager
+    ld.add_action(TimerAction(
+        period=5.0,  # 5-second delay
+        actions=[start_lifecycle_manager_cmd]
+    ))
 
-    # Add the navigation controller to the launch description
-    ld.add_action(start_navigation_controller_cmd)
+    # Add the navigation controller last
+    ld.add_action(TimerAction(
+        period=8.0,  # 8-second delay
+        actions=[start_navigation_controller_cmd]
+    ))
 
     return ld 

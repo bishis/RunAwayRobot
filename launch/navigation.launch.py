@@ -102,7 +102,11 @@ def generate_launch_description():
         executable='nav2_costmap_2d',
         name='global_costmap',
         output='screen',
-        parameters=[configured_params])
+        parameters=[configured_params],
+        remappings=[
+            ('/tf', 'tf'),
+            ('/tf_static', 'tf_static')
+        ])
 
     start_recoveries_server_cmd = Node(
         package='nav2_behaviors',

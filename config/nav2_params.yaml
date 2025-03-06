@@ -308,14 +308,15 @@ local_costmap:
         topic: /human_obstacles
         max_obstacle_height: 2.0
         min_obstacle_height: 0.1
-        clearing: false
+        clearing: true
         marking: true
         sensor_frame: map
         data_type: "PointCloud2"
         expected_update_rate: 0.0
-        observation_persistence: 7.0
+        observation_persistence: 0.5
         obstacle_range: 5.0
         raytrace_range: 5.0
+        mark_threshold: 1
         
       # VoxelLayer specific parameters
       publish_voxel_map: true
@@ -382,14 +383,15 @@ global_costmap:
         topic: /human_obstacles
         max_obstacle_height: 2.0
         min_obstacle_height: 0.1
-        clearing: false
+        clearing: true
         marking: true
         sensor_frame: map
         data_type: "PointCloud2"
         expected_update_rate: 0.0
-        observation_persistence: 7.0
+        observation_persistence: 0.5
         obstacle_range: 5.0
         raytrace_range: 5.0
+        mark_threshold: 1
         
       # VoxelLayer specific parameters
       publish_voxel_map: true

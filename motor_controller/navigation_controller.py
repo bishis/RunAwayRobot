@@ -382,13 +382,13 @@ class NavigationController(Node):
                 elif self.escape_attempts >= self.max_escape_attempts and human_still_present:
                     self.get_logger().info('Trapped start shaking')
                     self.cancel_current_goal()
+                    time.sleep(0.5)
                     self.start_shake_defense()
                     return
                 else:
                     self.get_logger().error('Max escape attempts reached, giving up escape plan')
                     self.get_logger().warn('Escape plan failed')
-                    self.cancel_current_goal()
-                    self.start_escape_monitoring()
+                    self.cancel_current_goal(failed_escape=True)
                     return
             elif status != GoalStatus.STATUS_SUCCEEDED and not self.is_escape_waypoint(self.current_goal):
                 self.get_logger().warn(f'Navigation failed with status: {status}')
@@ -466,7 +466,7 @@ class NavigationController(Node):
         else:
             self.exploration_loop()
 
-    def cancel_current_goal(self):
+    def cancel_current_goal(self, failed_escape=False):
         """Cancel the current navigation goal if one exists"""
         if self.current_goal_handle is not None:
             self.clear_visualization_markers()
@@ -482,6 +482,9 @@ class NavigationController(Node):
             self.current_goal_handle = None
             self.current_goal = None
             self.is_navigating = False
+
+            if failed_escape:
+                self.start_escape_monitoring()
 
     def cancel_done_callback(self, future):
         """Handle goal cancellation result"""
@@ -568,12 +571,12 @@ class NavigationController(Node):
                     elif self.escape_attempts >= self.max_escape_attempts and human_still_present:
                         self.get_logger().info('Trapped')
                         self.cancel_current_goal()
+                        time.sleep(0.5)
                         self.start_shake_defense()
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
-                        self.cancel_current_goal()
+                        self.cancel_current_goal(failed_escape=True)
                         self.reset_escape_state()
-                        self.start_escape_monitoring()
                 else:
                     self.planning_attempts += 1
                     if self.planning_attempts >= self.max_planning_attempts:

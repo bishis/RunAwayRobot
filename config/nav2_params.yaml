@@ -278,8 +278,8 @@ local_costmap:
       tf_buffer_duration: 30.0
       always_send_full_costmap: true
       
-      origin_x: -3.0
-      origin_y: -3.0
+      origin_x: -4.0
+      origin_y: -2.0
       
       plugins: ["obstacle_layer", "inflation_layer", "human_layer"]
       

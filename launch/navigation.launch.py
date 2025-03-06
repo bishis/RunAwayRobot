@@ -1,5 +1,5 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -16,6 +16,7 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     autostart = LaunchConfiguration('autostart')
     params_file = LaunchConfiguration('params_file')
+    slam_params_file = LaunchConfiguration('slam_params_file')
     
     # Launch configuration variables specific to simulation
     lifecycle_nodes = [
@@ -27,6 +28,9 @@ def generate_launch_description():
         'local_costmap',
         'global_costmap'
     ]
+    
+    # Define separate lifecycle nodes for SLAM
+    slam_lifecycle_nodes = ['slam_toolbox']
 
     # Declare the launch arguments
     declare_namespace_cmd = DeclareLaunchArgument(
@@ -44,6 +48,12 @@ def generate_launch_description():
         default_value=PathJoinSubstitution(
             [pkg_share, 'config', 'nav2_params.yaml']),
         description='Full path to the ROS2 parameters file to use')
+        
+    declare_slam_params_file_cmd = DeclareLaunchArgument(
+        'slam_params_file',
+        default_value=PathJoinSubstitution(
+            [pkg_share, 'config', 'slam.yaml']),
+        description='Full path to the ROS2 parameters file for SLAM')
 
     declare_autostart_cmd = DeclareLaunchArgument(
         'autostart', default_value='true',
@@ -59,6 +69,23 @@ def generate_launch_description():
         root_key=namespace,
         param_rewrites=param_substitutions,
         convert_types=True)
+        
+    configured_slam_params = RewrittenYaml(
+        source_file=slam_params_file,
+        root_key=namespace,
+        param_rewrites=param_substitutions,
+        convert_types=True)
+
+    # SLAM node
+    start_async_slam_toolbox_node_cmd = Node(
+        package='slam_toolbox',
+        executable='async_slam_toolbox_node',
+        name='slam_toolbox',
+        output='screen',
+        parameters=[configured_slam_params],
+        remappings=[
+            ('/map', '/map'),
+        ])
 
     # Nodes launching commands
     start_controller_server_cmd = Node(
@@ -107,6 +134,7 @@ def generate_launch_description():
         output='screen',
         parameters=[configured_params])
 
+    # Navigation lifecycle manager
     start_lifecycle_manager_cmd = Node(
         package='nav2_lifecycle_manager',
         executable='lifecycle_manager',
@@ -115,6 +143,18 @@ def generate_launch_description():
         parameters=[{'use_sim_time': use_sim_time,
                     'autostart': autostart,
                     'node_names': lifecycle_nodes}])
+                    
+    # SLAM lifecycle manager - separate from navigation lifecycle manager
+    start_slam_lifecycle_manager_cmd = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='lifecycle_manager_slam',
+        output='screen',
+        parameters=[{'use_sim_time': use_sim_time,
+                    'autostart': autostart,
+                    'node_names': slam_lifecycle_nodes,
+                    # Add a longer bond timeout for slam_toolbox
+                    'bond_timeout': 8.0}])
 
     # Add this as a proper Node action in the LaunchDescription
     start_navigation_controller_cmd = Node(
@@ -145,19 +185,35 @@ def generate_launch_description():
     ld.add_action(declare_namespace_cmd)
     ld.add_action(declare_use_sim_time_cmd)
     ld.add_action(declare_params_file_cmd)
+    ld.add_action(declare_slam_params_file_cmd)
     ld.add_action(declare_autostart_cmd)
 
-    # Add the actions to launch all of the navigation nodes
-    ld.add_action(start_controller_server_cmd)
-    ld.add_action(start_planner_server_cmd)
-    ld.add_action(start_bt_navigator_cmd)
-    ld.add_action(start_collision_monitor_cmd)
-    ld.add_action(start_recoveries_server_cmd)
-    ld.add_action(start_local_costmap_cmd)
-    ld.add_action(start_global_costmap_cmd)
-    ld.add_action(start_lifecycle_manager_cmd)
+    # Start SLAM toolbox first
+    ld.add_action(start_async_slam_toolbox_node_cmd)
+    
+    # Start SLAM lifecycle manager to activate SLAM
+    ld.add_action(start_slam_lifecycle_manager_cmd)
+    
+    # Add delay before starting navigation components
+    ld.add_action(TimerAction(
+        period=2.0,  # 2 second delay
+        actions=[
+            # Add the actions to launch all of the navigation nodes
+            start_controller_server_cmd,
+            start_planner_server_cmd,
+            start_bt_navigator_cmd,
+            start_collision_monitor_cmd,
+            start_recoveries_server_cmd,
+            start_local_costmap_cmd,
+            start_global_costmap_cmd,
+            start_lifecycle_manager_cmd
+        ]
+    ))
 
-    # Add the navigation controller to the launch description
-    ld.add_action(start_navigation_controller_cmd)
+    # Add the navigation controller last with a delay
+    ld.add_action(TimerAction(
+        period=4.0,  # 4 second delay to ensure nav system is ready
+        actions=[start_navigation_controller_cmd]
+    ))
 
     return ld 

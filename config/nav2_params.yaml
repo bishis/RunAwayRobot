@@ -268,7 +268,7 @@ local_costmap:
     use_sim_time: false
     update_frequency: 10.0
     publish_frequency: 10.0
-    global_frame: odom
+    global_frame: map
     robot_base_frame: base_link
     rolling_window: true
     width: 3

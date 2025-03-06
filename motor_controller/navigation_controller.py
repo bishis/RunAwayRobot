@@ -153,10 +153,10 @@ class NavigationController(Node):
         # Add map publisher for human obstacle updates
         self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
 
-        # Create publisher for human obstacles
+        # Create publisher for human obstacles with proper frame
         self.human_obstacles_pub = self.create_publisher(
             PointCloud2, 
-            '/human_obstacles',  # Must match config
+            '/human_obstacles',
             rclpy.qos.QoSProfile(
                 reliability=rclpy.qos.ReliabilityPolicy.RELIABLE,
                 durability=rclpy.qos.DurabilityPolicy.TRANSIENT_LOCAL,
@@ -182,6 +182,10 @@ class NavigationController(Node):
 
         # Add tracking timeout parameters
         self.human_tracking_timeout = 2.0  # Wait 2 seconds before ending tracking
+
+        # Add parameter for explicitly clearing costmaps
+        self.clear_costmaps_after_escape = True
+        self.clear_after_human = True
 
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
@@ -841,10 +845,17 @@ class NavigationController(Node):
             
             if time_since_detection > self.human_obstacle_timeout:
                 # Clear the obstacle after timeout
+                self.last_human_position = None
                 self.get_logger().info('Clearing human obstacle - detection timeout')
                 
                 # Publish an empty point cloud to clear the obstacle
                 self.publish_empty_pointcloud()
+                
+                # Also request a full costmap clear to ensure all residual obstacles are gone
+                if self.clear_after_human:
+                    self.request_costmap_clear()
+                    self.get_logger().info('Requested full costmap clear after human obstacle timeout')
+                
                 return
         
         try:
@@ -996,6 +1007,10 @@ class NavigationController(Node):
                 # Human is gone, we can stop shaking
                 self.get_logger().info('Human no longer detected, stopping shake defense')
                 self.wheel_speeds_pub.publish(Twist())  # Stop motion
+                
+                # Clear costmaps after human is gone
+                self.request_costmap_clear()
+                self.get_logger().info('Clearing costmaps after human departed')
                 
                 if hasattr(self, 'shake_timer') and self.shake_timer:
                     self.shake_timer.cancel()

@@ -361,12 +361,12 @@ global_costmap:
       resolution: 0.05
       track_unknown_space: false
       always_send_full_costmap: true
-      transform_tolerance: 0.3  # Reduced from 1.0 to minimize timing issues
+      transform_tolerance: 1.0
+      tf_buffer_duration: 30.0
       
       # Keep plugins but align them better
       plugins: ["static_layer", "obstacle_layer", "inflation_layer", "human_layer"]
       
-      # Obstacle layer tuning
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
@@ -401,6 +401,7 @@ global_costmap:
 
       # Update human layer config
       human_layer:
+        plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: true
         observation_sources: human_obstacles
         human_obstacles:
@@ -424,6 +425,9 @@ global_costmap:
         z_voxels: 10
         unknown_threshold: 15
         mark_threshold: 0
+        combination_method: 1
+        track_unknown_space: false
+        footprint_clearing_enabled: true
 
 collision_monitor:
   ros__parameters:

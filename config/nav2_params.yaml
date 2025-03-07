@@ -236,6 +236,11 @@ planner_server:
       use_dijkstra: true
       track_unknown_space: true
       lethal_cost_threshold: 230  # More permissive cost threshold
+      weight_inflation: 3.0  # Higher weight for inflation layer costs
+      publish_potential: true
+      cost_factor: 0.55
+      neutral_cost: 66
+      lethal_cost: 253
 
 behavior_server:
   ros__parameters:
@@ -313,6 +318,10 @@ local_costmap:
         cost_scaling_factor: 10.0
         inflate_unknown: false
         inflate_around_unknown: false
+        inflation_radius: 0.35
+        cost_scaling_factor: 3.0
+        inflate_unknown: false
+        inflate_around_unknown: true
 
       human_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
@@ -354,7 +363,7 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       footprint: "[[-0.15, -0.16], [-0.15, 0.16], [0.17, 0.16], [0.17, -0.16]]"
-      footprint_padding: 0.1
+      footprint_padding: 0.15
       resolution: 0.05
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer", "human_layer"]
@@ -394,8 +403,10 @@ global_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.1
-        cost_scaling_factor: 5.0
+        inflation_radius: 0.35
+        cost_scaling_factor: 3.0
+        inflate_unknown: false
+        inflate_around_unknown: true
 
       # Update human layer config
       human_layer:

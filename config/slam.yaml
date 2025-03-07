@@ -10,67 +10,72 @@ slam_toolbox:
     mode: mapping
     debug_logging: false
     throttle_scans: 1
-    transform_timeout: 0.5    # increased from 0.2 to allow extra time for fast movements
+    transform_timeout: 0.3    # Reduced back to default - higher values can mask underlying issues
     update_timing: true
-    publish_period: 0.5
-    map_update_interval: 1.0
-    max_update_rate: 10.0
+    publish_period: 0.25      # Increased publishing frequency
+    map_update_interval: 0.5  # More frequent map updates
+    max_update_rate: 20.0     # Increased for better high-speed performance
 
     # Map management
     resolution: 0.05
-    max_laser_range: 10.0
-    minimum_time_interval: 0.5
-    transform_publish_period: 0.05
+    max_laser_range: 8.0      # Reduced to ignore potentially noisy long-range readings
+    minimum_time_interval: 0.2 # Reduced to process more scans during fast movement
+    transform_publish_period: 0.02 # More frequent transform updates
 
-    # Processing parameters
+    # Processing parameters - Tuned for high-speed operation
     process_near_pose: true
     use_scan_matching: true
     use_scan_barycenter: true
-    minimum_travel_distance: 0.1
-    minimum_travel_heading: 0.1
-    scan_buffer_size: 10
-    scan_buffer_maximum_scan_distance: 10.0
-    link_match_minimum_response_fine: 0.45
-    link_scan_maximum_distance: 2.0
+    minimum_travel_distance: 0.05  # Smaller distance for more frequent updates
+    minimum_travel_heading: 0.05   # Smaller rotation for more frequent updates
+    scan_buffer_size: 15           # Increased buffer for better loop closure
+    scan_buffer_maximum_scan_distance: 8.0
+    link_match_minimum_response_fine: 0.5   # Increased for more strict matching
+    link_scan_maximum_distance: 1.5         # Reduced for more accurate local mapping
 
-    # Loop closure parameters
+    # Loop closure parameters - Made more strict
     do_loop_closing: true
-    loop_search_space: 8.0
-    loop_match_minimum_chain_size: 3
-    loop_match_maximum_variance_coarse: 3.0
-    loop_match_minimum_response_coarse: 0.35
-    loop_match_minimum_response_fine: 0.45
+    loop_search_space: 5.0           # Reduced search space
+    loop_match_minimum_chain_size: 5  # Increased for more reliable loop closure
+    loop_match_maximum_variance_coarse: 2.0  # Reduced for stricter matching
+    loop_match_minimum_response_coarse: 0.4  # Increased threshold
+    loop_match_minimum_response_fine: 0.5    # Increased threshold
 
-    # Correlation parameters
-    correlation_search_space_dimension: 0.5
+    # Correlation parameters - Tuned for accuracy
+    correlation_search_space_dimension: 0.3
     correlation_search_space_resolution: 0.01
-    correlation_search_space_smear_deviation: 0.1
+    correlation_search_space_smear_deviation: 0.03
 
-    # Motion filter parameters
-    distance_variance_penalty: 0.5
-    angle_variance_penalty: 0.5
-    fine_search_angle_offset: 0.00349
+    # Motion filter parameters - Made more strict
+    distance_variance_penalty: 1.0    # Increased penalty
+    angle_variance_penalty: 1.0       # Increased penalty
+    fine_search_angle_offset: 0.00349 # ~0.2 degrees
 
-    # Increase these for better rotation stability
-    rotation_scoring_search_window: 10
-    rotation_scoring_points_per_window: 5
-    rotation_scoring_minimum_response: 0.1
+    # Rotation scoring - Important for high-speed turns
+    rotation_scoring_search_window: 15
+    rotation_scoring_points_per_window: 7
+    rotation_scoring_minimum_response: 0.15
 
-    # Add motion constraints
+    # Motion constraints - Adjusted for your robot's capabilities
     use_velocity_constraints: true
     use_acceleration_constraints: true
-    max_velocity_linear: 0.5
-    max_velocity_angular: 1.0
-    max_acceleration_linear: 1.0
-    max_acceleration_angular: 1.0
+    max_velocity_linear: 0.5      # Match your robot's actual max speed
+    max_velocity_angular: 1.0     # Match your robot's actual max rotation
+    max_acceleration_linear: 2.0  # Increased for better tracking
+    max_acceleration_angular: 2.0 # Increased for better tracking
 
-    # (Optional) Coarse matching parameters – adjust if your environment is challenging:
-    coarse_search_angle_offset: 0.349         # ~20° in radians
-    coarse_angle_resolution: 0.0349           # ~2° in radians
+    # Scan Matching Parameters
+    coarse_search_angle_offset: 0.174   # ~10° in radians
+    coarse_angle_resolution: 0.0175     # ~1° in radians
+    
+    # Additional Parameters for High-Speed Operation
+    use_adaptive_motion_thresholds: true
+    adaptive_threshold_coef: 2.0
+    matcher_threads: 4                   # Increase processing threads
+    optimize_on_start: true             # Run optimization at startup
+    submap_size: 10.0                   # Size of submaps for better memory management
 
     ## Graph Optimization Settings
     optimization_period: 10.0                 # How frequently (in seconds) to run pose graph optimization
     optimizer_max_iterations: 20              # Maximum iterations for the pose graph optimizer per run
     constraint_search_space_time: 5.0         # Time window (in seconds) for considering loop closures
-
-    use_adaptive_motion_thresholds: true   # Dynamically adjust thresholds based on velocity

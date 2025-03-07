@@ -391,7 +391,7 @@ class NavigationController(Node):
                 else:
                     self.get_logger().error('Max escape attempts reached, giving up escape plan')
                     self.get_logger().warn('Escape plan failed')
-                    self.cancel_current_goal(failed_escape=True)
+                    self.cancel_current_goal()
                     return
             elif status != GoalStatus.STATUS_SUCCEEDED and not self.is_escape_waypoint(self.current_goal):
                 self.get_logger().warn(f'Navigation failed with status: {status}')
@@ -472,7 +472,7 @@ class NavigationController(Node):
         else:
             self.exploration_loop()
 
-    def cancel_current_goal(self, failed_escape=False):
+    def cancel_current_goal(self):
         """Cancel the current navigation goal if one exists"""
         if self.current_goal_handle is not None:
             self.clear_visualization_markers()

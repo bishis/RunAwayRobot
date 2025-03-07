@@ -833,7 +833,7 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error clearing markers: {str(e)}')
             
-    def publish_human_obstacle(self, radius=0.22):
+    def publish_human_obstacle(self, radius=0.25):
         """Publish human obstacle positions as PointCloud2 with specified radius"""
         if self.last_human_position is None:
             return

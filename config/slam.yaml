@@ -85,4 +85,43 @@ slam_toolbox:
     ceres_preconditioner: "SCHUR_JACOBI"
     ceres_trust_strategy: "LEVENBERG_MARQUARDT"
     ceres_dogleg_type: "TRADITIONAL_DOGLEG"
-    ceres_loss_function: "HUBER_LOSS"
+    ceres_loss_function: "HuberLoss"         # Updated loss function
+    ceres_max_num_iterations: 50
+    ceres_max_solver_time: 0.3
+    ceres_num_threads: 2
+    ceres_use_nonmonotonic_steps: false
+    ceres_max_num_consecutive_invalid_steps: 10
+    ceres_function_tolerance: 1e-05
+    ceres_gradient_tolerance: 1e-05
+    ceres_parameter_tolerance: 1e-08
+    ceres_inner_iterations: true
+    ceres_inner_iteration_tolerance: 1e-05
+    ceres_jacobi_scaling: true
+    ceres_minimizer_progress_to_stdout: false
+    ceres_trust_region_minimizer_iterations: 50
+    ceres_line_search_minimizer_iterations: 50
+    ceres_initial_trust_region_radius: 1.0
+    ceres_max_trust_region_radius: 1e10
+    ceres_min_trust_region_radius: 1e-32
+    ceres_min_relative_decrease: 1e-03
+    ceres_trust_region_problem_dump_directory: ""
+    ceres_trust_region_strategy: "LEVENBERG_MARQUARDT"
+    ceres_use_inner_iterations: true
+    ceres_use_nonmonotonic_steps: false
+    ceres_max_consecutive_nonmonotonic_steps: 5
+    ceres_max_num_line_search_step_size_iterations: 20
+    ceres_line_search_sufficient_function_decrease: 1e-04
+    ceres_line_search_sufficient_curvature_decrease: 0.9
+    ceres_max_line_search_step_contraction: 0.5
+    ceres_min_line_search_step_contraction: 0.6
+    ceres_max_num_line_search_direction_restarts: 10
+    ceres_line_search_interpolation_type: "BARYCENTRIC"
+    ceres_nonlinear_conjugate_gradient_type: "FLETCHER_REEVES"
+    ceres_max_lbfgs_rank: 20
+    ceres_use_approximate_eigenvalue_bfgs_scaling: false
+    ceres_line_search_type: "WOLFE"
+    ceres_nonlinear_minimizer_type: "TRUST_REGION"
+    ceres_min_line_search_step_size: 1e-20
+    ceres_line_search_sufficient_decrease
+::contentReference[oaicite:0]{index=0}
+ 

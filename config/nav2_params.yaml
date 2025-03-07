@@ -287,7 +287,7 @@ local_costmap:
       origin_x: -4.0
       origin_y: -2.0
       
-      plugins: ["obstacle_layer", "inflation_layer", "human_layer"]
+      plugins: ["obstacle_layer", "inflation_layer"]
       
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"

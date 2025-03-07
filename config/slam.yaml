@@ -10,70 +10,79 @@ slam_toolbox:
     mode: mapping
     debug_logging: false
     throttle_scans: 1
-    transform_timeout: 0.3
+    transform_timeout: 0.3    # Reduced back to default - higher values can mask underlying issues
     update_timing: true
-    publish_period: 0.25
-    map_update_interval: 0.5
-    max_update_rate: 10.0     # Reduced to ensure better scan processing
+    publish_period: 0.25      # Increased publishing frequency
+    map_update_interval: 0.5  # More frequent map updates
+    max_update_rate: 10.0     # Increased for better high-speed performance
 
-    # Map management - Tuned for accuracy
+    # Map management
     resolution: 0.05
-    max_laser_range: 8.0      # Reduced to avoid noisy long-range readings
-    minimum_time_interval: 0.1 # More frequent updates
-    transform_publish_period: 0.02
+    max_laser_range: 8.0      # Reduced to ignore potentially noisy long-range readings
+    minimum_time_interval: 0.2 # Reduced to process more scans during fast movement
+    transform_publish_period: 0.02 # More frequent transform updates
 
-    # Processing parameters - Critical for map quality
+    # Processing parameters - Tuned for high-speed operation
     process_near_pose: true
     use_scan_matching: true
     use_scan_barycenter: true
-    minimum_travel_distance: 0.2    # Increased to reduce noise
-    minimum_travel_heading: 0.2     # Increased to reduce noise
-    scan_buffer_size: 5            # Reduced for more local accuracy
-    scan_buffer_maximum_scan_distance: 5.0  # Reduced for better local matching
-    link_match_minimum_response_fine: 0.8   # Much stricter matching
-    link_scan_maximum_distance: 0.5         # Reduced for precise local mapping
+    minimum_travel_distance: 0.1    # Increased from 0.05
+    minimum_travel_heading: 0.1     # Increased from 0.05 
+    scan_buffer_size: 10
+    scan_buffer_maximum_scan_distance: 7.0
+    link_match_minimum_response_fine: 0.55   # Increased for more strict matching
+    link_scan_maximum_distance: 1.0          # Reduced for more accurate local mapping
 
-    # Loop closure - Made very strict
+    # Loop closure parameters - Made more strict
     do_loop_closing: true
-    loop_search_space: 2.0           # Smaller search space
-    loop_match_minimum_chain_size: 10 # More strict chain matching
-    loop_match_maximum_variance_coarse: 0.5  # Very strict variance
-    loop_match_minimum_response_coarse: 0.7  # Higher threshold
-    loop_match_minimum_response_fine: 0.8    # Higher threshold
+    loop_search_space: 3.0                   # Reduced from 5.0
+    loop_match_minimum_chain_size: 8         # Increased for stricter loop closure
+    loop_match_maximum_variance_coarse: 1.0  # Reduced for stricter matching
+    loop_match_minimum_response_coarse: 0.5  # Increased threshold
+    loop_match_minimum_response_fine: 0.6    # Increased threshold
 
-    # Correlation parameters - Tuned for precision
-    correlation_search_space_dimension: 0.1   # Smaller search space
-    correlation_search_space_resolution: 0.01  # Higher resolution
-    correlation_search_space_smear_deviation: 0.001 # Minimal smearing
+    # Correlation parameters - Fine-tuned for rotation issues
+    correlation_search_space_dimension: 0.2   # Reduced for more precise search
+    correlation_search_space_resolution: 0.005 # Higher resolution for better matching
+    correlation_search_space_smear_deviation: 0.01 # Reduced smearing to prevent ghosts
 
-    # Motion filter parameters - Very strict
-    distance_variance_penalty: 2.0    # High penalty for motion variance
-    angle_variance_penalty: 2.0       # High penalty for rotation variance
-    fine_search_angle_offset: 0.001   # Very fine angle search
+    # Motion filter parameters - Made more strict
+    distance_variance_penalty: 1.5   # Increased from 1.0
+    angle_variance_penalty: 2.0      # Significantly increased from 1.0
+    fine_search_angle_offset: 0.00175        # Reduced for more precise angle search
 
-    # Rotation scoring - Critical for wall accuracy
-    rotation_scoring_search_window: 30        # Larger window
-    rotation_scoring_points_per_window: 15    # More points
-    rotation_scoring_minimum_response: 0.3    # Higher threshold
+    # Rotation scoring - Important for high-speed turns
+    rotation_scoring_search_window: 20        # Increased from 15
+    rotation_scoring_points_per_window: 10    # Increased from 7
+    rotation_scoring_minimum_response: 0.2    # Increased threshold
 
-    # Motion constraints - Limited for accuracy
+    # Motion constraints - Adjusted for your robot's capabilities
     use_velocity_constraints: true
     use_acceleration_constraints: true
     max_velocity_linear: 0.5
-    max_velocity_angular: 0.5     # Further reduced for better rotation accuracy
-    max_acceleration_linear: 1.0   # Reduced for smoother motion
-    max_acceleration_angular: 1.0  # Reduced for smoother rotation
+    max_velocity_angular: 0.8     # Reduced to limit angular motion errors
+    max_acceleration_linear: 2.0
+    max_acceleration_angular: 1.5  # Adjusted to better match robot dynamics
 
-    # Scan Matching Parameters - Fine-tuned for walls
-    coarse_search_angle_offset: 0.05    # Much smaller angle steps
-    coarse_angle_resolution: 0.002      # Very fine resolution
+    # Scan Matching Parameters
+    coarse_search_angle_offset: 0.1          # Reduced from 0.174
+    coarse_angle_resolution: 0.01            # Higher resolution for rotation
     
-    # Additional Parameters
-    use_adaptive_motion_thresholds: false  # Disabled for more consistent behavior
-    matcher_threads: 1                     # Single thread for more deterministic results
+    # Additional Parameters for High-Speed Operation
+    use_adaptive_motion_thresholds: true
+    adaptive_threshold_coef: 1.5
+    matcher_threads: 2                      # Reduced to 2 for more reliable processing
     optimize_on_start: true
-    
-    # Optimization Settings
-    optimization_period: 2.0              # More frequent optimization
-    optimizer_max_iterations: 50          # More iterations for better convergence
-    ceres_loss_function: "HUBER_LOSS"    # Better handling of outliers
+    enable_submaps: true
+    submap_size: 5.0
+    submap_padding: 0.5
+
+    ## Graph Optimization Settings
+    optimization_period: 5.0                 # More frequent optimization
+    optimizer_max_iterations: 30             # More iterations for better convergence
+    solver_plugin: "solver_plugins::CeresSolver"
+    ceres_linear_solver: "SPARSE_NORMAL_CHOLESKY"
+    ceres_preconditioner: "SCHUR_JACOBI"
+    ceres_trust_strategy: "LEVENBERG_MARQUARDT"
+    ceres_dogleg_type: "TRADITIONAL_DOGLEG"
+    ceres_loss_function: "HUBER_LOSS"

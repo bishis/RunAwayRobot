@@ -376,9 +376,9 @@ class NavigationController(Node):
                     
                     # Pass the failure flag to plan_escape
                     escape_point = self.human_avoidance.plan_escape(self.previous_escape_waypoint_failed)
-                    
+                    time.sleep(0.5)
                     if escape_point is not None:
-                        self.send_goal(escape_point)  # Retry escape point
+                        self.send_goal(escape_point)
                     else:
                         self.get_logger().error('Failed to find escape point!')
                         self.previous_escape_waypoint_failed = True
@@ -480,9 +480,6 @@ class NavigationController(Node):
             self.current_goal_handle = None
             self.current_goal = None
             self.is_navigating = False
-
-            if failed_escape:
-                self.start_escape_monitoring()
 
     def cancel_done_callback(self, future):
         """Handle goal cancellation result"""
@@ -679,16 +676,7 @@ class NavigationController(Node):
                         if self.exploration_loop_timer:
                             self.exploration_loop_timer.cancel()
                         self.waypoint_generator.cancel_waypoint()  # Clear any exploration waypoints
-                        
-                        # # MAJOR FIX: Update approach for escape planning
-                        # # 1. First clear any existing costmap except static obstacles
-                        # self.request_costmap_clear()
-                        # # # 3. Reduce the size of the human obstacle temporarily for planning
-                        # self.publish_human_obstacle(radius=0.3)  # Reduced radius temporarily
                     
-                        time.sleep(0.5)
-
-                        # 5. Now plan the escape
                         escape_point = self.human_avoidance.plan_escape()
                         
                         if escape_point is not None:

@@ -38,13 +38,13 @@ slam_toolbox:
     loop_search_space: 3.0                   # Reduced from 5.0
     loop_match_minimum_chain_size: 8         # Increased for stricter loop closure
     loop_match_maximum_variance_coarse: 1.0  # Reduced for stricter matching
-    loop_match_minimum_response_coarse: 0.5  # Increased threshold
-    loop_match_minimum_response_fine: 0.6    # Increased threshold
+    loop_match_minimum_response_coarse: 0.5 
+    loop_match_minimum_response_fine: 0.6    
 
     # Correlation parameters - Fine-tuned for rotation issues
-    correlation_search_space_dimension: 0.2   # Reduced for more precise search
-    correlation_search_space_resolution: 0.005 # Higher resolution for better matching
-    correlation_search_space_smear_deviation: 0.01 # Reduced smearing to prevent ghosts
+    correlation_search_space_dimension: 0.2   
+    correlation_search_space_resolution: 0.05
+    correlation_search_space_smear_deviation: 0.01 
 
     # Motion filter parameters - Made more strict
     distance_variance_penalty: 1.5   # Increased from 1.0
@@ -71,15 +71,15 @@ slam_toolbox:
     # Additional Parameters for High-Speed Operation
     use_adaptive_motion_thresholds: true
     adaptive_threshold_coef: 1.5
-    matcher_threads: 2                      # Reduced to 2 for more reliable processing
+    matcher_threads: 2                      
     optimize_on_start: true
     enable_submaps: true
     submap_size: 5.0
     submap_padding: 0.5
 
     ## Graph Optimization Settings
-    optimization_period: 5.0                 # More frequent optimization
-    optimizer_max_iterations: 30             # More iterations for better convergence
+    optimization_period: 1.0                 
+    optimizer_max_iterations: 30             
     solver_plugin: "solver_plugins::CeresSolver"
     ceres_linear_solver: "SPARSE_NORMAL_CHOLESKY"
     ceres_preconditioner: "SCHUR_JACOBI"

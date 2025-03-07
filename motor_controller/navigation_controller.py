@@ -464,14 +464,6 @@ class NavigationController(Node):
             f'{feedback.distance_remaining:.2f}m'
         )
 
-    def replan_to_waypoint(self):
-        """Replan path to current waypoint after obstacle avoidance"""
-        if self.current_goal:
-            self.get_logger().info('Replanning path to waypoint after avoidance')
-            self.send_goal(self.current_goal)
-        else:
-            self.exploration_loop()
-
     def cancel_current_goal(self):
         """Cancel the current navigation goal if one exists"""
         if self.current_goal_handle is not None:
@@ -1046,19 +1038,6 @@ class NavigationController(Node):
                 self.shake_timer.cancel()
                 self.shake_timer = None
             self.reset_escape_state()
-
-    # Add this method to force path replanning
-    def request_path_replan(self):
-        """Request replanning when human obstacle is detected"""
-        try:
-            if self.make_plan_client.service_is_ready():
-                # Create an empty request
-                request = Empty.Request()
-                # Call the service
-                self.make_plan_client.call_async(request)
-                self.get_logger().info(f'REPLANNED PATH: {str(e)}')
-        except Exception as e:
-            self.get_logger().error(f'Failed to request path replan: {str(e)}')
 
     def check_tracking_timeout(self):
         """Check if we should stop tracking due to not seeing human"""

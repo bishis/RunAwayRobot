@@ -12,8 +12,8 @@ slam_toolbox:
     throttle_scans: 1
     transform_timeout: 0.3    # Reduced back to default - higher values can mask underlying issues
     update_timing: true
-    publish_period: 1.0      # Increased publishing frequency
-    map_update_interval: 5.0  # More frequent map updates
+    publish_period: 0.25      # Increased publishing frequency
+    map_update_interval: 0.5  # More frequent map updates
     max_update_rate: 10.0     # Increased for better high-speed performance
 
     # Map management

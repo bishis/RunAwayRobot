@@ -26,56 +26,63 @@ slam_toolbox:
     process_near_pose: true
     use_scan_matching: true
     use_scan_barycenter: true
-    minimum_travel_distance: 0.05  # Smaller distance for more frequent updates
-    minimum_travel_heading: 0.05   # Smaller rotation for more frequent updates
-    scan_buffer_size: 15           # Increased buffer for better loop closure
-    scan_buffer_maximum_scan_distance: 8.0
-    link_match_minimum_response_fine: 0.5   # Increased for more strict matching
-    link_scan_maximum_distance: 1.5         # Reduced for more accurate local mapping
+    minimum_travel_distance: 0.1    # Increased from 0.05
+    minimum_travel_heading: 0.1     # Increased from 0.05 
+    scan_buffer_size: 10
+    scan_buffer_maximum_scan_distance: 7.0
+    link_match_minimum_response_fine: 0.55   # Increased for more strict matching
+    link_scan_maximum_distance: 1.0          # Reduced for more accurate local mapping
 
     # Loop closure parameters - Made more strict
     do_loop_closing: true
-    loop_search_space: 5.0           # Reduced search space
-    loop_match_minimum_chain_size: 5  # Increased for more reliable loop closure
-    loop_match_maximum_variance_coarse: 2.0  # Reduced for stricter matching
-    loop_match_minimum_response_coarse: 0.4  # Increased threshold
-    loop_match_minimum_response_fine: 0.5    # Increased threshold
+    loop_search_space: 3.0                   # Reduced from 5.0
+    loop_match_minimum_chain_size: 8         # Increased for stricter loop closure
+    loop_match_maximum_variance_coarse: 1.0  # Reduced for stricter matching
+    loop_match_minimum_response_coarse: 0.5  # Increased threshold
+    loop_match_minimum_response_fine: 0.6    # Increased threshold
 
-    # Correlation parameters - Tuned for accuracy
-    correlation_search_space_dimension: 0.3
-    correlation_search_space_resolution: 0.01
-    correlation_search_space_smear_deviation: 0.03
+    # Correlation parameters - Fine-tuned for rotation issues
+    correlation_search_space_dimension: 0.2   # Reduced for more precise search
+    correlation_search_space_resolution: 0.005 # Higher resolution for better matching
+    correlation_search_space_smear_deviation: 0.01 # Reduced smearing to prevent ghosts
 
     # Motion filter parameters - Made more strict
-    distance_variance_penalty: 1.0    # Increased penalty
-    angle_variance_penalty: 1.0       # Increased penalty
-    fine_search_angle_offset: 0.00349 # ~0.2 degrees
+    distance_variance_penalty: 1.5   # Increased from 1.0
+    angle_variance_penalty: 2.0      # Significantly increased from 1.0
+    fine_search_angle_offset: 0.00175        # Reduced for more precise angle search
 
     # Rotation scoring - Important for high-speed turns
-    rotation_scoring_search_window: 15
-    rotation_scoring_points_per_window: 7
-    rotation_scoring_minimum_response: 0.15
+    rotation_scoring_search_window: 20        # Increased from 15
+    rotation_scoring_points_per_window: 10    # Increased from 7
+    rotation_scoring_minimum_response: 0.2    # Increased threshold
 
     # Motion constraints - Adjusted for your robot's capabilities
     use_velocity_constraints: true
     use_acceleration_constraints: true
-    max_velocity_linear: 0.5      # Match your robot's actual max speed
-    max_velocity_angular: 1.0     # Match your robot's actual max rotation
-    max_acceleration_linear: 2.0  # Increased for better tracking
-    max_acceleration_angular: 2.0 # Increased for better tracking
+    max_velocity_linear: 0.5
+    max_velocity_angular: 0.8     # Reduced to limit angular motion errors
+    max_acceleration_linear: 2.0
+    max_acceleration_angular: 1.5  # Adjusted to better match robot dynamics
 
     # Scan Matching Parameters
-    coarse_search_angle_offset: 0.174   # ~10° in radians
-    coarse_angle_resolution: 0.0175     # ~1° in radians
+    coarse_search_angle_offset: 0.1          # Reduced from 0.174
+    coarse_angle_resolution: 0.01            # Higher resolution for rotation
     
     # Additional Parameters for High-Speed Operation
     use_adaptive_motion_thresholds: true
-    adaptive_threshold_coef: 2.0
-    matcher_threads: 4                   # Increase processing threads
-    optimize_on_start: true             # Run optimization at startup
-    submap_size: 10.0                   # Size of submaps for better memory management
+    adaptive_threshold_coef: 1.5
+    matcher_threads: 2                      # Reduced to 2 for more reliable processing
+    optimize_on_start: true
+    enable_submaps: true
+    submap_size: 5.0
+    submap_padding: 0.5
 
     ## Graph Optimization Settings
-    optimization_period: 10.0                 # How frequently (in seconds) to run pose graph optimization
-    optimizer_max_iterations: 20              # Maximum iterations for the pose graph optimizer per run
-    constraint_search_space_time: 5.0         # Time window (in seconds) for considering loop closures
+    optimization_period: 5.0                 # More frequent optimization
+    optimizer_max_iterations: 30             # More iterations for better convergence
+    solver_plugin: "solver_plugins::CeresSolver"
+    ceres_linear_solver: "SPARSE_NORMAL_CHOLESKY"
+    ceres_preconditioner: "SCHUR_JACOBI"
+    ceres_trust_strategy: "LEVENBERG_MARQUARDT"
+    ceres_dogleg_type: "TRADITIONAL_DOGLEG"
+    ceres_loss_function: "HUBER_LOSS"

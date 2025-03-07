@@ -1073,6 +1073,7 @@ class NavigationController(Node):
         time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
         
         if time_since_human > self.human_tracking_timeout:
+            self.request_costmap_clear()
             return True
 
     def publish_empty_pointcloud(self):

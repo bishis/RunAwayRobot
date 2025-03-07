@@ -354,7 +354,7 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       footprint: "[[-0.15, -0.16], [-0.15, 0.16], [0.17, 0.16], [0.17, -0.16]]"
-      footprint_padding: 0.01
+      footprint_padding: 0.05
       resolution: 0.05
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer", "human_layer"]
@@ -376,13 +376,13 @@ global_costmap:
           clearing: true
           marking: true
           data_type: "LaserScan"
-          raytrace_max_range: 10.0
+          raytrace_max_range: 8.0
           raytrace_min_range: 0.3
-          obstacle_max_range: 10.0
+          obstacle_max_range: 8.0
           obstacle_min_range: 0.3
           inf_is_valid: false
           observation_persistence: 1.0 
-          marking_buffers: 1
+          marking_buffers: 2
           clearing_buffers: 1
           filter_speckles: true
 

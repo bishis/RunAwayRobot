@@ -181,7 +181,7 @@ class NavigationController(Node):
         self.stuck_timeout = 10.0     # 5 seconds without movement = stuck
 
         # Add tracking timeout parameters
-        self.human_tracking_timeout = 2.0  # Wait 2 seconds before ending tracking
+        self.human_tracking_timeout = 3.0  # Wait 2 seconds before ending tracking
 
         # Add parameter for explicitly clearing costmaps
         self.clear_costmaps_after_escape = True
@@ -247,10 +247,6 @@ class NavigationController(Node):
         """Modified exploration loop to handle human tracking and map completion"""
         # First check if we've lost track of human
         if self.check_tracking_timeout():
-            return
-        
-        # Only proceed if not tracking
-        if self.is_tracking_human:
             return
             
         try:
@@ -1072,8 +1068,7 @@ class NavigationController(Node):
         current_time = self.get_clock().now()
         time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
         
-        if time_since_human > self.human_tracking_timeout:
-            self.request_costmap_clear()
+        if time_since_human < self.human_tracking_timeout:
             return True
 
     def publish_empty_pointcloud(self):

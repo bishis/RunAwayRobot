@@ -1070,36 +1070,9 @@ class NavigationController(Node):
         
         if time_since_human < self.human_tracking_timeout:
             return True
+        else:
+            return False
 
-    def publish_empty_pointcloud(self):
-        """Publish empty point cloud to clear obstacles"""
-        try:
-            # Create empty point cloud
-            pc2 = PointCloud2()
-            pc2.header.stamp = self.get_clock().now().to_msg()
-            pc2.header.frame_id = "map"
-            
-            # Define fields but no points
-            fields = [
-                PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
-                PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
-                PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
-                PointField(name='intensity', offset=12, datatype=PointField.FLOAT32, count=1),
-            ]
-            pc2.fields = fields
-            pc2.height = 1
-            pc2.width = 0  # Empty
-            pc2.point_step = 16
-            pc2.row_step = 0
-            pc2.is_dense = True
-            pc2.data = bytearray()
-            
-            # Publish empty point cloud
-            self.human_obstacles_pub.publish(pc2)
-            self.get_logger().info('Published empty point cloud to clear human obstacles')
-            
-        except Exception as e:
-            self.get_logger().error(f'Error publishing empty point cloud: {str(e)}')
 
 def main(args=None):
     rclpy.init(args=args)

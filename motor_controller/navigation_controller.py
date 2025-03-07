@@ -187,6 +187,9 @@ class NavigationController(Node):
         self.clear_costmaps_after_escape = True
         self.clear_after_human = True
 
+        # Add after other initializations
+        self.is_executing_escape = False
+
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
         self.latest_scan = msg
@@ -432,11 +435,14 @@ class NavigationController(Node):
         """Reset all escape-related state"""
         self.reset_goal_state()  # Reset base goal state first
         self.escape_attempts = 0
+        self.previous_escape_waypoint_failed = False
         
-        # Cancel and reset escape monitoring
-        if self.escape_monitor_timer:
+        # If there's an escape monitor running, cancel it
+        if hasattr(self, 'escape_monitor_timer') and self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
             self.escape_monitor_timer = None
+        
+        self.get_logger().info('Escape state reset')
 
     def reset_navigation_state(self):
         """Reset navigation state and try new waypoint"""
@@ -932,6 +938,12 @@ class NavigationController(Node):
 
     def start_shake_defense(self):
         """Start a shaking motion to try to escape when trapped"""
+        
+        # Don't start shake defense if an escape is in progress
+        if self.is_executing_escape:
+            self.get_logger().info('Escape plan already in progress, not starting shake defense')
+            return
+        
         self.get_logger().warn('Starting shake defense - robot is trapped!')
         
         # Cancel any current navigation goals
@@ -976,6 +988,14 @@ class NavigationController(Node):
     def execute_shake_motion(self):
         """Execute one step of the shake motion"""
         try:
+            # Check if we're currently trying to escape - if so, don't shake
+            if self.is_executing_escape:
+                self.get_logger().info('Escape plan in progress, not executing shake motion')
+                if hasattr(self, 'shake_timer') and self.shake_timer:
+                    self.shake_timer.cancel()
+                    self.shake_timer = None
+                return
+            
             # Check if human is still present
             current_time = self.get_clock().now()
             human_still_present = False
@@ -1052,7 +1072,7 @@ class NavigationController(Node):
         current_time = self.get_clock().now()
         time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
         
-        if time_since_human < self.human_tracking_timeout:
+        if time_since_human > self.human_tracking_timeout:
             return True
 
     def publish_empty_pointcloud(self):

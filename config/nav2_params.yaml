@@ -354,78 +354,78 @@ local_costmap:
         track_unknown_space: false
         footprint_clearing_enabled: true
 
+# global_costmap:
 global_costmap:
-  global_costmap:
-    ros__parameters:
-      update_frequency: 5.0
-      publish_frequency: 1.0
-      global_frame: map
-      robot_base_frame: base_link
-      footprint: "[[-0.15, -0.16], [-0.15, 0.16], [0.17, 0.16], [0.17, -0.16]]"
-      footprint_padding: 0.1
-      resolution: 0.1
-      track_unknown_space: false
-      trinary_costmap: true
-      unknown_cost_value: 255
-      lethal_cost_threshold: 100
-      transform_tolerance: 0.3
-      initial_transform_timeout: 60.0
-      always_send_full_costmap: false
-      plugins: ["static_layer", "obstacle_layer", "inflation_layer", "human_layer"]
-      obstacle_layer:
-        plugin: "nav2_costmap_2d::ObstacleLayer"
-        enabled: true
-        observation_sources: scan
-        scan:
-          topic: /scan
-          max_obstacle_height: 2.0
-          clearing: true
-          marking: true
-          data_type: "LaserScan"
-          obstacle_max_range: 10.0
-          raytrace_max_range: 10.0
-          obstacle_min_range: 0.2
-          observation_persistence: 0.1
-      static_layer:
-        plugin: "nav2_costmap_2d::StaticLayer"
-        enabled: true
-        map_subscribe_transient_local: true
-        subscribe_to_updates: true
-        transform_tolerance: 0.1
-      inflation_layer:
-        plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 2.0
-        inflation_radius: 0.4
+  ros__parameters:
+    update_frequency: 5.0
+    publish_frequency: 1.0
+    global_frame: map
+    robot_base_frame: base_link
+    footprint: "[[-0.15, -0.16], [-0.15, 0.16], [0.17, 0.16], [0.17, -0.16]]"
+    footprint_padding: 0.1
+    resolution: 0.1
+    track_unknown_space: false
+    trinary_costmap: true
+    unknown_cost_value: 255
+    lethal_cost_threshold: 100
+    transform_tolerance: 0.3
+    initial_transform_timeout: 60.0
+    always_send_full_costmap: false
+    plugins: ["static_layer", "obstacle_layer", "inflation_layer", "human_layer"]
+    obstacle_layer:
+      plugin: "nav2_costmap_2d::ObstacleLayer"
+      enabled: true
+      observation_sources: scan
+      scan:
+        topic: /scan
+        max_obstacle_height: 2.0
+        clearing: true
+        marking: true
+        data_type: "LaserScan"
+        obstacle_max_range: 10.0
+        raytrace_max_range: 10.0
+        obstacle_min_range: 0.2
+        observation_persistence: 0.1
+    static_layer:
+      plugin: "nav2_costmap_2d::StaticLayer"
+      enabled: true
+      map_subscribe_transient_local: true
+      subscribe_to_updates: true
+      transform_tolerance: 0.1
+    inflation_layer:
+      plugin: "nav2_costmap_2d::InflationLayer"
+      cost_scaling_factor: 2.0
+      inflation_radius: 0.4
+      
+    # Update human layer config
+    human_layer:
+      plugin: "nav2_costmap_2d::VoxelLayer"
+      enabled: true
+      observation_sources: human_obstacles
+      human_obstacles:
+        topic: /human_obstacles
+        max_obstacle_height: 2.0
+        min_obstacle_height: 0.1
+        clearing: true
+        marking: true
+        sensor_frame: map
+        data_type: "PointCloud2"
+        expected_update_rate: 0.0
+        observation_persistence: 2.0
+        obstacle_range: 5.0
+        raytrace_range: 5.0
+        mark_threshold: 1
         
-      # Update human layer config
-      human_layer:
-        plugin: "nav2_costmap_2d::VoxelLayer"
-        enabled: true
-        observation_sources: human_obstacles
-        human_obstacles:
-          topic: /human_obstacles
-          max_obstacle_height: 2.0
-          min_obstacle_height: 0.1
-          clearing: true
-          marking: true
-          sensor_frame: map
-          data_type: "PointCloud2"
-          expected_update_rate: 0.0
-          observation_persistence: 2.0
-          obstacle_range: 5.0
-          raytrace_range: 5.0
-          mark_threshold: 1
-          
-        # VoxelLayer specific parameters
-        publish_voxel_map: true
-        origin_z: 0.0
-        z_resolution: 0.2
-        z_voxels: 10
-        unknown_threshold: 15
-        mark_threshold: 0
-        combination_method: 1
-        track_unknown_space: false
-        footprint_clearing_enabled: true
+      # VoxelLayer specific parameters
+      publish_voxel_map: true
+      origin_z: 0.0
+      z_resolution: 0.2
+      z_voxels: 10
+      unknown_threshold: 15
+      mark_threshold: 0
+      combination_method: 1
+      track_unknown_space: false
+      footprint_clearing_enabled: true
 
 collision_monitor:
   ros__parameters:

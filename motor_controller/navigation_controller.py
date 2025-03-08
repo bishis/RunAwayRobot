@@ -544,10 +544,9 @@ class NavigationController(Node):
                 else:
                     self.get_logger().info('Canceling exploration goal')
                 
-                # Send cancel request safely
+                # Send cancel request without callback
                 try:
-                    cancel_future = self.current_goal_handle.cancel_goal_async()
-                    cancel_future.add_done_callback(self.cancel_done_callback)
+                    self.current_goal_handle.cancel_goal_async()
                 except Exception as e:
                     self.get_logger().error(f'Error sending cancel request: {str(e)}')
                 
@@ -556,7 +555,7 @@ class NavigationController(Node):
                 self.current_goal = None
                 self.is_navigating = False
                 
-                # Also clear the costmap to ensure a fresh start
+                # Clear costmaps to ensure a fresh start
                 self.request_costmap_clear()
                 
                 return True

@@ -16,6 +16,12 @@ class HumanEscape(WaypointGenerator):
         self.last_human_distance_to_waypoint = float('inf')
         self.min_intercept_distance = 1.0  # Minimum distance to consider human intercepting
         
+        # Initialize waypoint tracking attributes
+        self.previous_escape_waypoint = None
+        self.failed_waypoints = []
+        self.previous_waypoints = []
+        self.human_positions = []
+        
     def is_human_intercepting_escape(self):
         """Check if human is intercepting current escape path"""
         if not hasattr(self, 'previous_escape_waypoint') or self.previous_escape_waypoint is None:

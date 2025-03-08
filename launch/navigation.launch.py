@@ -158,8 +158,8 @@ def generate_launch_description():
 
     # Add the actions to launch all of the navigation nodes with proper sequencing
     # First launch costmaps
-    ld.add_action(start_global_costmap_cmd)
     ld.add_action(start_local_costmap_cmd)
+    ld.add_action(start_global_costmap_cmd)
     
     # Then add a delay before starting other components
     ld.add_action(TimerAction(

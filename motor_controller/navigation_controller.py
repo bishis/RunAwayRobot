@@ -21,6 +21,7 @@ from nav2_msgs.srv import ClearEntireCostmap
 from nav2_msgs.msg import Costmap
 from std_msgs.msg import Header
 import struct
+from .processors.human_escape import HumanEscape
 
 class NavigationController(Node):
     def __init__(self):
@@ -597,7 +598,7 @@ class NavigationController(Node):
             if self.is_escape_waypoint(self.current_goal) and hasattr(self.human_avoidance, 'waypoint_generator'):
                 # Check if we have a HumanEscape generator
                 waypoint_generator = self.human_avoidance.waypoint_generator
-                if isinstance(waypoint_generator, self.human_avoidance.__class__.HumanEscape):
+                if isinstance(waypoint_generator, HumanEscape):
                     # Check if human is intercepting and we need a new escape path
                     new_escape_point = waypoint_generator.check_and_update_escape_if_needed()
                     if new_escape_point is not None:

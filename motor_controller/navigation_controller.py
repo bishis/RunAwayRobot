@@ -374,8 +374,8 @@ class NavigationController(Node):
                 self.escape_attempts += 1
                 if self.escape_attempts < self.max_escape_attempts:
                     self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
+                    self.cancel_current_goal()
                     escape_point = self.human_avoidance.plan_escape(self.previous_escape_waypoint_failed)
-                    time.sleep(0.5)
                     if escape_point is not None:
                         self.send_goal(escape_point)
                     else:
@@ -391,6 +391,7 @@ class NavigationController(Node):
                     self.get_logger().error('Max escape attempts reached, giving up escape plan')
                     self.get_logger().warn('Escape plan failed')
                     self.cancel_current_goal()
+                    self.start_escape_monitoring()
                     return
             elif status != GoalStatus.STATUS_SUCCEEDED and not self.is_escape_waypoint(self.current_goal):
                 self.get_logger().warn(f'Navigation failed with status: {status}')

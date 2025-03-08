@@ -77,7 +77,6 @@ class NavigationController(Node):
         self.scan_sub = self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         self.map_sub = self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
         self.marker_pub = self.create_publisher(MarkerArray, 'exploration_markers', 10)
-        self.los_debug_pub = self.create_publisher(MarkerArray, 'los_debug_markers', 10)
         
         # Navigation action client
         self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')

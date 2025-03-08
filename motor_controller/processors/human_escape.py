@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from geometry_msgs.msg import PoseStamped, Marker, MarkerArray, Point
+from geometry_msgs.msg import PoseStamped
 import numpy as np
 import math
 from scipy.ndimage import distance_transform_edt
@@ -411,62 +411,6 @@ class HumanEscape(WaypointGenerator):
                 excess = len(self.failed_waypoints) - 10
                 self.failed_waypoints = self.failed_waypoints[excess:]
                 self.node.get_logger().info(f'Pruned {excess} oldest failed waypoints')
-            
-            # Add visualization for line-of-sight testing
-            def visualize_los_test(best_visible_point, best_hidden_point, human_pos):
-                marker_array = MarkerArray()
-                
-                # Create a marker for the line of sight
-                if best_hidden_point is not None:
-                    # Line from human to hidden point (Red)
-                    line_marker = Marker()
-                    line_marker.header.frame_id = 'map'
-                    line_marker.header.stamp = self.node.get_clock().now().to_msg()
-                    line_marker.id = 1
-                    line_marker.type = Marker.LINE_STRIP
-                    line_marker.action = Marker.ADD
-                    line_marker.pose.orientation.w = 1.0
-                    line_marker.scale.x = 0.05  # Line width
-                    line_marker.color.r = 1.0
-                    line_marker.color.a = 0.7
-                    
-                    # Add points for the line
-                    p1 = Point()
-                    p1.x = human_pos[0]
-                    p1.y = human_pos[1]
-                    
-                    p2 = Point()
-                    p2.x = best_hidden_point[0]
-                    p2.y = best_hidden_point[1]
-                    
-                    line_marker.points = [p1, p2]
-                    marker_array.markers.append(line_marker)
-                    
-                    # Marker for the hidden point (Green sphere)
-                    point_marker = Marker()
-                    point_marker.header.frame_id = 'map'
-                    point_marker.header.stamp = self.node.get_clock().now().to_msg()
-                    point_marker.id = 2
-                    point_marker.type = Marker.SPHERE
-                    point_marker.action = Marker.ADD
-                    point_marker.pose.position.x = best_hidden_point[0]
-                    point_marker.pose.position.y = best_hidden_point[1]
-                    point_marker.pose.orientation.w = 1.0
-                    point_marker.scale.x = 0.3
-                    point_marker.scale.y = 0.3
-                    point_marker.scale.z = 0.3
-                    point_marker.color.g = 1.0
-                    point_marker.color.a = 0.8
-                    marker_array.markers.append(point_marker)
-                
-                if marker_array.markers:
-                    self.node.los_debug_pub.publish(marker_array)
-            
-            if best_los_point is not None:
-                self.node.get_logger().info(f'Found hidden point {best_los_point[0]:.2f}, {best_los_point[1]:.2f}')
-                visualize_los_test(best_point, best_los_point, (human_x, human_y))
-            else:
-                self.node.get_logger().warn('No hidden points found - all points visible to human')
             
             return waypoint
         

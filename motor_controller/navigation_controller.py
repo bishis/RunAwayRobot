@@ -191,10 +191,6 @@ class NavigationController(Node):
         # Add after other initializations
         self.is_executing_escape = False
 
-        # Add new costmap clearing clients
-        self.global_costmap_clear_client = self.create_client(ClearEntireCostmap, '/global_costmap/clear_entirely_global_costmap')
-        self.local_costmap_clear_client = self.create_client(ClearEntireCostmap, '/local_costmap/clear_entirely_local_costmap')
-
         # Add these parameters after other initializations
         self.tf_timeout = 0.1  # Short timeout for transform lookups
         self.tf_retry_count = 3  # Number of retries for transform lookups
@@ -554,9 +550,6 @@ class NavigationController(Node):
                 self.current_goal_handle = None
                 self.current_goal = None
                 self.is_navigating = False
-                
-                # Clear costmaps to ensure a fresh start
-                self.request_costmap_clear()
                 
                 return True
             else:
@@ -1000,34 +993,6 @@ class NavigationController(Node):
         self.shake_timer = self.create_timer(0.2, self.execute_shake_motion)
         
         self.get_logger().info('Shake defense initiated')
-
-    def request_costmap_clear(self):
-        """Request clearing of both global and local costmaps"""
-        try:
-            # Only proceed if clients are available
-            if not self.global_costmap_clear_client.wait_for_service(timeout_sec=0.5):
-                self.get_logger().warn('Global costmap clear service not available')
-                return False
-            
-            if not self.local_costmap_clear_client.wait_for_service(timeout_sec=0.5):
-                self.get_logger().warn('Local costmap clear service not available')
-                return False
-            
-            # Clear global costmap
-            global_request = ClearEntireCostmap.Request()
-            global_future = self.global_costmap_clear_client.call_async(global_request)
-            
-            # Clear local costmap
-            local_request = ClearEntireCostmap.Request()
-            local_future = self.local_costmap_clear_client.call_async(local_request)
-            
-            # Log clearing request
-            self.get_logger().info('Requested clearing of costmaps to improve planning')
-            return True
-            
-        except Exception as e:
-            self.get_logger().error(f'Error clearing costmaps: {str(e)}')
-            return False
         
     def execute_shake_motion(self):
         """Execute one step of the shake motion"""
@@ -1053,9 +1018,7 @@ class NavigationController(Node):
                 # Human is gone, we can stop shaking
                 self.get_logger().info('Human no longer detected, stopping shake defense')
                 self.wheel_speeds_pub.publish(Twist())  # Stop motion
-                
-                # Clear costmaps after human is gone
-                self.request_costmap_clear()
+            
                 self.get_logger().info('Clearing costmaps after human departed')
                 
                 if hasattr(self, 'shake_timer') and self.shake_timer:

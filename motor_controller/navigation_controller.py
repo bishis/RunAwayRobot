@@ -484,42 +484,38 @@ class NavigationController(Node):
             f'{feedback.distance_remaining:.2f}m'
         )
 
-    def cancel_current_goal(self, failed_escape=False):
-        """Cancel the current navigation goal"""
-        if self.current_goal is None:
-            return True  # No goal to cancel
-        
+    def cancel_current_goal(self):
+        """Cancel the current navigation goal if one exists"""
         try:
-            self.get_logger().info("Canceling current goal")
-            
-            # If we're cancelling due to escape failure, mark it
-            if failed_escape and self.is_escape_waypoint(self.current_goal):
-                self.previous_escape_waypoint_failed = True
-
-            # Set state first to prevent race conditions
-            self.is_navigating = False
-            self.current_goal = None
-            
-            # Check if goal handle exists before trying to cancel
-            if self.current_goal_handle and self.current_goal_handle.is_active:
-                cancel_future = self.current_goal_handle.cancel_goal_async()
-                # Wait briefly for cancellation to complete
-                rclpy.spin_until_future_complete(self, cancel_future, timeout_sec=0.5)
-                if cancel_future.done():
-                    self.get_logger().info("Goal successfully canceled")
-                    return True
+            if self.current_goal_handle is not None:
+                self.clear_visualization_markers()
+                
+                # Log what type of goal we're cancelling
+                if self.is_escape_waypoint(self.current_goal):
+                    self.get_logger().info('Canceling escape goal')
                 else:
-                    self.get_logger().warn("Goal cancellation timed out")
-                    return False
-            else:
-                self.get_logger().info("No active goal to cancel")
+                    self.get_logger().info('Canceling exploration goal')
+                
+                # Send cancel request - don't check is_active as it doesn't exist
+                cancel_future = self.current_goal_handle.cancel_goal_async()
+                cancel_future.add_done_callback(self.cancel_done_callback)
+                
+                # Reset goal tracking state
+                self.current_goal_handle = None
+                self.current_goal = None
+                self.is_navigating = False
+                
                 return True
+            else:
+                self.get_logger().info('No active goal to cancel')
+                return False
             
         except Exception as e:
-            self.get_logger().error(f'Error canceling goal: {str(e)}')
-            # Reset state anyway to avoid getting stuck
-            self.is_navigating = False
+            self.get_logger().error(f'Error cancelling goal: {str(e)}')
+            # Still reset state on error
+            self.current_goal_handle = None
             self.current_goal = None
+            self.is_navigating = False
             return False
 
     def distance_to_goal(self, goal):

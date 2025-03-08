@@ -373,8 +373,6 @@ class NavigationController(Node):
                 self.escape_attempts += 1
                 if self.escape_attempts < self.max_escape_attempts:
                     self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
-                    
-                    # Pass the failure flag to plan_escape
                     escape_point = self.human_avoidance.plan_escape(self.previous_escape_waypoint_failed)
                     time.sleep(0.5)
                     if escape_point is not None:
@@ -595,6 +593,18 @@ class NavigationController(Node):
                 self.last_position_check = current_time
                 self.last_check_position = current_position
             
+            # Add dynamic escape path monitoring
+            if self.is_escape_waypoint(self.current_goal) and hasattr(self.human_avoidance, 'waypoint_generator'):
+                # Check if we have a HumanEscape generator
+                waypoint_generator = self.human_avoidance.waypoint_generator
+                if isinstance(waypoint_generator, self.human_avoidance.__class__.HumanEscape):
+                    # Check if human is intercepting and we need a new escape path
+                    new_escape_point = waypoint_generator.check_and_update_escape_if_needed()
+                    if new_escape_point is not None:
+                        self.get_logger().warn('Updating escape path - human interception detected')
+                        self.send_goal(new_escape_point)
+                        return
+            
         except Exception as e:
             self.get_logger().error(f'Error checking goal progress: {str(e)}')
 
@@ -621,7 +631,7 @@ class NavigationController(Node):
             human_x = msg.pose.position.x
             human_y = msg.pose.position.y
             
-            # Update last known human position and timestamp
+            # Always update last known human position and timestamp, even during escape
             self.last_human_position = (human_x, human_y)
             self.last_human_timestamp = self.get_clock().now()
 
@@ -891,7 +901,6 @@ class NavigationController(Node):
             
             # Publish point cloud
             self.human_obstacles_pub.publish(pc2)
-            
 
             # Add time information to logging
             time_info = ""

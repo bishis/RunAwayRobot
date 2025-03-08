@@ -18,7 +18,7 @@ def normalize_angle(angle):
     return angle
 
 class HumanAvoidanceController:
-    def __init__(self, node, waypoint_generator):
+    def __init__(self, node, waypoint_generator=None):
         """
         Initialize the human avoidance controller
         
@@ -27,7 +27,13 @@ class HumanAvoidanceController:
             waypoint_generator: WaypointGenerator instance for exploration
         """
         self.node = node
-        self.waypoint_generator = waypoint_generator
+        
+        # Initialize with proper generator for escape planning
+        if waypoint_generator is None:
+            self.waypoint_generator = HumanEscape(node)
+        else:
+            self.waypoint_generator = waypoint_generator
+        
         # Add escape planner
         self.escape_planner = HumanEscape(node)
         

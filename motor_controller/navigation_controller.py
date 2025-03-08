@@ -191,6 +191,10 @@ class NavigationController(Node):
         # Add after other initializations
         self.is_executing_escape = False
 
+        # Add new costmap clearing clients
+        self.global_costmap_clear_client = self.create_client(ClearEntireCostmap, '/global_costmap/clear_entirely_global_costmap')
+        self.local_costmap_clear_client = self.create_client(ClearEntireCostmap, '/local_costmap/clear_entirely_local_costmap')
+
     def scan_callback(self, msg: LaserScan):
         """Store latest scan data"""
         self.latest_scan = msg
@@ -496,14 +500,20 @@ class NavigationController(Node):
                 else:
                     self.get_logger().info('Canceling exploration goal')
                 
-                # Send cancel request - don't check is_active as it doesn't exist
-                cancel_future = self.current_goal_handle.cancel_goal_async()
-                cancel_future.add_done_callback(self.cancel_done_callback)
+                # Send cancel request safely
+                try:
+                    cancel_future = self.current_goal_handle.cancel_goal_async()
+                    cancel_future.add_done_callback(self.cancel_done_callback)
+                except Exception as e:
+                    self.get_logger().error(f'Error sending cancel request: {str(e)}')
                 
                 # Reset goal tracking state
                 self.current_goal_handle = None
                 self.current_goal = None
                 self.is_navigating = False
+                
+                # Also clear the costmap to ensure a fresh start
+                self.request_costmap_clear()
                 
                 return True
             else:
@@ -983,28 +993,31 @@ class NavigationController(Node):
         self.get_logger().info('Shake defense initiated')
 
     def request_costmap_clear(self):
-        """Request clearing of the global costmap except static layer"""
+        """Request clearing of both global and local costmaps"""
         try:
-            # Create service client for clearing costmap
-            clear_client = self.create_client(ClearEntireCostmap, '/global_costmap/clear_entirely_global_costmap')
-            
-            # Wait for service to be available with short timeout
-            if not clear_client.wait_for_service(timeout_sec=0.5):
-                self.get_logger().warn('Clear costmap service not available, skipping clear')
+            # Only proceed if clients are available
+            if not self.global_costmap_clear_client.wait_for_service(timeout_sec=0.5):
+                self.get_logger().warn('Global costmap clear service not available')
                 return False
-                
-            # Create request
-            request = ClearEntireCostmap.Request()
             
-            # Call service asynchronously
-            future = clear_client.call_async(request)
+            if not self.local_costmap_clear_client.wait_for_service(timeout_sec=0.5):
+                self.get_logger().warn('Local costmap clear service not available')
+                return False
             
-            # Log the request
-            self.get_logger().info('Requested costmap clear for escape planning')
+            # Clear global costmap
+            global_request = ClearEntireCostmap.Request()
+            global_future = self.global_costmap_clear_client.call_async(global_request)
+            
+            # Clear local costmap
+            local_request = ClearEntireCostmap.Request()
+            local_future = self.local_costmap_clear_client.call_async(local_request)
+            
+            # Log clearing request
+            self.get_logger().info('Requested clearing of costmaps to improve planning')
             return True
             
         except Exception as e:
-            self.get_logger().error(f'Failed to clear costmap: {str(e)}')
+            self.get_logger().error(f'Error clearing costmaps: {str(e)}')
             return False
         
     def execute_shake_motion(self):

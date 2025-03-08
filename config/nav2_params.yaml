@@ -282,8 +282,6 @@ local_costmap:
       update_frequency: 5.0    # Keep at default
       publish_frequency: 2.0   # Reduced from 5.0 to reduce processing load
       
-      # Other key settings
-      transform_tolerance: 0.3  # Match global map setting
       
       # Keep other settings
       global_frame: odom
@@ -292,8 +290,7 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      tf_buffer_duration: 30.0
-      always_send_full_costmap: false
+      always_send_full_costmap: true
 
       plugins: ["voxel_layer", "inflation_layer"]
 

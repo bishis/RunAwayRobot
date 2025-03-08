@@ -195,24 +195,68 @@ class NavigationController(Node):
         self.global_costmap_clear_client = self.create_client(ClearEntireCostmap, '/global_costmap/clear_entirely_global_costmap')
         self.local_costmap_clear_client = self.create_client(ClearEntireCostmap, '/local_costmap/clear_entirely_local_costmap')
 
+        # Add these parameters after other initializations
+        self.tf_timeout = 0.1  # Short timeout for transform lookups
+        self.tf_retry_count = 3  # Number of retries for transform lookups
+        self.tf_fallback_to_latest = True  # Use latest available transform if requested time is not available
+        self.tf_use_sim_time = False  # Whether using simulation time
+        self.tf_last_error_time = self.get_clock().now()  # Track last error time to avoid spamming logs
+
+    def get_current_pose(self):
+        """Get current robot pose with robust transform handling"""
+        try:
+            # Try multiple times with increasing timeouts
+            for attempt in range(self.tf_retry_count):
+                try:
+                    # Use current time for transform lookup
+                    current_time = self.get_clock().now()
+                    transform = self.tf_buffer.lookup_transform(
+                        'map',
+                        'base_link',
+                        rclpy.time.Time(),  # Use latest available transform
+                        timeout=rclpy.duration.Duration(seconds=self.tf_timeout * (attempt + 1))
+                    )
+                    
+                    # Create pose from transform
+                    pose = PoseStamped()
+                    pose.header.frame_id = 'map'
+                    pose.header.stamp = current_time.to_msg()
+                    pose.pose.position.x = transform.transform.translation.x
+                    pose.pose.position.y = transform.transform.translation.y
+                    pose.pose.position.z = transform.transform.translation.z
+                    pose.pose.orientation = transform.transform.rotation
+                    
+                    # Update current pose
+                    self.current_pose = pose
+                    return pose
+                    
+                except TransformException:
+                    # Log warning only on last attempt to avoid spamming
+                    if attempt == self.tf_retry_count - 1:
+                        # Rate limit error messages
+                        current_time = self.get_clock().now()
+                        if (current_time - self.tf_last_error_time).nanoseconds / 1e9 > 5.0:  # Only log every 5 seconds
+                            self.get_logger().warn(f'Transform lookup failed after {attempt+1} attempts. Using last known pose.')
+                            self.tf_last_error_time = current_time
+                    continue
+            
+            # If all attempts failed, return last known pose
+            return self.current_pose
+            
+        except Exception as e:
+            # Rate limit error messages
+            current_time = self.get_clock().now()
+            if (current_time - self.tf_last_error_time).nanoseconds / 1e9 > 5.0:
+                self.get_logger().error(f'Error getting current pose: {str(e)}')
+                self.tf_last_error_time = current_time
+            return self.current_pose
+
     def scan_callback(self, msg: LaserScan):
-        """Store latest scan data"""
+        """Store latest scan data with robust transform handling"""
         self.latest_scan = msg
         
-        # Update current_pose based on the latest transform
-        try:
-            transform = self.tf_buffer.lookup_transform(
-                'map',
-                'base_link',
-                rclpy.time.Time()
-            )
-            # Update current_pose with the latest transform
-            self.current_pose.pose.position.x = transform.transform.translation.x
-            self.current_pose.pose.position.y = transform.transform.translation.y
-            self.current_pose.pose.position.z = transform.transform.translation.z
-            self.current_pose.pose.orientation = transform.transform.rotation
-        except TransformException:
-            self.get_logger().warn('Could not get robot position from transform')
+        # Update current_pose using the improved method
+        self.current_pose = self.get_current_pose()
         
         # Pass scan to human avoidance controller
         if hasattr(self, 'human_avoidance'):
@@ -873,27 +917,19 @@ class NavigationController(Node):
             self.get_logger().error(f'Error clearing markers: {str(e)}')
             
     def publish_human_obstacle(self, radius=0.25):
-        """Publish human obstacle positions as PointCloud2 with specified radius"""
+        """Publish human obstacle as PointCloud2 with direct coordinates"""
         if self.last_human_position is None:
             return
         
-        # Check if we should still show the obstacle
-        if self.last_human_timestamp is not None:
-            current_time = self.get_clock().now()
-            time_since_detection = (current_time - self.last_human_timestamp).nanoseconds / 1e9
-            
-            if time_since_detection > self.human_obstacle_timeout:
-                # Clear the obstacle after timeout
-                self.get_logger().info('Clearing human obstacle - detection timeout')
-                return
-        
         try:
-            # Create point cloud message
+            # Create point cloud message with current timestamp
+            # Using current time instead of trying to synchronize with transforms
             pc2 = PointCloud2()
-            pc2.header.stamp = self.get_clock().now().to_msg()
-            pc2.header.frame_id = "map"
+            current_time = self.get_clock().now()
+            pc2.header.stamp = current_time.to_msg()
+            pc2.header.frame_id = "map"  # Use map frame directly to avoid transform issues
             
-            # Define fields for x, y, z coordinates
+            # Define fields
             fields = [
                 PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
                 PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
@@ -902,63 +938,37 @@ class NavigationController(Node):
             ]
             pc2.fields = fields
             
-            # Generate dense point cloud around human
+            # Generate points - simplify to reduce processing load
             points = []
             human_x, human_y = self.last_human_position
             
-            # Create a solid circle obstacle instead of a donut
-            resolution = 0.03  # Higher resolution for smoother obstacle
-            
-            # Use multiple height levels for the voxel representation (between 0.1m and 1.7m)
-            height_levels = [0.1, 0.4, 0.7, 1.0, 1.3, 1.7]  # Represent human at various heights
+            # Use fewer height levels and lower resolution to reduce processing
+            height_levels = [0.1, 0.7, 1.4]  # Reduced height levels
+            resolution = 0.05  # Reduced resolution
             
             for height in height_levels:
                 for dx in np.arange(-radius, radius + resolution, resolution):
                     for dy in np.arange(-radius, radius + resolution, resolution):
                         dist_sq = dx*dx + dy*dy
-                        # Only add points within radius (solid circle)
                         if dist_sq <= radius*radius:
-                            # Calculate intensity - higher at center, slightly lower at edges
-                            dist = math.sqrt(dist_sq)
-                            intensity_ratio = dist / radius  # 0 at center, 1 at edge
-                            # Use 254 (lethal) near center, decreasing to 245 at edges
-                            intensity = 254.0 - (1.0 * intensity_ratio)
-                            
-                            # Adjust for fade based on time
-                            if self.last_human_timestamp is not None:
-                                time_since_detection = (self.get_clock().now() - self.last_human_timestamp).nanoseconds / 1e9
-                                fade_ratio = max(0.0, (self.human_obstacle_timeout - time_since_detection) / self.human_obstacle_timeout)
-                                intensity *= fade_ratio
-                            
-                            # Add point with proper z-coordinate 
+                            intensity = 254.0
                             points.append((human_x + dx, human_y + dy, height, intensity))
-
-            # Pack points into PointCloud2
+            
+            # Pack point cloud
             pc2.height = 1
             pc2.width = len(points)
-            pc2.point_step = 16  # 4 fields * 4 bytes
+            pc2.point_step = 16
             pc2.row_step = pc2.point_step * pc2.width
             pc2.is_dense = True
             
-            # Pack points into binary array
+            # Pack data
             point_data = bytearray()
             for p in points:
                 point_data.extend(struct.pack('ffff', *p))
             pc2.data = point_data
             
-            # Publish point cloud
+            # Publish
             self.human_obstacles_pub.publish(pc2)
-
-            # Add time information to logging
-            time_info = ""
-            if self.last_human_timestamp is not None:
-                time_since = (self.get_clock().now() - self.last_human_timestamp).nanoseconds / 1e9
-                time_info = f" (last seen {time_since:.1f}s ago)"
-            
-            self.get_logger().info(
-                f'Published solid circle human obstacle at ({human_x:.2f}, {human_y:.2f}) '
-                f'with radius {radius}m{time_info}'
-            )
             
         except Exception as e:
             self.get_logger().error(f'Error publishing human obstacle: {str(e)}')

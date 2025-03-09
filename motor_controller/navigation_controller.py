@@ -292,6 +292,8 @@ class NavigationController(Node):
         """Modified exploration loop to handle human tracking and map completion"""
         # First check if we've lost track of human
         if self.check_tracking_timeout():
+            # FIXING: If actively tracking human, pause exploration
+            self.get_logger().debug('Actively tracking human, pausing exploration')
             return
             
         try:
@@ -1066,9 +1068,14 @@ class NavigationController(Node):
         current_time = self.get_clock().now()
         time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
         
+        # If we've seen the human recently, continue tracking and pause exploration
         if time_since_human < self.human_tracking_timeout:
+            # FIXING: Return True to indicate we're actively tracking and should pause exploration
             return True
         else:
+            # If we haven't seen the human for a while, switch back to exploration
+            self.get_logger().info(f'Human not seen for {time_since_human:.1f}s, stopping tracking')
+            self.is_tracking_human = False
             return False
 
 

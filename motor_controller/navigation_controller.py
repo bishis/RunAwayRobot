@@ -369,12 +369,27 @@ class NavigationController(Node):
     
     def get_result_callback(self, future):
         try:
-            result = future.result().result
-            status = result.status
-            self.get_logger().info(f"Navigation result status: {result.status}")
-            
-            # Always release the navigation lock when a goal completes
+            # First release the navigation lock regardless of outcome
             self.release_navigation_lock()
+            
+            # Try to get the result safely
+            result_wrapper = future.result()
+            
+            # Log what we actually have for debugging
+            self.get_logger().info(f"Result type: {type(result_wrapper)}")
+            
+            # Get the status code from goal_handle fields that most likely exist
+            if hasattr(result_wrapper, 'status'):
+                status = result_wrapper.status
+            elif hasattr(result_wrapper, 'goal_id') and hasattr(result_wrapper.goal_id, 'status'):
+                status = result_wrapper.goal_id.status
+            else:
+                # If we can't determine status, assume failure
+                self.get_logger().error("Could not determine goal status")
+                self.fsm.trigger_event(NavigationEvent.GOAL_FAILED)
+                return
+            
+            self.get_logger().info(f"Navigation result status: {status}")
             
             if status == GoalStatus.STATUS_SUCCEEDED:
                 if self.is_escape_waypoint(self.current_goal):

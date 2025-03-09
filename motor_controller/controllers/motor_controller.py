@@ -30,8 +30,10 @@ class MotorController:
         # Store logger
         self.logger = logger
         
-        # Robot physical parameters
-        self.wheel_width = 0.23  # Distance between wheels in meters
+        # Robot physical parameters - using actual measurements
+        self.wheel_width = 0.3429  # Overall width including wheels (13.50 inches) in meters
+        self.wheel_diameter = 0.12065  # Wheel diameter (4.75 inches) in meters
+        self.wheel_radius = self.wheel_diameter / 2.0
         
         # Left side motors
         self.left_dir = OutputDevice(left_dir_pin)
@@ -93,9 +95,9 @@ class MotorController:
             tuple[float, float, float, float]: (left_speed, right_speed, left_pwm, right_pwm)
             where speeds are the scaled differential drive values and pwm are the actual motor powers
         """
-        # Convert to differential drive using wheel width
-        # v_l = v + (w * L/2), v_r = v - (w * L/2)
-        # where L is the wheel width, v is linear velocity, w is angular velocity
+        # Convert to differential drive using the correct formula
+        # v_L = v_x - (ω × wheel_width/2)
+        # v_R = v_x + (ω × wheel_width/2)
         left_speed = linear + (angular * self.wheel_width / 2.0)
         right_speed = linear - (angular * self.wheel_width / 2.0)
         

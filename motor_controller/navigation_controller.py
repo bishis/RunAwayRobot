@@ -337,57 +337,76 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error in exploration loop: {str(e)}')
 
-    def send_goal(self, waypoint):
-        """Send a goal to the navigation system with proper state management"""
-        # Determine what kind of goal this is
-        if self.is_escape_waypoint(waypoint):
-            new_state = "escape"
+    def send_goal(self, goal_pose):
+        """Send a navigation goal"""
+        # Check if we're already navigating to this goal
+        if self.is_navigating and self.current_goal is not None:
+            curr_x = self.current_goal.pose.position.x
+            curr_y = self.current_goal.pose.position.y
+            new_x = goal_pose.pose.position.x
+            new_y = goal_pose.pose.position.y
+            
+            # Calculate distance between current goal and new goal
+            distance = math.sqrt((curr_x - new_x) ** 2 + (curr_y - new_y) ** 2)
+            self.get_logger().debug(f'Distance between current and new goal: {distance}m')
+            
+            # If new goal is very close to current goal, don't resend
+            if distance < 0.1:
+                self.get_logger().info(f'Already navigating to this goal (within {distance:.2f}m)')
+                return
+            
+            # Log that we're changing goals and need to cancel first
+            self.get_logger().info('Changing navigation goal - canceling current goal first')
+            self.get_logger().info(f'  Current goal: ({curr_x:.2f}, {curr_y:.2f})')
+            self.get_logger().info(f'  New goal: ({new_x:.2f}, {new_y:.2f})')
+            
+            # Cancel current goal and wait for confirmation
+            cancel_success = self.cancel_current_goal()
+            self.get_logger().info(f'Goal cancellation success: {cancel_success}')
+            
+            # Add delay to ensure goal cancellation is processed
+            time.sleep(0.3)
+            
+        # Reset attempts counter when sending a new goal
+        self.escape_attempts = 0
+        
+        # Print goal information
+        self.get_logger().info('Sending navigation goal:')
+        self.get_logger().info(f'    Position: ({goal_pose.pose.position.x:.2f}, {goal_pose.pose.position.y:.2f})')
+        self.get_logger().info(f'    Frame: {goal_pose.header.frame_id}')
+        self.get_logger().info(f'    Stamp: {goal_pose.header.stamp.sec}.{goal_pose.header.stamp.nanosec}')
+        
+        # Record if this is an escape waypoint
+        is_escape = self.is_escape_waypoint(goal_pose)
+        if is_escape:
+            self.get_logger().info('This is an ESCAPE waypoint')
         else:
-            new_state = "navigate"
+            self.get_logger().info('This is a normal exploration waypoint')
         
-        # Ensure states are exclusive 
-        if not self.ensure_exclusive_state(new_state):
-            self.get_logger().warn(f"Cannot transition to {new_state} state")
-            return False
+        # Reset goal state
+        self.goal_start_time = self.get_clock().now()
+        self.previous_distance = None
+        self.current_goal = goal_pose
         
-        # Continue with goal sending...
-        try:
-            # Cancel any existing goal
-            self.cancel_current_goal()
-            
-            # Create the goal
-            nav_goal = NavigateToPose.Goal()
-            nav_goal.pose = waypoint
-            
-            # Add check for escape goal and clear emergency stop
-            if self.is_escape_waypoint(waypoint):
-                self.get_logger().info('Escape goal detected - clearing emergency stop state')
-                # Give the robot a moment to stabilize after emergency stop
-                time.sleep(0.5)  # Short delay
-                # Clear any velocity commands
-                stop_cmd = Twist()
-                self.wheel_speeds_pub.publish(stop_cmd)
-            
-            self.get_logger().info('Sending navigation goal:')
-            self.get_logger().info(f'    Position: ({waypoint.pose.position.x:.2f}, {waypoint.pose.position.y:.2f})')
-            self.get_logger().info(f'    Frame: {waypoint.header.frame_id}')
-            self.get_logger().info(f'    Stamp: {waypoint.header.stamp.sec}.{waypoint.header.stamp.nanosec}')
-            
-            # Send the goal with timeout handling
-            send_goal_future = self.nav_client.send_goal_async(
-                nav_goal,
-                feedback_callback=self.feedback_callback
-            )
-            send_goal_future.add_done_callback(self.goal_response_callback)
-            
-            # Store goal and update state
-            self.current_goal = waypoint
-            self.is_navigating = True
-            self.goal_start_time = self.get_clock().now()
-            
-        except Exception as e:
-            self.get_logger().error(f'Error sending navigation goal: {str(e)}')
-            self.reset_navigation_state()
+        # Send the goal
+        self.get_logger().debug('Sending goal request to action server')
+        self.is_navigating = True
+        
+        # Create separate variables to track the exact timestamp of sending
+        # before any async operations
+        send_goal_timestamp = self.get_clock().now()
+        self.get_logger().debug(f'GOAL SEND TIMESTAMP: {send_goal_timestamp.nanoseconds/1e9:.3f}')
+        
+        # Send goal using future to await response
+        goal_msg = NavigateToPose.Goal()
+        goal_msg.pose = goal_pose
+        
+        send_goal_future = self.nav_client.send_goal_async(
+            goal_msg,
+            feedback_callback=self.feedback_callback
+        )
+        send_goal_future.add_done_callback(self.goal_response_callback)
+        self.get_logger().debug('Goal request sent, waiting for response')
 
     def goal_response_callback(self, future):
         """Handle the goal response with proper error handling"""
@@ -557,15 +576,36 @@ class NavigationController(Node):
             if self.current_goal_handle is not None:
                 self.clear_visualization_markers()
                 
-                # Log what type of goal we're cancelling
-                if self.is_escape_waypoint(self.current_goal):
-                    self.get_logger().info('Canceling escape goal')
+                # Log detailed information about the goal being cancelled
+                if self.current_goal:
+                    if self.is_escape_waypoint(self.current_goal):
+                        self.get_logger().info(f'Canceling escape goal at ({self.current_goal.pose.position.x:.2f}, {self.current_goal.pose.position.y:.2f})')
+                    else:
+                        self.get_logger().info(f'Canceling exploration goal at ({self.current_goal.pose.position.x:.2f}, {self.current_goal.pose.position.y:.2f})')
                 else:
-                    self.get_logger().info('Canceling exploration goal')
+                    self.get_logger().warn('Canceling goal with no goal info available')
+                
+                # Track cancellation timestamp
+                cancel_timestamp = self.get_clock().now()
+                self.get_logger().debug(f'GOAL CANCEL TIMESTAMP: {cancel_timestamp.nanoseconds/1e9:.3f}')
                 
                 # Send cancel request without callback
                 try:
-                    self.current_goal_handle.cancel_goal_async()
+                    cancel_future = self.current_goal_handle.cancel_goal_async()
+                    self.get_logger().debug('Cancel request sent to action server')
+                    
+                    # Wait for the cancellation to complete synchronously
+                    rclpy.spin_until_future_complete(self, cancel_future, timeout_sec=0.5)
+                    if cancel_future.done():
+                        self.get_logger().info('Cancel goal request completed')
+                        cancel_result = cancel_future.result()
+                        if cancel_result:
+                            self.get_logger().info(f'Goal cancellation accepted: {cancel_result.accepted}')
+                        else:
+                            self.get_logger().warn('Goal cancellation failed - null result')
+                    else:
+                        self.get_logger().warn('Goal cancellation timed out')
+                    
                 except Exception as e:
                     self.get_logger().error(f'Error sending cancel request: {str(e)}')
                 
@@ -573,6 +613,7 @@ class NavigationController(Node):
                 self.current_goal_handle = None
                 self.current_goal = None
                 self.is_navigating = False
+                self.get_logger().info('Goal tracking state reset')
                 
                 return True
             else:
@@ -1106,20 +1147,54 @@ class NavigationController(Node):
         if hasattr(self.human_avoidance, 'waypoint_generator'):
             waypoint_generator = self.human_avoidance.waypoint_generator
             if isinstance(waypoint_generator, HumanEscape):
-                self.get_logger().info('Forcing new escape waypoint')
-                                # First, cancel the current goal
-                self.cancel_current_goal()
+                self.get_logger().info('=====================================')
+                self.get_logger().info('FORCING NEW ESCAPE WAYPOINT')
+                self.get_logger().info('=====================================')
+                
+                # Check if we have an active goal before trying to cancel
+                has_active_goal = self.current_goal_handle is not None
+                self.get_logger().info(f'Has active goal before cancellation: {has_active_goal}')
+                
+                # First, cancel the current goal
+                cancel_success = self.cancel_current_goal()
+                self.get_logger().info(f'Goal cancellation success: {cancel_success}')
                 
                 # Give a small delay to ensure cancellation takes effect
+                self.get_logger().info('Waiting for cancellation to take effect')
                 time.sleep(0.2)
+                
+                # Verify goal was actually cancelled
+                still_has_goal = self.current_goal_handle is not None
+                self.get_logger().info(f'Still has active goal after cancellation: {still_has_goal}')
+                
+                # If still has goal, try again with longer timeout
+                if still_has_goal:
+                    self.get_logger().warn('Goal not properly cancelled, trying again with longer timeout')
+                    self.cancel_current_goal()
+                    time.sleep(0.5)
+                
+                # Now generate a new escape point
+                self.get_logger().info('Generating new escape point')
                 waypoint_generator.force_escape_waypoint_change()
+                
                 # Mark previous waypoint as failed for the escape planner
                 self.previous_escape_waypoint_failed = True
+                self.get_logger().info('Previous waypoint marked as failed')
                 
                 # Generate and send new escape point
+                self.get_logger().info('Planning new escape route')
                 escape_point = self.human_avoidance.plan_escape()
+                
                 if escape_point is not None:
+                    self.get_logger().info(f'New escape point generated: ({escape_point.pose.position.x:.2f}, {escape_point.pose.position.y:.2f})')
+                    # Final check that we don't have a goal before sending new one
+                    if self.current_goal_handle is not None:
+                        self.get_logger().error('CRITICAL: Still have active goal before sending new one!')
+                        self.cancel_current_goal()
+                        time.sleep(0.5)
+                    
                     self.send_goal(escape_point)
+                    self.get_logger().info('New escape goal sent')
                 else:
                     self.get_logger().error('Failed to generate new escape point after force')
                     self.reset_escape_state()

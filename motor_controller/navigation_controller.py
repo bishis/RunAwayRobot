@@ -571,7 +571,7 @@ class NavigationController(Node):
         )
 
     def cancel_current_goal(self):
-        """Cancel the current navigation goal if one exists"""
+        """Cancel the current navigation goal if one exists with robust handling"""
         try:
             if self.current_goal_handle is not None:
                 self.clear_visualization_markers()
@@ -582,38 +582,38 @@ class NavigationController(Node):
                         self.get_logger().info(f'Canceling escape goal at ({self.current_goal.pose.position.x:.2f}, {self.current_goal.pose.position.y:.2f})')
                     else:
                         self.get_logger().info(f'Canceling exploration goal at ({self.current_goal.pose.position.x:.2f}, {self.current_goal.pose.position.y:.2f})')
-                else:
-                    self.get_logger().warn('Canceling goal with no goal info available')
                 
                 # Track cancellation timestamp
                 cancel_timestamp = self.get_clock().now()
                 self.get_logger().debug(f'GOAL CANCEL TIMESTAMP: {cancel_timestamp.nanoseconds/1e9:.3f}')
                 
-                # Send cancel request without callback
+                # Send cancel request and WAIT for completion with longer timeout
                 try:
                     cancel_future = self.current_goal_handle.cancel_goal_async()
-                    self.get_logger().debug('Cancel request sent to action server')
                     
-                    # Wait for the cancellation to complete synchronously
-                    rclpy.spin_until_future_complete(self, cancel_future, timeout_sec=0.5)
-                    if cancel_future.done():
-                        self.get_logger().info('Cancel goal request completed')
+                    # Use a longer timeout for goal cancellation (1.0 sec)
+                    result = rclpy.spin_until_future_complete(self, cancel_future, timeout_sec=1.0)
+                    
+                    if result == rclpy.executor.FutureReturnCode.SUCCESS:
                         cancel_result = cancel_future.result()
-                        if cancel_result:
-                            self.get_logger().info(f'Goal cancellation accepted: {cancel_result.accepted}')
-                        else:
-                            self.get_logger().warn('Goal cancellation failed - null result')
+                        self.get_logger().info(f'Goal cancellation confirmed: {cancel_result.accepted}')
+                        
+                        # Add additional delay after successful cancellation
+                        time.sleep(0.2)
                     else:
-                        self.get_logger().warn('Goal cancellation timed out')
+                        self.get_logger().error('Goal cancellation failed or timed out')
+                        # Force state reset even on timeout
+                        time.sleep(0.5)  # Wait longer before reset on failure
                     
                 except Exception as e:
-                    self.get_logger().error(f'Error sending cancel request: {str(e)}')
+                    self.get_logger().error(f'Error in cancel request: {str(e)}')
+                    time.sleep(0.5)  # Safety delay
                 
-                # Reset goal tracking state
+                # Reset goal tracking state regardless of cancellation success
                 self.current_goal_handle = None
                 self.current_goal = None
                 self.is_navigating = False
-                self.get_logger().info('Goal tracking state reset')
+                self.get_logger().info('Goal tracking state forcibly reset')
                 
                 return True
             else:

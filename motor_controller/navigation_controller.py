@@ -770,6 +770,11 @@ class NavigationController(Node):
                         human_pos=self.last_human_position
                     )
                     
+                    self.is_rotating_to_human = abs(cmd_vel.angular.z) > 0.1  # Threshold for "significant" rotation
+                    
+                    if self.is_rotating_to_human:
+                        self.get_logger().debug(f'Rotating to face human (angular.z={cmd_vel.angular.z:.2f})')
+                        
                     # Always publish the avoidance command
                     self.wheel_speeds_pub.publish(cmd_vel)
                     
@@ -1084,8 +1089,15 @@ class NavigationController(Node):
         
         current_time = self.get_clock().now()
         time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
+        # If the robot is currently rotating to face the human, use a longer timeout
+        if hasattr(self, 'is_rotating_to_human') and self.is_rotating_to_human:
+            tracking_timeout = self.human_tracking_timeout * 2.0  # Double timeout during rotation
+            self.get_logger().debug(f'Using extended tracking timeout during rotation: {tracking_timeout:.1f}s')
+        else:
+            tracking_timeout = self.human_tracking_timeout
         
-        if time_since_human < self.human_tracking_timeout:
+        # If we've seen the human recently, continue tracking and pause exploration
+        if time_since_human < tracking_timeout:
             return True
         else:
             return False

@@ -310,19 +310,46 @@ class HumanEscape(WaypointGenerator):
                     direction_score = angle_diff / math.pi  # 1.0 is best (opposite), 0.0 is worst (same direction)
                     
                     # Check if point is out of line of sight from human
-                    path_cells = self.get_line_cells(human_grid_x, human_grid_y, x, y)
+                    # Treat the human as a circle with radius 0.25m, not just a point
+                    human_radius = 0.25  # Human radius in meters
+                    has_line_of_sight = False
                     
-                    # If any cell along path is obstacle (value > 50), then point is not visible
-                    has_line_of_sight = True
-                    for cx, cy in path_cells:
-                        if cx < 0 or cx >= width or cy < 0 or cy >= height:
-                            continue
-                        if map_data[cy, cx] > 50:  # Obstacle
-                            has_line_of_sight = False
+                    # Check from multiple points around the human's perimeter
+                    num_angles = 16  # Check 16 points around the perimeter
+                    for angle_idx in range(num_angles):
+                        angle = 2 * math.pi * angle_idx / num_angles
+                        
+                        # Calculate perimeter point coordinates
+                        perimeter_x = human_x + human_radius * math.cos(angle)
+                        perimeter_y = human_y + human_radius * math.sin(angle)
+                        
+                        # Convert to grid coordinates
+                        perimeter_grid_x = int((perimeter_x - origin_x) / resolution)
+                        perimeter_grid_y = int((perimeter_y - origin_y) / resolution)
+                        
+                        # Keep points within bounds
+                        perimeter_grid_x = max(0, min(perimeter_grid_x, width-1))
+                        perimeter_grid_y = max(0, min(perimeter_grid_y, height-1))
+                        
+                        # Check line of sight from this perimeter point
+                        path_cells = self.get_line_cells(perimeter_grid_x, perimeter_grid_y, x, y)
+                        
+                        # Check if there's a clear path from this perimeter point
+                        perimeter_has_los = True
+                        for cx, cy in path_cells:
+                            if cx < 0 or cx >= width or cy < 0 or cy >= height:
+                                continue
+                            if map_data[cy, cx] > 50:  # Obstacle
+                                perimeter_has_los = False
+                                break
+                        
+                        # If any perimeter point has line of sight, then the human can see the point
+                        if perimeter_has_los:
+                            has_line_of_sight = True
                             break
                     
-                    # Calculate LOS (line of sight) score - higher for points without line of sight
-                    los_score = 0.0 if has_line_of_sight else 30.0
+                    # Calculate LOS (line of sight) score - GREATLY increase importance for hidden points
+                    los_score = 0.0 if has_line_of_sight else 100.0  # Increased from 30 to 100
                     
                     # Calculate score based on distance from human, future distance, wall clearance and direction
                     total_score = (

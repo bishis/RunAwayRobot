@@ -216,16 +216,21 @@ class NavigationController(Node):
             self.wheel_speeds_pub.publish(Twist())
     
     def tracking_active_callback(self, msg: Bool):
+        """Fix the human tracking callback logic"""
+        self.get_logger().info(f"Human tracking active: {msg.data}, current state: {self.fsm.current_state}")
+        
         # For simplicity, trigger HUMAN_DETECTED/HUMAN_LOST events based on the flag.
         if self.fsm.current_state == NavigationState.ESCAPING:
             self.get_logger().info('Ignoring tracking during escape')
             return
         
         if msg.data:
+            self.get_logger().info("Human detected - triggering event")
             self.fsm.trigger_event(NavigationEvent.HUMAN_DETECTED)
         else:
             # Only trigger HUMAN_LOST when in HUMAN_TRACKING state
             if self.fsm.current_state == NavigationState.HUMAN_TRACKING:
+                self.get_logger().info("Human lost - triggering event")
                 self.fsm.trigger_event(NavigationEvent.HUMAN_LOST)
     
     def tracking_cmd_callback(self, msg: PoseStamped):
@@ -437,17 +442,24 @@ class NavigationController(Node):
         self.get_logger().info("Entering INITIALIZING state")
     
     def on_update_initializing(self, event=None, data=None, state=None):
+        """Fix the Nav2 ready check"""
         # Check if Nav2 server is ready.
-        if self.nav_client.server_is_ready():
+        # The server_is_ready() method doesn't exist - use correct check
+        if self.nav_client.wait_for_server(timeout_sec=0.1):
+            self.get_logger().info("Nav2 action server is ready")
             self.fsm.trigger_event(NavigationEvent.NAV2_READY)
+        else:
+            self.get_logger().debug("Still waiting for Nav2 server to be ready...")
     
     def on_exit_initializing(self, event=None, data=None):
         self.get_logger().info("Exiting INITIALIZING state")
     
     # IDLE
     def on_enter_idle(self, event=None, data=None):
+        """Add more debugging"""
         self.get_logger().info("Entering IDLE state")
         # For example, immediately request exploration.
+        self.get_logger().info("Requesting exploration from IDLE state")
         self.fsm.trigger_event(NavigationEvent.EXPLORATION_REQUESTED)
     
     def on_update_idle(self, event=None, data=None, state=None):
@@ -458,9 +470,21 @@ class NavigationController(Node):
     
     # EXPLORING
     def on_enter_exploring(self, event=None, data=None):
+        """Add detailed debugging to waypoint generation"""
         self.get_logger().info("Entering EXPLORING state")
+        
+        # Check if map is available
+        if self.current_map is None:
+            self.get_logger().warn("No map available yet - waiting for map...")
+            # Create a timer to retry after a delay
+            self.create_timer(2.0, lambda: self.retry_exploration())
+            return
+        
+        self.get_logger().info("Generating exploration waypoint...")
         waypoint = self.waypoint_generator.generate_waypoint()
+        
         if waypoint:
+            self.get_logger().info(f"Generated waypoint at ({waypoint.pose.position.x:.2f}, {waypoint.pose.position.y:.2f})")
             if self.current_map is not None and not self.waypoint_generator.is_near_wall(
                 waypoint.pose.position.x,
                 waypoint.pose.position.y,
@@ -478,6 +502,12 @@ class NavigationController(Node):
             else:
                 self.get_logger().warn("Generated waypoint too close to wall, forcing new one")
                 self.waypoint_generator.force_waypoint_change()
+                # Try again after a short delay
+                self.create_timer(0.5, lambda: self.retry_exploration())
+        else:
+            self.get_logger().error("Failed to generate exploration waypoint")
+            # Try again after a delay
+            self.create_timer(2.0, lambda: self.retry_exploration())
     
     def on_update_exploring(self, event=None, data=None, state=None):
         if not self.is_navigating or self.current_goal is None:
@@ -665,6 +695,12 @@ class NavigationController(Node):
                 self.shake_timer.cancel()
                 self.shake_timer = None
             self.fsm.trigger_event(NavigationEvent.ESCAPE_FAILED)
+
+    def retry_exploration(self):
+        """Retry exploration after a delay"""
+        self.get_logger().info("Retrying exploration...")
+        # Simulate a GOAL_TIMEOUT event to trigger new waypoint generation
+        self.fsm.trigger_event(NavigationEvent.GOAL_TIMEOUT)
 
 def main(args=None):
     rclpy.init(args=args)

@@ -121,11 +121,10 @@ class NavigationController(Node):
         self.tf_retry_count = 3
         self.tf_last_error_time = self.get_clock().now()
         
-        # Navigation action client
-        self.get_logger().info('Waiting for navigation action server...')
-        while not self.nav_client.wait_for_server(timeout_sec=1.0):
-            self.get_logger().info('Still waiting for navigation action server...')
-        self.get_logger().info('Navigation server connected!')
+        # Add debounce flags
+        self.goal_debounce = False
+        self.goal_debounce_timeout = 1.0  # 1 second debounce
+        self.goal_debounce_timer = None
         
         # Make sure to initialize previous_waypoint
         self.previous_waypoint = None
@@ -289,45 +288,67 @@ class NavigationController(Node):
             self.wheel_speeds_pub.publish(Twist())
     
     # --- Navigation Goal Methods ---
-    def send_goal(self, goal_msg: PoseStamped):
-        try:
+    def send_goal(self, goal_pose):
+        """Send a navigation goal with debouncing to prevent rapid-fire goals"""
+        if self.goal_debounce:
+            self.get_logger().warn("Goal sending debounced - ignoring request")
+            return False
+        
+        # Set debounce flag to prevent multiple goals
+        self.goal_debounce = True
+        
+        # Cancel any previous goal first
+        if self.is_navigating:
             self.cancel_current_goal()
-            from nav2_msgs.action import NavigateToPose
-            nav_goal = NavigateToPose.Goal()
-            nav_goal.pose = goal_msg
-            if self.is_escape_waypoint(goal_msg):
-                self.get_logger().info('Escape goal detected – clearing emergency stop')
-                time.sleep(0.5)
-                self.wheel_speeds_pub.publish(Twist())
-            self.get_logger().info(f"Sending goal at ({goal_msg.pose.position.x:.2f}, {goal_msg.pose.position.y:.2f})")
-            send_goal_future = self.nav_client.send_goal_async(
-                nav_goal, feedback_callback=self.feedback_callback
-            )
-            send_goal_future.add_done_callback(self.goal_response_callback)
-            self.current_goal = goal_msg
-            self.is_navigating = True
-            self.goal_start_time = self.get_clock().now()
-        except Exception as e:
-            self.get_logger().error(f"Error sending goal: {str(e)}")
-            self.reset_navigation_state()
+        
+        # Send the actual goal
+        self.get_logger().info(f"Sending goal at ({goal_pose.pose.position.x:.2f}, {goal_pose.pose.position.y:.2f})")
+        self._send_goal_future = self.nav_client.send_goal_async(
+            NavigateToPose.Goal(pose=goal_pose),
+            feedback_callback=self.feedback_callback
+        )
+        self._send_goal_future.add_done_callback(self.goal_response_callback)
+        
+        # Set a timer to clear the debounce flag
+        if self.goal_debounce_timer:
+            self.goal_debounce_timer.cancel()
+        self.goal_debounce_timer = self.create_timer(
+            self.goal_debounce_timeout, 
+            self.clear_goal_debounce
+        )
+        
+        return True
+
+    def clear_goal_debounce(self):
+        """Clear the goal debounce flag after timeout"""
+        self.goal_debounce = False
+        if self.goal_debounce_timer:
+            self.goal_debounce_timer.cancel()
+            self.goal_debounce_timer = None
     
     def goal_response_callback(self, future):
-        try:
-            goal_handle = future.result()
-            if not goal_handle.accepted:
-                self.get_logger().warn("Goal rejected")
-                if self.is_escape_waypoint(self.current_goal):
-                    self.fsm.trigger_event(NavigationEvent.ESCAPE_FAILED)
-                else:
-                    self.fsm.trigger_event(NavigationEvent.GOAL_FAILED)
-                return
-            self.get_logger().info("Goal accepted")
-            self.current_goal_handle = goal_handle
-            result_future = goal_handle.get_result_async()
-            result_future.add_done_callback(self.get_result_callback)
-        except Exception as e:
-            self.get_logger().error(f"Error in goal response: {str(e)}")
-            self.reset_navigation_state()
+        """Handle goal response with better preemption handling"""
+        goal_handle = future.result()
+        
+        if not goal_handle.accepted:
+            self.get_logger().warn('Goal was rejected!')
+            self.is_navigating = False
+            self.current_goal_handle = None
+            # Clear debounce immediately on rejection
+            self.clear_goal_debounce()
+            return
+        
+        self.get_logger().info('Goal accepted')
+        self.is_navigating = True
+        self.current_goal_handle = goal_handle
+        self.goal_start_time = self.get_clock().now()
+        
+        # Reset planning attempts counter
+        self.planning_attempts = 0
+        
+        # Get the result of execution
+        self._get_result_future = goal_handle.get_result_async()
+        self._get_result_future.add_done_callback(self.get_result_callback)
     
     def get_result_callback(self, future):
         try:

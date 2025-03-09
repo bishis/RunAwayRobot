@@ -339,6 +339,21 @@ class NavigationController(Node):
         """Send navigation goal with proper error handling"""
         try:
             # Cancel any existing goal
+            if self.is_navigating and self.current_goal is not None:
+                curr_x = self.current_goal.pose.position.x
+                curr_y = self.current_goal.pose.position.y
+                new_x = goal_msg.pose.position.x
+                new_y = goal_msg.pose.position.y
+                
+            # Calculate distance between current goal and new goal
+            distance = math.sqrt((curr_x - new_x) ** 2 + (curr_y - new_y) ** 2)
+            self.get_logger().debug(f'Distance between current and new goal: {distance}m')
+            
+            # If new goal is very close to current goal, don't resend
+            if distance < 0.1:
+                self.get_logger().info(f'Already navigating to this goal (within {distance:.2f}m)')
+                return
+            
             self.cancel_current_goal()
             
             # Create the goal

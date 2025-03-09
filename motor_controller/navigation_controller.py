@@ -375,8 +375,6 @@ class NavigationController(Node):
         goal_msg = NavigateToPose.Goal()
         goal_msg.pose = goal
         
-        # Visualize the goal
-        self.visualize_goal(goal)
         
         # Update goal tracking
         self.current_goal = goal

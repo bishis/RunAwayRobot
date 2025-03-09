@@ -55,11 +55,11 @@ class NavigationFSM:
                 NavigationEvent.ERROR_OCCURRED: NavigationState.ERROR
             },
             NavigationState.EXPLORING: {
-                NavigationEvent.HUMAN_DETECTED: NavigationState.HUMAN_TRACKING,
+                NavigationEvent.HUMAN_DETECTED: NavigationState.ESCAPING,
                 NavigationEvent.HUMAN_LOST: NavigationState.EXPLORING,  # Just continue exploring if human lost
-                NavigationEvent.GOAL_REACHED: NavigationState.EXPLORING,  # continue exploring
-                NavigationEvent.GOAL_FAILED: NavigationState.EXPLORING,   # retry exploration
-                NavigationEvent.GOAL_TIMEOUT: NavigationState.EXPLORING,    # generate new waypoint
+                NavigationEvent.GOAL_REACHED: NavigationState.IDLE,
+                NavigationEvent.GOAL_FAILED: NavigationState.IDLE,
+                NavigationEvent.GOAL_TIMEOUT: NavigationState.EXPLORING,  # Stay in EXPLORING but re-enter
                 NavigationEvent.STUCK: NavigationState.EXPLORING,           # recover
                 NavigationEvent.ERROR_OCCURRED: NavigationState.ERROR
             },
@@ -202,3 +202,24 @@ class NavigationFSM:
         self.state_entry_time = self.node.get_clock().now()
         self.state_data = data if data is not None else {}
         self.execute_state_callback("on_enter")
+
+    def transition(self, event, data=None):
+        """Handle state transitions based on events."""
+        if event not in self.transitions[self.current_state]:
+            self.node.get_logger().warn(f"Event {event} not valid in state {self.current_state}")
+            return False
+        
+        old_state = self.current_state
+        new_state = self.transitions[self.current_state][event]
+        
+        # Always call on_exit for the old state
+        self.execute_state_callback("on_exit", event, data)
+        
+        # Update state
+        self.current_state = new_state
+        
+        # Always call on_enter for the new state (even if it's the same as the old state)
+        self.execute_state_callback("on_enter", event, data)
+        
+        self.node.get_logger().info(f"State transition: {old_state} -> {new_state} (triggered by {event})")
+        return True

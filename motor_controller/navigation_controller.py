@@ -725,8 +725,13 @@ class NavigationController(Node):
     def retry_exploration(self):
         """Retry exploration after a delay"""
         self.get_logger().info("Retrying exploration...")
-        # Simulate a GOAL_TIMEOUT event to trigger new waypoint generation
-        self.fsm.trigger_event(NavigationEvent.GOAL_TIMEOUT)
+        
+        # Instead of triggering event, directly regenerate waypoint
+        if self.fsm.current_state == NavigationState.EXPLORING:
+            self.on_enter_exploring()  # Re-run the enter method to generate new waypoint
+        else:
+            # If not in EXPLORING state, use the event approach
+            self.fsm.trigger_event(NavigationEvent.GOAL_TIMEOUT)
 
     def get_robot_position(self):
         """Get current robot position with better error handling"""

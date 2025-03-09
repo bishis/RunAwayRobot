@@ -129,6 +129,11 @@ class NavigationController(Node):
         # Make sure to initialize previous_waypoint
         self.previous_waypoint = None
         
+        # State transition debounce
+        self.state_transition_debounce = False
+        self.state_transition_timer = None
+        self.state_transition_timeout = 2.0  # seconds
+        
         # --- Setup the FSM ---
         callbacks = {
             "on_enter_initializing": self.on_enter_initializing,
@@ -555,12 +560,12 @@ class NavigationController(Node):
             else:
                 self.get_logger().warn('Generated waypoint too close to wall, forcing new one')
                 self.waypoint_generator.force_waypoint_change()
-                # Try again after a short delay
-                self.create_timer(1.0, lambda: self.retry_exploration())
+                # Try again after a longer delay (5-10 seconds)
+                self.create_timer(5.0, lambda: self.retry_exploration())
         else:
             self.get_logger().error("Failed to generate exploration waypoint")
-            # Try again after a delay
-            self.create_timer(1.0, lambda: self.retry_exploration())
+            # Try again after a longer delay (5-10 seconds)
+            self.create_timer(5.0, lambda: self.retry_exploration())
     
     def on_update_exploring(self, event=None, data=None, state=None):
         if not self.is_navigating or self.current_goal is None:
@@ -753,12 +758,33 @@ class NavigationController(Node):
         """Retry exploration after a delay"""
         self.get_logger().info("Retrying exploration...")
         
+        # Check if we're in a transition debounce period
+        if self.state_transition_debounce:
+            self.get_logger().warn("State transition debounced - waiting")
+            return
+        
+        # Set transition debounce
+        self.state_transition_debounce = True
+        if self.state_transition_timer:
+            self.state_transition_timer.cancel()
+        self.state_transition_timer = self.create_timer(
+            self.state_transition_timeout,
+            self.clear_state_transition_debounce
+        )
+        
         # Instead of triggering event, directly regenerate waypoint
         if self.fsm.current_state == NavigationState.EXPLORING:
             self.on_enter_exploring()  # Re-run the enter method to generate new waypoint
         else:
             # If not in EXPLORING state, use the event approach
             self.fsm.trigger_event(NavigationEvent.GOAL_TIMEOUT)
+
+    def clear_state_transition_debounce(self):
+        """Clear the state transition debounce flag"""
+        self.state_transition_debounce = False
+        if self.state_transition_timer:
+            self.state_transition_timer.cancel()
+            self.state_transition_timer = None
 
     def get_robot_position(self):
         """Get current robot position with better error handling"""

@@ -427,27 +427,9 @@ class NavigationController(Node):
                 if self.escape_attempts < self.max_escape_attempts:
                     self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
                     
-                    # Important: Cancel the current goal BEFORE planning a new one,
-                    # and wait for confirmation that it's truly cancelled
-                    if self.cancel_current_goal():
-                        self.get_logger().info("Previous goal cancelled successfully, planning new escape")
-                        # Wait for previous goal cancellation to complete fully
-                        time.sleep(0.3)
-                    else:
-                        self.get_logger().warn("Failed to cancel previous goal, may cause interference")
-                    
-                    # Use previous_escape_waypoint_failed=True only if status is a real failure (not preemption)
-                    self.previous_escape_waypoint_failed = (status != GoalStatus.STATUS_CANCELED)
-                    
-                    escape_point = self.human_avoidance.plan_escape(self.previous_escape_waypoint_failed)
-                    if escape_point is not None:
-                        # Make sure we're not navigating before sending a new goal
-                        if not self.is_navigating:
-                            self.send_goal(escape_point)
-                        else:
-                            self.get_logger().error("Still navigating, can't send new escape goal")
-                    else:
-                        self.get_logger().error('Failed to find escape point!')
+                    # Force a new escape waypoint instead of just retrying
+                    self.force_escape_waypoint_change()
+                    return
                 elif self.escape_attempts >= self.max_escape_attempts and human_still_present:
                     self.get_logger().info('Trapped - max escape attempts reached, starting shake defense')
                     time.sleep(0.5)  # Ensure previous commands are finished
@@ -680,14 +662,10 @@ class NavigationController(Node):
                     # Check if human is intercepting and we need a new escape path
                     new_escape_point = waypoint_generator.check_and_update_escape_if_needed()
                     if new_escape_point is not None:
-                        self.get_logger().warn('Human intercepting escape path - updating escape route')          
-                        # Cancel the current goal BEFORE sending a new one
-                        if self.cancel_current_goal():
-                            # Add a small delay to ensure cancellation is processed
-                            time.sleep(0.2)
-                            self.send_goal(new_escape_point)
-                        else:
-                            self.get_logger().error("Couldn't cancel current goal for dynamic re-planning")
+                        self.get_logger().warn('Human intercepting escape path - updating escape route')
+                        
+                        self.force_escape_waypoint_change()
+                        return
             
         except Exception as e:
             self.get_logger().error(f'Error checking goal progress: {str(e)}')
@@ -1077,6 +1055,22 @@ class NavigationController(Node):
             self.is_tracking_human = False
             return False
 
+    def force_escape_waypoint_change(self):
+        """Force a new escape waypoint to be generated"""
+        if hasattr(self.human_avoidance, 'waypoint_generator'):
+            waypoint_generator = self.human_avoidance.waypoint_generator
+            if isinstance(waypoint_generator, HumanEscape):
+                self.get_logger().info('Forcing new escape waypoint')
+                waypoint_generator.force_escape_waypoint_change()
+                # Cancel current navigation goal
+                self.cancel_current_goal()
+                # Generate and send new escape point
+                escape_point = self.human_avoidance.plan_escape(self.previous_escape_waypoint_failed)
+                if escape_point is not None:
+                    self.send_goal(escape_point)
+                else:
+                    self.get_logger().error('Failed to generate new escape point after force')
+                    self.reset_escape_state()
 
 def main(args=None):
     rclpy.init(args=args)

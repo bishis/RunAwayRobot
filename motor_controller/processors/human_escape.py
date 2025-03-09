@@ -5,6 +5,7 @@ import math
 from scipy.ndimage import distance_transform_edt
 from .waypoint_generator import WaypointGenerator
 import rclpy
+from visualization_msgs.msg import Marker, MarkerArray
 
 class HumanEscape(WaypointGenerator):
     """Specialized waypoint generator for escaping from humans"""
@@ -508,6 +509,28 @@ class HumanEscape(WaypointGenerator):
             new_waypoint = self.get_furthest_waypoint(previous_attempt_failed=False)
             return new_waypoint
         return None
+
+    def force_escape_waypoint_change(self):
+        """Force the generator to pick a new escape waypoint by clearing previous state"""
+        self.node.get_logger().info('Forcing new escape waypoint')
+        self.previous_escape_waypoint = None
+        self.last_human_distance_to_waypoint = float('inf')
+        
+        # Don't clear failed_waypoints list to avoid selecting previously failed waypoints
+        
+        # Reset dynamic escape monitoring
+        self.dynamic_escape_active = True
+        
+        # Clear visualization
+        empty_markers = MarkerArray()
+        marker = Marker()
+        marker.header.frame_id = 'map'
+        marker.header.stamp = self.node.get_clock().now().to_msg()
+        marker.ns = 'waypoints'
+        marker.id = 0
+        marker.action = Marker.DELETE
+        empty_markers.markers.append(marker)
+        self.node.marker_pub.publish(empty_markers)
 
 def normalize_angle(angle):
     """Normalize an angle to the range [-pi, pi]."""

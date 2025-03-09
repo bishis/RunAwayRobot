@@ -482,7 +482,7 @@ class NavigationController(Node):
         self.get_logger().info("Requesting exploration from IDLE state")
         self.fsm.trigger_event(NavigationEvent.EXPLORATION_REQUESTED)
     
-    def on_update_idle(self, event=None, data=None, state=None):
+    def on_update_idle(self, event=None, data=None):
         pass
     
     def on_exit_idle(self, event=None, data=None):
@@ -500,8 +500,14 @@ class NavigationController(Node):
             self.create_timer(2.0, lambda: self.retry_exploration())
             return
         
+        # Get current robot position before generating waypoint
+        robot_position = self.get_robot_position()
+        if robot_position is None:
+            self.get_logger().warn("Could not get robot position, using map center")
+            # Will use map center as fallback
+        
         self.get_logger().info("Generating exploration waypoint...")
-        waypoint = self.waypoint_generator.generate_waypoint()
+        waypoint = self.waypoint_generator.generate_waypoint(robot_position)
         
         if waypoint:
             self.get_logger().info(f"Generated waypoint at ({waypoint.pose.position.x:.2f}, {waypoint.pose.position.y:.2f})")

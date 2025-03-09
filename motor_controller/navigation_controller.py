@@ -533,7 +533,7 @@ class NavigationController(Node):
         else:
             self.get_logger().error("Failed to generate exploration waypoint")
             # Try again after a delay
-            self.create_timer(2.0, lambda: self.retry_exploration())
+            self.create_timer(0.1, lambda: self.retry_exploration())
     
     def on_update_exploring(self, event=None, data=None, state=None):
         if not self.is_navigating or self.current_goal is None:

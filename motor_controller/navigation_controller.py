@@ -127,6 +127,9 @@ class NavigationController(Node):
             self.get_logger().info('Still waiting for navigation action server...')
         self.get_logger().info('Navigation server connected!')
         
+        # Make sure to initialize previous_waypoint
+        self.previous_waypoint = None
+        
         # --- Setup the FSM ---
         callbacks = {
             "on_enter_initializing": self.on_enter_initializing,
@@ -499,15 +502,18 @@ class NavigationController(Node):
         
         self.get_logger().info("Generating exploration waypoint...")
         waypoint = self.waypoint_generator.generate_waypoint()
+        
         if waypoint:
             # Check if waypoint is same as previous
-            if self.previous_waypoint and \
-                abs(waypoint.pose.position.x - self.previous_waypoint.pose.position.x) < 0.1 and \
-                abs(waypoint.pose.position.y - self.previous_waypoint.pose.position.y) < 0.1:
-                self.get_logger().warn('bishi Generated waypoint is too similar to previous, forcing new one')
+            if (self.previous_waypoint is not None and 
+                hasattr(self.previous_waypoint, 'pose') and 
+                hasattr(self.previous_waypoint.pose, 'position') and
+                abs(waypoint.pose.position.x - self.previous_waypoint.pose.position.x) < 0.1 and
+                abs(waypoint.pose.position.y - self.previous_waypoint.pose.position.y) < 0.1):
+                self.get_logger().warn('Generated waypoint is too similar to previous, forcing new one')
                 self.waypoint_generator.force_waypoint_change()
                 return
-                
+            
             # Check if waypoint is near wall
             if self.current_map and not self.waypoint_generator.is_near_wall(
                 waypoint.pose.position.x,

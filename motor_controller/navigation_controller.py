@@ -595,61 +595,54 @@ class NavigationController(Node):
         )
 
     def check_goal_progress(self):
-        """Monitor progress of current navigation goal"""
-        if not self.is_navigating or self.current_goal is None:
-            return
-        
+        """Check if we're making progress toward our goal"""
         try:
-            # Check if human is still present
-            human_still_present = False
-            current_time = self.get_clock().now()
-            if self.last_human_timestamp is not None:
-                time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
-                # Consider human still present if seen in the last 2 seconds
-                human_still_present = time_since_human < 2.0
-
-            # Check for overall goal timeout
-            goal_timeout_reached = False
-            if self.goal_start_time is not None:
-                goal_duration = (current_time - self.goal_start_time).nanoseconds / 1e9
-                goal_timeout_reached = goal_duration > self.goal_timeout
-                
-                if goal_timeout_reached:
-                    self.get_logger().warn(
-                        f'Goal timeout exceeded! {goal_duration:.1f}s elapsed (limit: {self.goal_timeout}s)'
-                    )
-
-            """Check if the robot has moved in the past interval"""
-            if self.current_goal is None:
-                # Reset tracking when not navigating
-                self.last_position_check = None
-                self.last_check_position = None
+            # Skip progress check if we're not navigating
+            if not self.is_navigating:
                 return
             
-            current_position = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
+            # Skip progress check if we don't have a goal or position
+            if not hasattr(self, 'current_goal') or self.current_goal is None:
+                return
             
-            # Initialize tracking on first call
-            if self.last_position_check is None or self.last_check_position is None:
+            # Skip progress check if we don't have position data
+            if not hasattr(self, 'current_pose') or self.current_pose is None:
+                return
+            
+            # Get current position
+            current_position = self.current_pose.pose.position
+            current_time = self.get_clock().now()
+            
+            # Initialize tracking if needed
+            if self.last_position_check is None:
                 self.last_position_check = current_time
                 self.last_check_position = current_position
                 return
             
-            # Calculate time and distance since last check
+            # Check if it's time to check progress
             time_diff = (current_time - self.last_position_check).nanoseconds / 1e9
+            if time_diff < 5.0:  # Only check every 5 seconds
+                return
+            
+            # Calculate distance moved since last check
             distance_moved = math.sqrt(
-                (current_position[0] - self.last_check_position[0]) ** 2 +
-                (current_position[1] - self.last_check_position[1]) ** 2
+                (current_position.x - self.last_check_position.x) ** 2 +
+                (current_position.y - self.last_check_position.y) ** 2
             )
             
-            # Check if we've been stuck for longer than the timeout OR if goal timeout was reached
-            if (distance_moved < self.stuck_threshold and time_diff > self.stuck_timeout) or goal_timeout_reached:
-                if not goal_timeout_reached:
-                    self.get_logger().warn(
-                        f'Robot appears to be stuck! Moved only {distance_moved:.3f}m in {time_diff:.1f} seconds'
-                    )
+            # Check if human is still present
+            human_still_present = False
+            if self.last_human_timestamp is not None:
+                time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
+                human_still_present = time_since_human < 3.0
+            
+            # If we haven't moved much, we might be stuck
+            if distance_moved < self.stuck_threshold:
+                self.get_logger().warn(f'Not making progress - moved only {distance_moved:.2f}m in {time_diff:.1f}s')
                 
-                # Different handling based on goal type
-                if self.is_escape_waypoint(self.current_goal):
+                # If we're executing an escape strategy and stuck
+                if self.is_executing_escape:
+                    self.get_logger().warn('Still stuck while executing escape strategy')
                     self.escape_attempts += 1
                     if self.escape_attempts < self.max_escape_attempts:
                         self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
@@ -668,6 +661,7 @@ class NavigationController(Node):
                         self.start_shake_defense()
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
+                        # Remove the failed_escape parameter
                         self.cancel_current_goal()
                         self.reset_escape_state()
                 else:

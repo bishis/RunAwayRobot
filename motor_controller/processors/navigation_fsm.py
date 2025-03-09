@@ -56,6 +56,7 @@ class NavigationFSM:
             },
             NavigationState.EXPLORING: {
                 NavigationEvent.HUMAN_DETECTED: NavigationState.HUMAN_TRACKING,
+                NavigationEvent.HUMAN_LOST: NavigationState.EXPLORING,  # Just continue exploring if human lost
                 NavigationEvent.GOAL_REACHED: NavigationState.EXPLORING,  # continue exploring
                 NavigationEvent.GOAL_FAILED: NavigationState.EXPLORING,   # retry exploration
                 NavigationEvent.GOAL_TIMEOUT: NavigationState.EXPLORING,    # generate new waypoint

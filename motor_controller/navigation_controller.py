@@ -220,10 +220,13 @@ class NavigationController(Node):
         if self.fsm.current_state == NavigationState.ESCAPING:
             self.get_logger().info('Ignoring tracking during escape')
             return
+        
         if msg.data:
             self.fsm.trigger_event(NavigationEvent.HUMAN_DETECTED)
         else:
-            self.fsm.trigger_event(NavigationEvent.HUMAN_LOST)
+            # Only trigger HUMAN_LOST when in HUMAN_TRACKING state
+            if self.fsm.current_state == NavigationState.HUMAN_TRACKING:
+                self.fsm.trigger_event(NavigationEvent.HUMAN_LOST)
     
     def tracking_cmd_callback(self, msg: PoseStamped):
         try:

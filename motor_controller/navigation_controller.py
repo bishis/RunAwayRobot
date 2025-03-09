@@ -646,14 +646,7 @@ class NavigationController(Node):
                     self.escape_attempts += 1
                     if self.escape_attempts < self.max_escape_attempts:
                         self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
-                        
-                        # Pass the failure flag to plan_escape
-                        escape_point = self.human_avoidance.plan_escape(self.previous_escape_waypoint_failed)
-                        
-                        if escape_point is not None:
-                            self.send_goal(escape_point)  # Retry escape point
-                        else:
-                            self.get_logger().error('Failed to find escape point!')
+                        self.force_escape_waypoint_change()
                     elif self.escape_attempts >= self.max_escape_attempts and human_still_present:
                         self.get_logger().info('Trapped')
                         self.cancel_current_goal()
@@ -1115,10 +1108,6 @@ class NavigationController(Node):
             if isinstance(waypoint_generator, HumanEscape):
                 self.get_logger().info('Forcing new escape waypoint')
                 waypoint_generator.force_escape_waypoint_change()
-                
-                # Cancel current navigation goal WITHOUT passing failed_escape
-                self.cancel_current_goal()
-                
                 # Mark previous waypoint as failed for the escape planner
                 self.previous_escape_waypoint_failed = True
                 

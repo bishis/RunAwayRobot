@@ -71,8 +71,8 @@ controller_server:
     # Much looser goal tolerances
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.3     # Increase from 0.3
-      yaw_goal_tolerance: 3.14           
+      xy_goal_tolerance: 0.7     # Increased from 0.3 to 0.6 meters
+      yaw_goal_tolerance: 3.14   # Already permissive (full circle)        
       stateful: false            # Don't require stopping at goal
       trans_stopped_velocity: 0.25  # Allow higher velocity at goal
       theta_stopped_velocity: 0.25  # Allow higher rotation at goal
@@ -94,8 +94,8 @@ controller_server:
       goal_align_bias: 4.0         # Much lower alignment priority
       
       # Very forgiving tolerances
-      xy_goal_tolerance: 0.5       # Match goal checker
-      yaw_goal_tolerance: 1.57     # Match goal checker
+      xy_goal_tolerance: 0.7       # Increased from 0.5 to 0.6
+      yaw_goal_tolerance: 3.14     # Made consistent with goal_checker
       
       # Critics - reduce path alignment importance
       critics: ["Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "GoalDist"]

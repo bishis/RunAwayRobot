@@ -134,6 +134,11 @@ class NavigationController(Node):
         self.state_transition_timer = None
         self.state_transition_timeout = 2.0  # seconds
         
+        # Navigation locking
+        self.navigation_locked = False
+        self.navigation_lock_timer = None
+        self.navigation_lock_timeout = 10.0  # seconds
+        
         # --- Setup the FSM ---
         callbacks = {
             "on_enter_initializing": self.on_enter_initializing,
@@ -294,13 +299,13 @@ class NavigationController(Node):
     
     # --- Navigation Goal Methods ---
     def send_goal(self, goal_pose):
-        """Send a navigation goal with debouncing to prevent rapid-fire goals"""
-        if self.goal_debounce:
-            self.get_logger().warn("Goal sending debounced - ignoring request")
+        """Send a navigation goal with global locking"""
+        if self.navigation_locked:
+            self.get_logger().warn("Navigation locked - ignoring goal request")
             return False
         
-        # Set debounce flag to prevent multiple goals
-        self.goal_debounce = True
+        # Acquire navigation lock
+        self.acquire_navigation_lock()
         
         # Cancel any previous goal first
         if self.is_navigating:
@@ -314,22 +319,29 @@ class NavigationController(Node):
         )
         self._send_goal_future.add_done_callback(self.goal_response_callback)
         
-        # Set a timer to clear the debounce flag
-        if self.goal_debounce_timer:
-            self.goal_debounce_timer.cancel()
-        self.goal_debounce_timer = self.create_timer(
-            self.goal_debounce_timeout, 
-            self.clear_goal_debounce
-        )
-        
         return True
-
-    def clear_goal_debounce(self):
-        """Clear the goal debounce flag after timeout"""
-        self.goal_debounce = False
-        if self.goal_debounce_timer:
-            self.goal_debounce_timer.cancel()
-            self.goal_debounce_timer = None
+    
+    def acquire_navigation_lock(self):
+        """Lock navigation to prevent multiple goal sends"""
+        self.navigation_locked = True
+        self.get_logger().info("Navigation lock acquired")
+        
+        # Set a timer to release the lock after timeout
+        if self.navigation_lock_timer:
+            self.navigation_lock_timer.cancel()
+        self.navigation_lock_timer = self.create_timer(
+            self.navigation_lock_timeout,
+            self.release_navigation_lock
+        )
+    
+    def release_navigation_lock(self):
+        """Release the navigation lock"""
+        if self.navigation_locked:
+            self.get_logger().info("Navigation lock released")
+            self.navigation_locked = False
+        if self.navigation_lock_timer:
+            self.navigation_lock_timer.cancel()
+            self.navigation_lock_timer = None
     
     def goal_response_callback(self, future):
         """Handle goal response with better preemption handling"""
@@ -357,9 +369,13 @@ class NavigationController(Node):
     
     def get_result_callback(self, future):
         try:
-            result = future.result()
+            result = future.result().result
             status = result.status
-            self.get_logger().info(f"Navigation result status: {status}")
+            self.get_logger().info(f"Navigation result status: {result.status}")
+            
+            # Always release the navigation lock when a goal completes
+            self.release_navigation_lock()
+            
             if status == GoalStatus.STATUS_SUCCEEDED:
                 if self.is_escape_waypoint(self.current_goal):
                     self.fsm.trigger_event(NavigationEvent.ESCAPE_SUCCEEDED)
@@ -561,11 +577,11 @@ class NavigationController(Node):
                 self.get_logger().warn('Generated waypoint too close to wall, forcing new one')
                 self.waypoint_generator.force_waypoint_change()
                 # Try again after a longer delay (5-10 seconds)
-                self.create_timer(5.0, lambda: self.retry_exploration())
+                self.create_timer(10.0, lambda: self.retry_exploration())
         else:
             self.get_logger().error("Failed to generate exploration waypoint")
             # Try again after a longer delay (5-10 seconds)
-            self.create_timer(5.0, lambda: self.retry_exploration())
+            self.create_timer(10.0, lambda: self.retry_exploration())
     
     def on_update_exploring(self, event=None, data=None, state=None):
         if not self.is_navigating or self.current_goal is None:

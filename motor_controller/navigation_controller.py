@@ -337,10 +337,10 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error in exploration loop: {str(e)}')
 
-    def send_goal(self, goal):
-        """Send navigation goal with proper cancellation of existing goals"""
-        # First check if we have an active goal
-        if self.is_escape_waypoint(goal):
+    def send_goal(self, waypoint):
+        """Send a goal to the navigation system with proper state management"""
+        # Determine what kind of goal this is
+        if self.is_escape_waypoint(waypoint):
             new_state = "escape"
         else:
             new_state = "navigate"
@@ -349,47 +349,45 @@ class NavigationController(Node):
         if not self.ensure_exclusive_state(new_state):
             self.get_logger().warn(f"Cannot transition to {new_state} state")
             return False
-        if self.is_navigating and self.current_goal_handle is not None:
-            self.get_logger().info('Canceling current goal before sending new one')
-            # Cancel current goal and wait for cancellation to complete
-            future = self.current_goal_handle.cancel_goal_async()
+        
+        # Continue with goal sending...
+        try:
+            # Cancel any existing goal
+            self.cancel_current_goal()
             
-            # Simple synchronous wait to ensure cancellation completes
-            rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
+            # Create the goal
+            nav_goal = NavigateToPose.Goal()
+            nav_goal.pose = waypoint
             
-            # Reset navigation state
-            self.current_goal_handle = None
-            self.current_goal = None
-            self.is_navigating = False
+            # Add check for escape goal and clear emergency stop
+            if self.is_escape_waypoint(waypoint):
+                self.get_logger().info('Escape goal detected - clearing emergency stop state')
+                # Give the robot a moment to stabilize after emergency stop
+                time.sleep(0.5)  # Short delay
+                # Clear any velocity commands
+                stop_cmd = Twist()
+                self.wheel_speeds_pub.publish(stop_cmd)
             
-            # Small delay to ensure cancellation is processed
-            time.sleep(0.2)
-        
-        # Now send the new goal
-        self.get_logger().info('Sending navigation goal:')
-        self.get_logger().info(f'    Position: ({goal.pose.position.x:.2f}, {goal.pose.position.y:.2f})')
-        self.get_logger().info(f'    Frame: {goal.header.frame_id}')
-        self.get_logger().info(f'    Stamp: {goal.header.stamp.sec}.{goal.header.stamp.nanosec}')
-        
-        # Create goal request
-        goal_msg = NavigateToPose.Goal()
-        goal_msg.pose = goal
-        
-        
-        # Update goal tracking
-        self.current_goal = goal
-        self.goal_start_time = self.get_clock().now()
-        
-        # Reset tracking for progress monitoring
-        self.last_position_check = None
-        self.last_check_position = None
-        
-        # Send the goal
-        send_goal_future = self.nav_client.send_goal_async(
-            goal_msg,
-            feedback_callback=self.feedback_callback
-        )
-        send_goal_future.add_done_callback(self.goal_response_callback)
+            self.get_logger().info('Sending navigation goal:')
+            self.get_logger().info(f'    Position: ({waypoint.pose.position.x:.2f}, {waypoint.pose.position.y:.2f})')
+            self.get_logger().info(f'    Frame: {waypoint.header.frame_id}')
+            self.get_logger().info(f'    Stamp: {waypoint.header.stamp.sec}.{waypoint.header.stamp.nanosec}')
+            
+            # Send the goal with timeout handling
+            send_goal_future = self.nav_client.send_goal_async(
+                nav_goal,
+                feedback_callback=self.feedback_callback
+            )
+            send_goal_future.add_done_callback(self.goal_response_callback)
+            
+            # Store goal and update state
+            self.current_goal = waypoint
+            self.is_navigating = True
+            self.goal_start_time = self.get_clock().now()
+            
+        except Exception as e:
+            self.get_logger().error(f'Error sending navigation goal: {str(e)}')
+            self.reset_navigation_state()
 
     def goal_response_callback(self, future):
         """Handle the goal response with proper error handling"""
@@ -1109,15 +1107,13 @@ class NavigationController(Node):
             waypoint_generator = self.human_avoidance.waypoint_generator
             if isinstance(waypoint_generator, HumanEscape):
                 self.get_logger().info('Forcing new escape waypoint')
-                
-                # First, cancel the current goal
+                                # First, cancel the current goal
                 self.cancel_current_goal()
                 
                 # Give a small delay to ensure cancellation takes effect
                 time.sleep(0.2)
-                
-                # Then generate a new escape point with the "failed" flag
                 waypoint_generator.force_escape_waypoint_change()
+                # Mark previous waypoint as failed for the escape planner
                 self.previous_escape_waypoint_failed = True
                 
                 # Generate and send new escape point

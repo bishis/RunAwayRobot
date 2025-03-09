@@ -173,39 +173,41 @@ class NavigationController(Node):
     
     # --- Utility: Get current pose using TF ---
     def get_current_pose(self):
+        """Get current robot position with better error handling"""
         try:
-            for attempt in range(self.tf_retry_count):
-                try:
-                    current_time = self.get_clock().now()
-                    transform = self.tf_buffer.lookup_transform(
-                        'map',
-                        'base_link',
-                        rclpy.time.Time(),  # Latest transform
-                        timeout=rclpy.duration.Duration(seconds=self.tf_timeout * (attempt + 1))
-                    )
-                    pose = PoseStamped()
-                    pose.header.frame_id = 'map'
-                    pose.header.stamp = current_time.to_msg()
-                    pose.pose.position.x = transform.transform.translation.x
-                    pose.pose.position.y = transform.transform.translation.y
-                    pose.pose.position.z = transform.transform.translation.z
-                    pose.pose.orientation = transform.transform.rotation
-                    self.current_pose = pose
-                    return pose
-                except TransformException:
-                    if attempt == self.tf_retry_count - 1:
-                        current_time = self.get_clock().now()
-                        if (current_time - self.tf_last_error_time).nanoseconds / 1e9 > 5.0:
-                            self.get_logger().warn(f'Transform lookup failed after {attempt+1} attempts.')
-                            self.tf_last_error_time = current_time
-                    continue
-            return self.current_pose
-        except Exception as e:
+            # Try to get the transform from map to base_link
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=0.1)
+            )
+            
+            # Update current pose from transform
+            self.current_pose.header.stamp = self.get_clock().now().to_msg()
+            self.current_pose.header.frame_id = 'map'
+            self.current_pose.pose.position.x = transform.transform.translation.x
+            self.current_pose.pose.position.y = transform.transform.translation.y
+            self.current_pose.pose.position.z = transform.transform.translation.z
+            self.current_pose.pose.orientation = transform.transform.rotation
+            
+            return (transform.transform.translation.x, transform.transform.translation.y)
+        
+        except TransformException as e:
+            # Check if this is a repeated error
             current_time = self.get_clock().now()
             if (current_time - self.tf_last_error_time).nanoseconds / 1e9 > 5.0:
-                self.get_logger().error(f'Error getting current pose: {str(e)}')
+                self.get_logger().warn(f"Could not get robot position: {str(e)}")
                 self.tf_last_error_time = current_time
-            return self.current_pose
+            
+            # If SLAM isn't initialized yet, return a default position
+            if self.current_map is not None:
+                # Return the middle of the map as fallback position
+                map_middle_x = self.current_map.info.origin.position.x + (self.current_map.info.width * self.current_map.info.resolution) / 2
+                map_middle_y = self.current_map.info.origin.position.y + (self.current_map.info.height * self.current_map.info.resolution) / 2
+                self.get_logger().warn(f"Using map center as fallback position: ({map_middle_x:.2f}, {map_middle_y:.2f})")
+                return (map_middle_x, map_middle_y)
+            return None
     
     # --- Subscribers Callbacks ---
     def scan_callback(self, msg: LaserScan):
@@ -721,6 +723,8 @@ class NavigationController(Node):
         self.get_logger().info("Retrying exploration...")
         # Simulate a GOAL_TIMEOUT event to trigger new waypoint generation
         self.fsm.trigger_event(NavigationEvent.GOAL_TIMEOUT)
+
+
 
 def main(args=None):
     rclpy.init(args=args)

@@ -237,15 +237,15 @@ class NavigationController(Node):
             human_angle = math.atan2(dy, dx)
             self.get_logger().info(f'Human at ({human_x:.2f}, {human_y:.2f}), distance: {human_distance:.2f}m')
             # If human is too close, trigger escape.
-            if human_distance < 0.5:
-                self.get_logger().warn('Critical human distance – escape needed')
-                self.fsm.trigger_event(NavigationEvent.ESCAPE_NEEDED)
             if self.fsm.current_state == NavigationState.HUMAN_TRACKING:
                 cmd_vel, should_escape = self.human_avoidance.get_avoidance_command(
                     human_distance, human_angle,
                     robot_pose=self.current_pose,
                     human_pos=self.last_human_position
                 )
+                if should_escape:
+                    self.get_logger().warn('Critical human distance – escape needed')
+                    self.fsm.trigger_event(NavigationEvent.ESCAPE_NEEDED)
                 self.wheel_speeds_pub.publish(cmd_vel)
         except Exception as e:
             self.get_logger().error(f'Error in tracking command callback: {str(e)}')

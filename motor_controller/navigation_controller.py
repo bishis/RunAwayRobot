@@ -507,7 +507,7 @@ class NavigationController(Node):
             # Will use map center as fallback
         
         self.get_logger().info("Generating exploration waypoint...")
-        waypoint = self.waypoint_generator.generate_waypoint(robot_position)
+        waypoint = self.waypoint_generator.generate_waypoint()
         
         if waypoint:
             self.get_logger().info(f"Generated waypoint at ({waypoint.pose.position.x:.2f}, {waypoint.pose.position.y:.2f})")

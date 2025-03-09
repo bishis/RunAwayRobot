@@ -221,6 +221,7 @@ class NavigationController(Node):
         else:
             self.get_logger().debug("Map update received")
         self.current_map = msg
+        self.waypoint_generator.update_map(msg)
         
         # Check if we're in EXPLORING state and were waiting for map
         if self.fsm.current_state == NavigationState.EXPLORING:
@@ -230,7 +231,10 @@ class NavigationController(Node):
     
     def cmd_vel_callback(self, msg: Twist):
         try:
-            self.wheel_speeds_pub.publish(msg)
+            wheel_speeds = Twist()
+            wheel_speeds.linear.x = msg.linear.x
+            wheel_speeds.angular.z = msg.angular.z
+            self.wheel_speeds_pub.publish(wheel_speeds)
         except Exception as e:
             self.get_logger().error(f'Error in cmd_vel callback: {str(e)}')
             self.wheel_speeds_pub.publish(Twist())
@@ -493,40 +497,36 @@ class NavigationController(Node):
         """Add detailed debugging to waypoint generation"""
         self.get_logger().info("Entering EXPLORING state")
         
-        # Check if map is available
-        if self.current_map is None:
-            self.get_logger().warn("No map available yet - waiting for map...")
-            # Create a timer to retry after a delay
-            self.create_timer(2.0, lambda: self.retry_exploration())
-            return
-        
-        # Get current robot position before generating waypoint
-        robot_position = self.get_robot_position()
-        if robot_position is None:
-            self.get_logger().warn("Could not get robot position, using map center")
-            # Will use map center as fallback
-        
         self.get_logger().info("Generating exploration waypoint...")
         waypoint = self.waypoint_generator.generate_waypoint()
-        
         if waypoint:
-            self.get_logger().info(f"Generated waypoint at ({waypoint.pose.position.x:.2f}, {waypoint.pose.position.y:.2f})")
-            if self.current_map is not None and not self.waypoint_generator.is_near_wall(
+            # Check if waypoint is same as previous
+            if self.previous_waypoint and \
+                abs(waypoint.pose.position.x - self.previous_waypoint.pose.position.x) < 0.1 and \
+                abs(waypoint.pose.position.y - self.previous_waypoint.pose.position.y) < 0.1:
+                self.get_logger().warn('bishi Generated waypoint is too similar to previous, forcing new one')
+                self.waypoint_generator.force_waypoint_change()
+                return
+                
+            # Check if waypoint is near wall
+            if self.current_map and not self.waypoint_generator.is_near_wall(
                 waypoint.pose.position.x,
                 waypoint.pose.position.y,
                 np.array(self.current_map.data).reshape(
-                    self.current_map.info.height, self.current_map.info.width
+                    self.current_map.info.height,
+                    self.current_map.info.width
                 ),
                 self.current_map.info.resolution,
                 self.current_map.info.origin.position.x,
                 self.current_map.info.origin.position.y
             ):
-                self.current_goal = waypoint
+                self.current_goal = waypoint  # Store new goal
                 self.send_goal(waypoint)
+                # Green for exploration
                 markers = self.waypoint_generator.create_visualization_markers(waypoint, is_escape=False)
                 self.marker_pub.publish(markers)
             else:
-                self.get_logger().warn("Generated waypoint too close to wall, forcing new one")
+                self.get_logger().warn('Generated waypoint too close to wall, forcing new one')
                 self.waypoint_generator.force_waypoint_change()
                 # Try again after a short delay
                 self.create_timer(0.5, lambda: self.retry_exploration())

@@ -680,8 +680,7 @@ class NavigationController(Node):
                     # Check if human is intercepting and we need a new escape path
                     new_escape_point = waypoint_generator.check_and_update_escape_if_needed()
                     if new_escape_point is not None:
-                        self.get_logger().warn('Human intercepting escape path - updating escape route')
-                        
+                        self.get_logger().warn('Human intercepting escape path - updating escape route')          
                         # Cancel the current goal BEFORE sending a new one
                         if self.cancel_current_goal():
                             # Add a small delay to ensure cancellation is processed

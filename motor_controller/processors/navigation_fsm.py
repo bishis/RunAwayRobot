@@ -3,63 +3,47 @@ import enum
 from typing import Optional, Callable, Dict, Any
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist, PoseStamped
-from nav2_msgs.action import NavigateToPose
-from action_msgs.msg import GoalStatus
 import math
-import time
-
 
 class NavigationState(enum.Enum):
     """Possible states for the navigation controller."""
-    INITIALIZING = "initializing"  # Waiting for Nav2 to be ready
-    IDLE = "idle"  # Not actively navigating
-    EXPLORING = "exploring"  # Autonomous exploration
-    HUMAN_TRACKING = "human_tracking"  # Tracking and reacting to a human
-    ESCAPING = "escaping"  # Executing an escape maneuver
-    SHAKE_DEFENSE = "shake_defense"  # Performing shake defense when trapped
-    POST_ESCAPE = "post_escape"  # After successful escape, turning to face human
-    ERROR = "error"  # Error state
-
+    INITIALIZING = "initializing"      # Waiting for Nav2 stack to be ready
+    IDLE = "idle"                      # Nothing active, waiting for command
+    EXPLORING = "exploring"            # Autonomous exploration
+    HUMAN_TRACKING = "human_tracking"  # Reacting to human presence
+    ESCAPING = "escaping"              # Executing an escape maneuver
+    SHAKE_DEFENSE = "shake_defense"    # Shaking to free from being trapped
+    POST_ESCAPE = "post_escape"        # After escape: turning to face human
+    ERROR = "error"                    # Error state
 
 class NavigationEvent(enum.Enum):
     """Events that can trigger state transitions."""
-    NAV2_READY = "nav2_ready"  # Nav2 stack is ready
-    EXPLORATION_REQUESTED = "exploration_requested"  # Start exploration
-    HUMAN_DETECTED = "human_detected"  # Human detected
-    HUMAN_LOST = "human_lost"  # Human no longer detected
-    ESCAPE_NEEDED = "escape_needed"  # Critical human distance, need to escape
-    ESCAPE_SUCCEEDED = "escape_succeeded"  # Escape plan completed successfully
-    ESCAPE_FAILED = "escape_failed"  # Escape plan failed
-    TRAPPED = "trapped"  # Robot is trapped, can't find escape path
-    GOAL_REACHED = "goal_reached"  # Navigation goal reached
-    GOAL_FAILED = "goal_failed"  # Navigation goal failed
-    GOAL_TIMEOUT = "goal_timeout"  # Navigation timeout
-    STUCK = "stuck"  # Robot is stuck
-    RESUME = "resume"  # Resume normal operation
-    ERROR_OCCURRED = "error_occurred"  # An error occurred
-    ERROR_RESOLVED = "error_resolved"  # Error has been resolved
-
+    NAV2_READY = "nav2_ready"              # Nav2 stack is ready
+    EXPLORATION_REQUESTED = "exploration_requested"  # Begin exploration
+    HUMAN_DETECTED = "human_detected"      # Human detected
+    HUMAN_LOST = "human_lost"              # Human no longer detected
+    ESCAPE_NEEDED = "escape_needed"        # Critical distance to human; must escape
+    ESCAPE_SUCCEEDED = "escape_succeeded"  # Escape maneuver succeeded
+    ESCAPE_FAILED = "escape_failed"        # Escape maneuver failed
+    TRAPPED = "trapped"                    # Robot stuck during goal execution
+    GOAL_REACHED = "goal_reached"          # Goal reached successfully
+    GOAL_FAILED = "goal_failed"            # Goal failed
+    GOAL_TIMEOUT = "goal_timeout"          # Goal took too long
+    STUCK = "stuck"                        # Robot hasn't moved sufficiently
+    RESUME = "resume"                      # Resume normal behavior
+    ERROR_OCCURRED = "error_occurred"      # An error occurred
+    ERROR_RESOLVED = "error_resolved"      # Error resolved
 
 class NavigationFSM:
-    """Finite State Machine for robot navigation control."""
-
-    def __init__(self, node: Node, callbacks: Dict[str, Callable]):
-        """
-        Initialize the Navigation FSM.
-        
-        Args:
-            node: The ROS node this FSM is attached to
-            callbacks: Dictionary of callback functions for each state and transition
-        """
+    """Simple FSM engine for navigation control."""
+    def __init__(self, node: Node, callbacks: dict):
         self.node = node
         self.current_state = NavigationState.INITIALIZING
         self.previous_state = None
         self.callbacks = callbacks
         self.state_entry_time = self.node.get_clock().now()
-        self.state_data = {}  # Store state-specific data
-
-        # Define state transition table
+        self.state_data = {}
+        # Define allowed transitions:
         self.transitions = {
             NavigationState.INITIALIZING: {
                 NavigationEvent.NAV2_READY: NavigationState.IDLE,
@@ -72,10 +56,10 @@ class NavigationFSM:
             },
             NavigationState.EXPLORING: {
                 NavigationEvent.HUMAN_DETECTED: NavigationState.HUMAN_TRACKING,
-                NavigationEvent.GOAL_REACHED: NavigationState.EXPLORING,  # Continue exploring
-                NavigationEvent.GOAL_FAILED: NavigationState.EXPLORING,  # Retry exploring
-                NavigationEvent.GOAL_TIMEOUT: NavigationState.EXPLORING,  # Generate new waypoint
-                NavigationEvent.STUCK: NavigationState.EXPLORING,  # Attempt recovery
+                NavigationEvent.GOAL_REACHED: NavigationState.EXPLORING,  # continue exploring
+                NavigationEvent.GOAL_FAILED: NavigationState.EXPLORING,   # retry exploration
+                NavigationEvent.GOAL_TIMEOUT: NavigationState.EXPLORING,    # generate new waypoint
+                NavigationEvent.STUCK: NavigationState.EXPLORING,           # recover
                 NavigationEvent.ERROR_OCCURRED: NavigationState.ERROR
             },
             NavigationState.HUMAN_TRACKING: {
@@ -85,10 +69,10 @@ class NavigationFSM:
             },
             NavigationState.ESCAPING: {
                 NavigationEvent.ESCAPE_SUCCEEDED: NavigationState.POST_ESCAPE,
-                NavigationEvent.ESCAPE_FAILED: NavigationState.ESCAPING,  # Retry escape
+                NavigationEvent.ESCAPE_FAILED: NavigationState.ESCAPING,  # retry escape
                 NavigationEvent.TRAPPED: NavigationState.SHAKE_DEFENSE,
-                NavigationEvent.GOAL_TIMEOUT: NavigationState.ESCAPING,  # Retry with new plan
-                NavigationEvent.STUCK: NavigationState.ESCAPING,  # Retry with new plan
+                NavigationEvent.GOAL_TIMEOUT: NavigationState.ESCAPING,
+                NavigationEvent.STUCK: NavigationState.ESCAPING,
                 NavigationEvent.ERROR_OCCURRED: NavigationState.ERROR
             },
             NavigationState.POST_ESCAPE: {
@@ -105,12 +89,10 @@ class NavigationFSM:
                 NavigationEvent.ERROR_RESOLVED: NavigationState.IDLE
             }
         }
-
-        # Initialize the state
         self.log_state_transition(None, self.current_state)
         self.execute_state_callback("on_enter")
-        
-    def trigger_event(self, event: NavigationEvent, data: Any = None) -> bool:
+    
+    def trigger_event(self, event: NavigationEvent, data: any = None) -> bool:
         """
         Trigger an event to potentially change the state.
         
@@ -121,42 +103,31 @@ class NavigationFSM:
         Returns:
             True if state changed, False otherwise
         """
-        if event not in NavigationEvent:
-            self.node.get_logger().error(f"Invalid event: {event}")
-            return False
-            
-        # Check if transition is valid for current state
         if self.current_state not in self.transitions or event not in self.transitions[self.current_state]:
-            self.node.get_logger().warn(
-                f"No transition defined for event {event} in state {self.current_state}"
-            )
+            self.node.get_logger().warn(f"No transition for event {event} in state {self.current_state}")
             return False
             
-        # Get new state from transition table
         new_state = self.transitions[self.current_state][event]
         
-        # If no state change, just return
         if new_state == self.current_state:
             return False
             
         # Execute exit callback for current state
-        self.execute_state_callback("on_exit", event=event, data=data)
+        self.execute_state_callback("on_exit", event, data)
         
-        # Update state
         self.previous_state = self.current_state
         self.current_state = new_state
         self.state_entry_time = self.node.get_clock().now()
         self.state_data = data if data is not None else {}
         
-        # Log state transition
         self.log_state_transition(event, new_state)
         
         # Execute entry callback for new state
-        self.execute_state_callback("on_enter", event=event, data=data)
+        self.execute_state_callback("on_enter", event, data)
         
         return True
-        
-    def execute_state_callback(self, callback_type: str, event: Optional[NavigationEvent] = None, data: Any = None):
+
+    def execute_state_callback(self, callback_type: str, event: NavigationEvent = None, data: any = None):
         """
         Execute a callback for the current state.
         
@@ -171,34 +142,24 @@ class NavigationFSM:
             try:
                 self.callbacks[callback_name](event=event, data=data)
             except Exception as e:
-                self.node.get_logger().error(
-                    f"Error executing callback {callback_name}: {str(e)}"
-                )
-        
-        # Also execute generic callbacks if they exist
+                self.node.get_logger().error(f"Error in {callback_name}: {e}")
+                
         generic_callback = f"{callback_type}_any"
         if generic_callback in self.callbacks:
             try:
-                self.callbacks[generic_callback](
-                    state=self.current_state,
-                    event=event,
-                    data=data
-                )
+                self.callbacks[generic_callback](state=self.current_state, event=event, data=data)
             except Exception as e:
-                self.node.get_logger().error(
-                    f"Error executing generic callback {generic_callback}: {str(e)}"
-                )
-    
-    def update(self, data: Any = None):
+                self.node.get_logger().error(f"Error in {generic_callback}: {e}")
+
+    def update(self, data: any = None):
         """
         Update the current state. This should be called regularly.
         
         Args:
             data: Optional data to pass to the update callback
         """
-        # Execute update callback for current state
         self.execute_state_callback("on_update", data=data)
-        
+
     def get_state_duration(self) -> float:
         """
         Get the duration that the FSM has been in the current state (in seconds).
@@ -208,20 +169,8 @@ class NavigationFSM:
         """
         current_time = self.node.get_clock().now()
         return (current_time - self.state_entry_time).nanoseconds / 1e9
-        
-    def is_in_state(self, state: NavigationState) -> bool:
-        """
-        Check if the FSM is in the specified state.
-        
-        Args:
-            state: The state to check
-            
-        Returns:
-            True if in the specified state, False otherwise
-        """
-        return self.current_state == state
-        
-    def log_state_transition(self, event: Optional[NavigationEvent], new_state: NavigationState):
+
+    def log_state_transition(self, event: NavigationEvent, new_state: NavigationState):
         """
         Log a state transition.
         
@@ -231,25 +180,12 @@ class NavigationFSM:
         """
         if event:
             self.node.get_logger().info(
-                f"State transition: {self.current_state} -> {new_state} (triggered by {event})"
+                f"State transition: {self.previous_state} -> {new_state} (triggered by {event})"
             )
         else:
-            self.node.get_logger().info(
-                f"Initial state: {new_state}"
-            )
-            
-    def get_valid_events(self) -> list:
-        """
-        Get a list of events that are valid from the current state.
-        
-        Returns:
-            List of valid events
-        """
-        if self.current_state in self.transitions:
-            return list(self.transitions[self.current_state].keys())
-        return []
-        
-    def force_state(self, state: NavigationState, data: Any = None):
+            self.node.get_logger().info(f"Initial state: {new_state}")
+
+    def force_state(self, state: NavigationState, data: any = None):
         """
         Force the FSM into a specific state, bypassing normal transitions.
         Use with caution!
@@ -258,19 +194,10 @@ class NavigationFSM:
             state: The state to force
             data: Optional data to store with the state
         """
-        # Log the forced transition
-        self.node.get_logger().warn(
-            f"Forcing state transition: {self.current_state} -> {state}"
-        )
-        
-        # Execute exit callback for current state
+        self.node.get_logger().warn(f"Forcing state transition: {self.current_state} -> {state}")
         self.execute_state_callback("on_exit")
-        
-        # Update state
         self.previous_state = self.current_state
         self.current_state = state
         self.state_entry_time = self.node.get_clock().now()
         self.state_data = data if data is not None else {}
-        
-        # Execute entry callback for new state
         self.execute_state_callback("on_enter")

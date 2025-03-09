@@ -588,6 +588,29 @@ class NavigationController(Node):
             self.shake_timer = None
     
     # POST_ESCAPE
+    def on_enter_post_escape(self, event=None, data=None):
+        self.get_logger().info("Entering POST_ESCAPE state – turning to face human")
+        self.turn_start_time = self.get_clock().now()
+
+    def on_update_post_escape(self, event=None, data=None, state=None):
+        if self.last_human_position is not None:
+            dx = self.last_human_position[0] - self.current_pose.pose.position.x
+            dy = self.last_human_position[1] - self.current_pose.pose.position.y
+            target_angle = math.atan2(dy, dx)
+            cmd = self.human_avoidance.turn_to_angle(target_angle)
+            self.wheel_speeds_pub.publish(cmd)
+            current_time = self.get_clock().now()
+            turn_time = (current_time - self.turn_start_time).nanoseconds / 1e9
+            if abs(cmd.angular.z) < 0.01 or turn_time > 10.0:
+                self.get_logger().info("Turned to face human, resuming exploration")
+                self.turn_start_time = None
+                time.sleep(2)
+                self.fsm.trigger_event(NavigationEvent.RESUME)
+        else:
+            self.get_logger().info("No known human position, resuming exploration")
+            self.turn_start_time = None
+            self.fsm.trigger_event(NavigationEvent.RESUME)
+            
     def on_exit_post_escape(self, event=None, data=None):
         self.get_logger().info("Exiting POST_ESCAPE state")
         self.cancel_current_goal()

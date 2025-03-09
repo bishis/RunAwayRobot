@@ -33,6 +33,9 @@ class NavigationController(Node):
         self.current_pose.pose.position.y = 0.0
         self.current_pose.pose.position.z = 0.0
         self.current_pose.pose.orientation.w = 1.0
+        self.current_pose.pose.orientation.x = 0.0
+        self.current_pose.pose.orientation.y = 0.0
+        self.current_pose.pose.orientation.z = 0.0
         
         # Parameters
         self.declare_parameter('robot_radius', 0.16)
@@ -48,26 +51,35 @@ class NavigationController(Node):
         self.min_rotation_speed = self.get_parameter('min_rotation_speed').value
         self.goal_timeout = self.get_parameter('goal_timeout').value
         
-        # Publishers and subscribers - INITIALIZE THESE BEFORE DEPENDENT COMPONENTS
+        # Initialize waypoint generator AFTER tf setup
+        from .processors.waypoint_generator import WaypointGenerator
+        self.waypoint_generator = WaypointGenerator(
+            node=self,
+            min_distance=0.5,
+            safety_margin=self.safety_margin,
+            waypoint_size=0.3,
+            preferred_distance=1.0,
+            goal_tolerance=0.3
+        )
+
+        self.current_map = None
         self.wheel_speeds_pub = self.create_publisher(Twist, 'wheel_speeds', 10)
         self.cmd_vel_sub = self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.scan_sub = self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
-        self.map_sub = self.create_subscription(
-            OccupancyGrid, 
-            'map', 
-            self.map_callback, 
-            rclpy.qos.QoSProfile(
-                reliability=rclpy.qos.ReliabilityPolicy.RELIABLE,
-                durability=rclpy.qos.DurabilityPolicy.TRANSIENT_LOCAL,
-                history=rclpy.qos.HistoryPolicy.KEEP_LAST,
-                depth=1
-            )
-        )
+        self.map_sub = self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
+        
         self.marker_pub = self.create_publisher(MarkerArray, 'exploration_markers', 10)
         self.tracking_active_sub = self.create_subscription(Bool, '/human_tracking_active', self.tracking_active_callback, 10)
         self.tracking_cmd_sub = self.create_subscription(PoseStamped, '/human_coords', self.tracking_cmd_callback, 10)
         self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
+        self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
         
+        # Add debug logging for goal sending
+        self.get_logger().info('Waiting for navigation action server...')
+        while not self.nav_client.wait_for_server(timeout_sec=1.0):
+            self.get_logger().info('Still waiting for navigation action server...')
+        self.get_logger().info('Navigation server connected!')
+
         # Human obstacle publisher
         self.human_obstacles_pub = self.create_publisher(
             PointCloud2, 
@@ -80,23 +92,12 @@ class NavigationController(Node):
             )
         )
         
-        # Initialize waypoint generator AFTER tf setup
-        from .processors.waypoint_generator import WaypointGenerator
-        self.waypoint_generator = WaypointGenerator(
-            node=self,
-            min_distance=0.5,
-            safety_margin=self.safety_margin,
-            waypoint_size=0.3,
-            preferred_distance=1.0,
-            goal_tolerance=0.3
-        )
         
         # Initialize human avoidance AFTER waypoint generator and publishers
         from .processors.human_avoidance_controller import HumanAvoidanceController
         self.human_avoidance = HumanAvoidanceController(self, self.waypoint_generator)
         
         # State variables
-        self.current_map = None
         self.latest_scan = None
         self.current_goal = None
         self.current_goal_handle = None
@@ -121,7 +122,6 @@ class NavigationController(Node):
         self.tf_last_error_time = self.get_clock().now()
         
         # Navigation action client
-        self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
         self.get_logger().info('Waiting for navigation action server...')
         while not self.nav_client.wait_for_server(timeout_sec=1.0):
             self.get_logger().info('Still waiting for navigation action server...')

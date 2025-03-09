@@ -52,7 +52,17 @@ class NavigationController(Node):
         self.wheel_speeds_pub = self.create_publisher(Twist, 'wheel_speeds', 10)
         self.cmd_vel_sub = self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.scan_sub = self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
-        self.map_sub = self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
+        self.map_sub = self.create_subscription(
+            OccupancyGrid, 
+            'map', 
+            self.map_callback, 
+            rclpy.qos.QoSProfile(
+                reliability=rclpy.qos.ReliabilityPolicy.RELIABLE,
+                durability=rclpy.qos.DurabilityPolicy.TRANSIENT_LOCAL,
+                history=rclpy.qos.HistoryPolicy.KEEP_LAST,
+                depth=1
+            )
+        )
         self.marker_pub = self.create_publisher(MarkerArray, 'exploration_markers', 10)
         self.tracking_active_sub = self.create_subscription(Bool, '/human_tracking_active', self.tracking_active_callback, 10)
         self.tracking_cmd_sub = self.create_subscription(PoseStamped, '/human_coords', self.tracking_cmd_callback, 10)
@@ -205,7 +215,17 @@ class NavigationController(Node):
             self.human_avoidance.latest_scan = msg
     
     def map_callback(self, msg: OccupancyGrid):
+        """Debug map reception"""
+        if self.current_map is None:
+            self.get_logger().info(f"First map received! Size: {msg.info.width}x{msg.info.height}, Resolution: {msg.info.resolution}")
+        else:
+            self.get_logger().debug("Map update received")
         self.current_map = msg
+        
+        # Check if we're in EXPLORING state and were waiting for map
+        if self.fsm.current_state == NavigationState.EXPLORING:
+            self.get_logger().info("Map now available - retrying exploration")
+            self.retry_exploration()
         self.waypoint_generator.update_map(msg)
     
     def cmd_vel_callback(self, msg: Twist):
@@ -441,7 +461,7 @@ class NavigationController(Node):
     def on_enter_initializing(self, event=None, data=None):
         self.get_logger().info("Entering INITIALIZING state")
     
-    def on_update_initializing(self, event=None, data=None, state=None):
+    def on_update_initializing(self, event=None, data=None):
         """Fix the Nav2 ready check"""
         # Check if Nav2 server is ready.
         # The server_is_ready() method doesn't exist - use correct check

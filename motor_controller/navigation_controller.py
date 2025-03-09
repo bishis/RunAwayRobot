@@ -338,23 +338,27 @@ class NavigationController(Node):
     def send_goal(self, goal_msg: PoseStamped):
         """Send navigation goal with proper error handling"""
         try:
-            # Cancel any existing goal
+            # Check if we should cancel an existing goal first
             if self.is_navigating and self.current_goal is not None:
                 curr_x = self.current_goal.pose.position.x
                 curr_y = self.current_goal.pose.position.y
                 new_x = goal_msg.pose.position.x
                 new_y = goal_msg.pose.position.y
                 
-            # Calculate distance between current goal and new goal
-            distance = math.sqrt((curr_x - new_x) ** 2 + (curr_y - new_y) ** 2)
-            self.get_logger().debug(f'Distance between current and new goal: {distance}m')
-            
-            # If new goal is very close to current goal, don't resend
-            if distance < 0.1:
-                self.get_logger().info(f'Already navigating to this goal (within {distance:.2f}m)')
-                return
-            
-            self.cancel_current_goal()
+                # Calculate distance between current goal and new goal
+                distance = math.sqrt((curr_x - new_x) ** 2 + (curr_y - new_y) ** 2)
+                self.get_logger().debug(f'Distance between current and new goal: {distance}m')
+                
+                # If new goal is very close to current goal, don't resend
+                if distance < 0.1:
+                    self.get_logger().info(f'Already navigating to this goal (within {distance:.2f}m)')
+                    return
+                
+                # Cancel current goal before sending a new one
+                self.cancel_current_goal()
+            else:
+                # No active goal, just proceed
+                self.get_logger().debug('No active goal to cancel before sending new goal')
             
             # Create the goal
             nav_goal = NavigateToPose.Goal()

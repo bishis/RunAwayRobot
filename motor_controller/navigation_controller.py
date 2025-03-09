@@ -340,7 +340,7 @@ class NavigationController(Node):
     def send_goal(self, goal):
         """Send navigation goal with proper cancellation of existing goals"""
         # First check if we have an active goal
-        if self.is_escape_waypoint(waypoint):
+        if self.is_escape_waypoint(goal):
             new_state = "escape"
         else:
             new_state = "navigate"

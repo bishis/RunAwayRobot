@@ -591,74 +591,25 @@ class NavigationController(Node):
         )
     
     def check_human_close_to_goal(self):
-        """Monitor if human is intercepting the robot's escape path and replan if needed"""
-        # Only log at debug level to avoid log spam
-        self.get_logger().debug('Checking if human is intercepting escape path')
-        
-        # Check if we're escaping and have valid data
-        if not (self.is_navigating and self.current_goal is not None and 
-                self.is_escape_waypoint(self.current_goal) and 
-                self.last_human_position is not None and
-                hasattr(self.human_avoidance, 'waypoint_generator')):
-            return False
-        
-        # Check if we have a HumanEscape generator
-        waypoint_generator = self.human_avoidance.waypoint_generator
-        if not isinstance(waypoint_generator, HumanEscape):
-            return False
-        
-        # Check if human will intercept our path
-        try:
-            # Get current robot position and target
-            robot_pos = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
-            target_pos = (self.current_goal.pose.position.x, self.current_goal.pose.position.y)
-            
-            # Calculate path direction vector
-            path_dx = target_pos[0] - robot_pos[0]
-            path_dy = target_pos[1] - robot_pos[1]
-            path_length = math.sqrt(path_dx**2 + path_dy**2)
-            
-            # If we're very close to goal, no need to replan
-            if path_length < 0.5:
-                return False
-            
-            # Check if human is in path
-            human_dx = self.last_human_position[0] - robot_pos[0]
-            human_dy = self.last_human_position[1] - robot_pos[1]
-            human_distance = math.sqrt(human_dx**2 + human_dy**2)
-            
-            # Only replan if human is in range and potentially intercepting
-            if human_distance > path_length * 1.5:
-                return False
-            
-            self.get_logger().info(f"Checking for path interception - human at {self.last_human_position}, "
-                                  f"robot at {robot_pos}, target at {target_pos}")
-            
-            # Now check with the waypoint generator
-            new_escape_point = waypoint_generator.check_and_update_escape_if_needed()
-            
-            if new_escape_point is not None:
-                self.get_logger().warn('Human intercepting escape path - replanning escape route')
-                
-                # Cancel the current goal using the correct method signature
-                if self.cancel_current_goal():
-                    # Allow time for cancellation to complete
-                    time.sleep(0.3)
+        """Add dynamic escape path monitoring - Only check if actively navigating to an escape point"""
+        self.get_logger().info('Checking human close to goal')
+        if self.is_navigating and self.is_escape_waypoint(self.current_goal) and hasattr(self.human_avoidance, 'waypoint_generator'):
+            # Check if we have a HumanEscape generator
+            waypoint_generator = self.human_avoidance.waypoint_generator
+            if isinstance(waypoint_generator, HumanEscape):
+                # Check if human is intercepting and we need a new escape path
+                new_escape_point = waypoint_generator.check_and_update_escape_if_needed()
+                if new_escape_point is not None:
+                    self.get_logger().warn('Human intercepting escape path - updating escape route')
                     
-                    # Log the new escape point
-                    self.get_logger().info(f"New escape point: ({new_escape_point.pose.position.x:.2f}, "
-                                         f"{new_escape_point.pose.position.y:.2f})")
-                    
-                    # Send the new goal
-                    self.send_goal(new_escape_point)
-                    return True
-                else:
-                    self.get_logger().error("Couldn't cancel current goal for replanning")
-        except Exception as e:
-            self.get_logger().error(f"Error checking for path interception: {str(e)}")
-        
-        return False
-
+                    # Cancel the current goal BEFORE sending a new one
+                    if self.cancel_current_goal():
+                        # Add a small delay to ensure cancellation is processed
+                        time.sleep(0.2)
+                        self.send_goal(new_escape_point)
+                    else:
+                        self.get_logger().error("Couldn't cancel current goal for dynamic re-planning")
+    
     def check_goal_progress(self):
         """Monitor progress of current navigation goal"""
         if not self.is_navigating or self.current_goal is None:

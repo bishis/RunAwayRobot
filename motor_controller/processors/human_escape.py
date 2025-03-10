@@ -6,6 +6,7 @@ from scipy.ndimage import distance_transform_edt
 from .waypoint_generator import WaypointGenerator
 import rclpy
 from visualization_msgs.msg import Marker, MarkerArray
+import tf_transformations
 
 class HumanEscape(WaypointGenerator):
     """Specialized waypoint generator for escaping from humans"""
@@ -531,6 +532,131 @@ class HumanEscape(WaypointGenerator):
         marker.action = Marker.DELETE
         empty_markers.markers.append(marker)
         self.node.marker_pub.publish(empty_markers)
+
+    def find_hiding_spot(self, robot_pos, human_pos):
+        """Find a waypoint that would be hidden from human view"""
+        try:
+            # Skip if no map is available
+            if self.current_map is None:
+                self.node.get_logger().error('No map available for hiding spot search')
+                return None
+            
+            # Get map info
+            map_origin = self.current_map.info.origin
+            resolution = self.current_map.info.resolution
+            width = self.current_map.info.width
+            height = self.current_map.info.height
+            
+            # Ensure we have obstacles in map data
+            if not hasattr(self, 'obstacle_grid'):
+                self.node.get_logger().warn('No obstacle grid for hiding spot search')
+                return None
+            
+            # Convert positions to grid coordinates
+            robot_grid_x = int((robot_pos[0] - map_origin.position.x) / resolution)
+            robot_grid_y = int((robot_pos[1] - map_origin.position.y) / resolution)
+            human_grid_x = int((human_pos[0] - map_origin.position.x) / resolution)
+            human_grid_y = int((human_pos[1] - map_origin.position.y) / resolution)
+            
+            # Find potential hiding spots (cells that have obstacles between them and human)
+            hiding_candidates = []
+            radius = 20  # Search radius in grid cells
+            
+            # Expand radius until we find at least one candidate
+            while len(hiding_candidates) == 0 and radius <= 50:  # Max radius of 50 cells
+                for dx in range(-radius, radius+1):
+                    for dy in range(-radius, radius+1):
+                        test_x = robot_grid_x + dx
+                        test_y = robot_grid_y + dy
+                        
+                        # Skip if out of bounds
+                        if test_x < 0 or test_x >= width or test_y < 0 or test_y >= height:
+                            continue
+                        
+                        # Skip if too close to current position
+                        if abs(dx) < 5 and abs(dy) < 5:
+                            continue
+                        
+                        # Skip if an obstacle or too close to one
+                        if self.obstacle_grid[test_y][test_x] > 0:
+                            continue
+                        
+                        # Check if there's a line of sight to human
+                        if not self.has_line_of_sight(test_x, test_y, human_grid_x, human_grid_y):
+                            # Convert grid coords back to world coords
+                            world_x = test_x * resolution + map_origin.position.x
+                            world_y = test_y * resolution + map_origin.position.y
+                            
+                            # Calculate distance from robot
+                            dist = math.sqrt((world_x - robot_pos[0])**2 + (world_y - robot_pos[1])**2)
+                            
+                            hiding_candidates.append((world_x, world_y, dist))
+                
+                radius += 10  # Increase radius if no candidates found
+            
+            if hiding_candidates:
+                # Sort by distance (closest first)
+                hiding_candidates.sort(key=lambda x: x[2])
+                
+                # Take the closest candidate
+                best_spot = hiding_candidates[0]
+                self.node.get_logger().info(f'Found hiding spot at ({best_spot[0]:.2f}, {best_spot[1]:.2f}), '
+                                          f'distance: {best_spot[2]:.2f}m')
+                
+                # Create PoseStamped message
+                pose = PoseStamped()
+                pose.header.frame_id = "map"
+                pose.header.stamp = self.node.get_clock().now().to_msg()
+                pose.pose.position.x = best_spot[0]
+                pose.pose.position.y = best_spot[1]
+                pose.pose.position.z = 0.0
+                
+                # Set orientation to face away from human
+                dx = best_spot[0] - human_pos[0]
+                dy = best_spot[1] - human_pos[1]
+                yaw = math.atan2(dy, dx)
+                
+                # Convert yaw to quaternion
+                qx, qy, qz, qw = tf_transformations.quaternion_from_euler(0, 0, yaw)
+                pose.pose.orientation.x = qx
+                pose.pose.orientation.y = qy
+                pose.pose.orientation.z = qz
+                pose.pose.orientation.w = qw
+                
+                return pose
+            else:
+                self.node.get_logger().warn('No suitable hiding spots found')
+                return None
+        
+        except Exception as e:
+            self.node.get_logger().error(f'Error finding hiding spot: {str(e)}')
+            return None
+
+    def has_line_of_sight(self, x1, y1, x2, y2):
+        """Check if there's a clear line of sight between two grid cells"""
+        # Bresenham's line algorithm
+        dx = abs(x2 - x1)
+        dy = abs(y2 - y1)
+        
+        sx = 1 if x1 < x2 else -1
+        sy = 1 if y1 < y2 else -1
+        
+        err = dx - dy
+        
+        while x1 != x2 or y1 != y2:
+            # Check if current cell is an obstacle
+            if self.obstacle_grid[y1][x1] > 0:
+                return False
+            
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                x1 += sx
+            if e2 < dx:
+                err += dx
+                y1 += sy
+        
+        return True
 
 def normalize_angle(angle):
     """Normalize an angle to the range [-pi, pi]."""

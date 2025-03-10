@@ -490,9 +490,22 @@ class NavigationController(Node):
                     self.planning_attempts = 0
                     self.reset_navigation_state()
                 elif self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
-                    self.get_logger().info('Escape plan succeeded - turning to face human')
-                    self.reset_escape_state()
-                    self.start_escape_monitoring()
+                    # Check if we're already at a hiding spot
+                    if hasattr(self, 'is_moving_to_hiding_spot') and self.is_moving_to_hiding_spot:
+                        self.get_logger().info('Successfully reached hiding spot')
+                        self.reset_escape_state()
+                        self.start_escape_monitoring()
+                    else:
+                        self.get_logger().info('Escape succeeded - checking for better hiding spot')
+                        # Reset just the escape attempts but keep other state
+                        self.escape_attempts = 0
+                        
+                        # Try to find a better hiding spot
+                        if not self.find_and_move_to_hiding_spot():
+                            # If no hiding spot found, just reset and monitor
+                            self.get_logger().info('No hiding spot found - turning to face human')
+                            self.reset_escape_state()
+                            self.start_escape_monitoring()
                 
                 
         except Exception as e:
@@ -514,6 +527,10 @@ class NavigationController(Node):
         self.reset_goal_state()  # Reset base goal state first
         self.escape_attempts = 0
         self.previous_escape_waypoint_failed = False
+        
+        # Reset hiding spot flag
+        if hasattr(self, 'is_moving_to_hiding_spot'):
+            self.is_moving_to_hiding_spot = False
         
         # If there's an escape monitor running, cancel it
         if hasattr(self, 'escape_monitor_timer') and self.escape_monitor_timer:
@@ -1144,6 +1161,46 @@ class NavigationController(Node):
         if time_since_human < tracking_timeout:
             return True
         else:
+            return False
+
+    def find_and_move_to_hiding_spot(self):
+        """Find a better hiding spot after initial escape is successful"""
+        self.get_logger().info('Looking for a better hiding spot...')
+        
+        # Skip if we don't have human position data
+        if self.last_human_position is None:
+            self.get_logger().warn('No human position data available for hiding spot search')
+            return False
+        
+        # Get current robot position
+        if self.current_pose is None:
+            self.get_logger().warn('No robot pose available for hiding spot search')
+            return False
+        
+        robot_pos = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
+        human_pos = self.last_human_position
+        
+        # Log positions for debugging
+        self.get_logger().info(f'Searching for hiding spot: robot at {robot_pos}, human at {human_pos}')
+        
+        # Call the human avoidance controller to find a hiding spot
+        hiding_point = self.human_avoidance.find_hiding_spot(robot_pos, human_pos)
+        
+        if hiding_point is not None:
+            self.get_logger().info(f'Found hiding spot at ({hiding_point.pose.position.x:.2f}, {hiding_point.pose.position.y:.2f})')
+            
+            # Set flag to indicate we're moving to a hiding spot (not a regular escape)
+            self.is_moving_to_hiding_spot = True
+            
+            # Create visualization markers (purple for hiding spot)
+            markers = self.waypoint_generator.create_visualization_markers(hiding_point, is_hiding=True)
+            self.marker_pub.publish(markers)
+            
+            # Send the goal
+            self.send_goal(hiding_point)
+            return True
+        else:
+            self.get_logger().warn('No better hiding spot found, staying at current position')
             return False
 
 

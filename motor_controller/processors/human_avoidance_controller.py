@@ -319,7 +319,15 @@ class HumanAvoidanceController:
 
     def check_and_update_escape_if_needed(self):
         """Check if human is intercepting escape path and find new path if needed"""
+        self.node.get_logger().info('Checking for escape intercept...')
         return self.escape_planner.check_and_update_escape_if_needed()
+
+    def find_hiding_spot(self, robot_pos, human_pos):
+        """Find a spot where the robot would be hidden from the human's view"""
+        self.node.get_logger().info('Searching for hiding spot...')
+        
+        # Use escape planner to find hiding spots
+        return self.escape_planner.find_hiding_spot(robot_pos, human_pos)
 
     
 

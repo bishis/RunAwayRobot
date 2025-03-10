@@ -102,7 +102,7 @@ class NavigationController(Node):
         self.exploration_loop_timer = self.create_timer(0.1, self.exploration_loop)
 
         # Add timeout parameters
-        self.goal_timeout = 20.0  # 20 seconds total timeout per goal
+        self.goal_timeout = 30.0  # 30 seconds total timeout per goal
         self.planning_attempts = 0
         self.max_planning_attempts = 2  # Max attempts before giving up
         self.goal_start_time = None

@@ -561,6 +561,7 @@ class NavigationController(Node):
                 # Send cancel request without callback
                 try:
                     self.current_goal_handle.cancel_goal_async()
+                    self.get_logger().info('Goal cancelled successfully')
                 except Exception as e:
                     self.get_logger().error(f'Error sending cancel request: {str(e)}')
                 

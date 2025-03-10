@@ -7,6 +7,7 @@ from .waypoint_generator import WaypointGenerator
 import rclpy
 from visualization_msgs.msg import Marker, MarkerArray
 import tf_transformations
+from scipy import ndimage
 
 class HumanEscape(WaypointGenerator):
     """Specialized waypoint generator for escaping from humans"""
@@ -650,9 +651,14 @@ class HumanEscape(WaypointGenerator):
             width = self.current_map.info.width
             height = self.current_map.info.height
             
-            # Ensure we have obstacles in map data
-            if not hasattr(self, 'obstacle_grid'):
-                self.node.get_logger().warn('No obstacle grid for hiding spot search')
+            # Make sure obstacle grid is created from map data
+            if not hasattr(self, 'obstacle_grid') or self.obstacle_grid is None:
+                self.node.get_logger().info('Creating obstacle grid for hiding spot search')
+                self.create_obstacle_grid_from_map()
+            
+            # Double-check that we have an obstacle grid now
+            if not hasattr(self, 'obstacle_grid') or self.obstacle_grid is None:
+                self.node.get_logger().warn('Failed to create obstacle grid for hiding spot search')
                 return None
             
             # Convert positions to grid coordinates
@@ -809,6 +815,46 @@ class HumanEscape(WaypointGenerator):
         
         # If distance to path is less than threshold, human is intercepting
         return dist_to_path < interception_threshold
+
+    def create_obstacle_grid_from_map(self):
+        """Create an obstacle grid from the current map data"""
+        try:
+            if self.current_map is None:
+                self.node.get_logger().warn('No map available to create obstacle grid')
+                return
+            
+            # Get map dimensions and data
+            width = self.current_map.info.width
+            height = self.current_map.info.height
+            map_data = np.array(self.current_map.data).reshape((height, width))
+            
+            # Create obstacle grid - mark occupied and unknown cells
+            self.obstacle_grid = np.zeros((height, width), dtype=np.uint8)
+            
+            # Mark occupied cells (value > 50) as obstacles
+            self.obstacle_grid[map_data > 50] = 1
+            
+            # Also mark unknown cells (value == -1) as obstacles to be safe
+            self.obstacle_grid[map_data == -1] = 1
+            
+            # Add padding around obstacles for safety
+            self.obstacle_grid = ndimage.binary_dilation(
+                self.obstacle_grid, 
+                structure=np.ones((3, 3)),
+                iterations=2
+            ).astype(np.uint8)
+            
+            self.node.get_logger().info(f'Created obstacle grid with shape {self.obstacle_grid.shape}')
+            
+        except Exception as e:
+            self.node.get_logger().error(f'Error creating obstacle grid: {str(e)}')
+            self.obstacle_grid = None
+
+    def process_map(self, map_msg):
+        """Process the map data for obstacle detection"""
+        self.current_map = map_msg
+        self.create_obstacle_grid_from_map()
+        self.node.get_logger().info('Map processed and obstacle grid updated')
 
 def normalize_angle(angle):
     """Normalize an angle to the range [-pi, pi]."""

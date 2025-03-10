@@ -595,11 +595,15 @@ class NavigationController(Node):
         self.get_logger().info('Checking human close to goal')
         if self.is_navigating and self.is_escape_waypoint(self.current_goal) and hasattr(self.human_avoidance, 'waypoint_generator'):
             # Check if we have a HumanEscape generator
+            self.get_logger().info('Checking if we have a HumanEscape generator')
             waypoint_generator = self.human_avoidance.waypoint_generator
             if isinstance(waypoint_generator, HumanEscape):
+                self.get_logger().info('Checking if human is intercepting and we need a new escape path')
                 # Check if human is intercepting and we need a new escape path
                 new_escape_point = waypoint_generator.check_and_update_escape_if_needed()
+                self.get_logger().info(f'New escape point: {new_escape_point}')
                 if new_escape_point is not None:
+
                     self.get_logger().warn('Human intercepting escape path - updating escape route')
                     
                     # Cancel the current goal BEFORE sending a new one

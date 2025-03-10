@@ -583,7 +583,7 @@ class NavigationController(Node):
                     # Wait for the cancellation to complete (with timeout)
                     self.get_logger().info('Waiting for cancellation confirmation...')
                     spin_result = rclpy.spin_until_future_complete(
-                        self, cancel_future, timeout_sec=1.0
+                        self, cancel_future, timeout_sec=0.3
                     )
                     
                     # Check if we got a response within timeout

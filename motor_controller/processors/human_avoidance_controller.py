@@ -316,3 +316,10 @@ class HumanAvoidanceController:
         except Exception as e:
             self.node.get_logger().error(f'Error calculating turn angle: {str(e)}')
             return Twist()  # Return zero speeds on error
+
+    def check_and_update_escape_if_needed(self):
+        """Check if human is intercepting escape path and find new path if needed"""
+        return self.escape_planner.check_and_update_escape_if_needed()
+
+    
+

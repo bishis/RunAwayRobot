@@ -590,29 +590,45 @@ class NavigationController(Node):
         )
     
     def check_human_close_to_goal(self):
-        """Add dynamic escape path monitoring - Only check if actively navigating to an escape point"""
-        self.get_logger().info('Checking human close to goal')
-        if self.is_navigating and self.is_escape_waypoint(self.current_goal) and hasattr(self.human_avoidance, 'waypoint_generator'):
-            # Check if we have a HumanEscape generator
-            self.get_logger().info('Checking if we have a HumanEscape generator')
-            waypoint_generator = self.human_avoidance.waypoint_generator
-            if isinstance(waypoint_generator, HumanEscape):
-                self.get_logger().info('Checking if human is intercepting and we need a new escape path')
-                # Check if human is intercepting and we need a new escape path
-                new_escape_point = waypoint_generator.check_and_update_escape_if_needed()
-                self.get_logger().info(f'New escape point: {new_escape_point}')
-                if new_escape_point is not None:
+        """Add dynamic escape path monitoring for active escape navigation"""
+        self.get_logger().debug('Checking for human interception during escape')
+        
+        # Skip check if not in escape mode
+        if not (self.is_navigating and self.current_goal is not None and 
+                self.is_escape_waypoint(self.current_goal) and
+                self.last_human_position is not None):
+            return
+        
+        # Check if human_avoidance has a check_and_update_escape_if_needed method
+        if hasattr(self.human_avoidance, 'check_and_update_escape_if_needed'):
+            # Use method directly from human_avoidance
+            new_escape_point = self.human_avoidance.check_and_update_escape_if_needed()
+            
+            if new_escape_point is not None:
+                self.get_logger().warn('Human intercepting escape path - updating escape route')
+                
+                # Get current positions for better logging
+                robot_pos = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
+                target_pos = (self.current_goal.pose.position.x, self.current_goal.pose.position.y)
+                human_pos = self.last_human_position
+                
+                self.get_logger().info(f"Replanning escape - robot at {robot_pos}, " 
+                                      f"human at {human_pos}, original target at {target_pos}")
+                
+                # Cancel the current goal and send the new one
+                if self.cancel_current_goal():
+                    self.reset_escape_state()
+                    # Add a small delay to ensure cancellation is processed
+                    time.sleep(0.5)
+                    self.get_logger().info(f"New escape point: ({new_escape_point.pose.position.x:.2f}, "
+                                         f"{new_escape_point.pose.position.y:.2f})")
+                    self.send_goal(new_escape_point)
+                else:
+                    self.get_logger().error("Couldn't cancel current goal for escape replanning")
+        else:
+            # Add the method to HumanAvoidanceController if needed
+            self.get_logger().warn('Human avoidance controller is missing check_and_update_escape_if_needed method')
 
-                    self.get_logger().warn('Human intercepting escape path - updating escape route')
-                    
-                    # Cancel the current goal BEFORE sending a new one
-                    if self.cancel_current_goal():
-                        # Add a small delay to ensure cancellation is processed
-                        time.sleep(0.2)
-                        self.send_goal(new_escape_point)
-                    else:
-                        self.get_logger().error("Couldn't cancel current goal for dynamic re-planning")
-    
     def check_goal_progress(self):
         """Monitor progress of current navigation goal"""
         if not self.is_navigating or self.current_goal is None:

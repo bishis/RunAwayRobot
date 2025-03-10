@@ -701,7 +701,7 @@ class NavigationController(Node):
             
             current_position = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
             
-            self.check_human_close_to_goal()
+            # self.check_human_close_to_goal()
 
             # Initialize tracking on first call
             if self.last_position_check is None or self.last_check_position is None:

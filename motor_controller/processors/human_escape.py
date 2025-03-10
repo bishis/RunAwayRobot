@@ -8,6 +8,7 @@ import rclpy
 from visualization_msgs.msg import Marker, MarkerArray
 import tf_transformations
 from scipy import ndimage
+import traceback
 
 class HumanEscape(WaypointGenerator):
     """Specialized waypoint generator for escaping from humans"""
@@ -232,8 +233,25 @@ class HumanEscape(WaypointGenerator):
             best_score = float('-inf')
             best_los_score = float('-inf')  # Best score for point with no line of sight
             
+            # Calculate map bounds in world coordinates
+            map_origin = self.current_map.info.origin
+            resolution = self.current_map.info.resolution
+            width = self.current_map.info.width
+            height = self.current_map.info.height
+            
+            map_min_x = map_origin.position.x
+            map_min_y = map_origin.position.y
+            map_max_x = map_min_x + (width * resolution)
+            map_max_y = map_min_y + (height * resolution)
+            
+            # Add safety margin (2 cells from edges)
+            safety_margin = 2 * resolution
+            map_min_x += safety_margin
+            map_min_y += safety_margin
+            map_max_x -= safety_margin
+            map_max_y -= safety_margin
+            
             # Search entire map for the furthest point
-            height, width = map_data.shape
             for y in range(height):
                 for x in range(width):
                     # Skip non-free cells and cells too close to walls
@@ -264,6 +282,13 @@ class HumanEscape(WaypointGenerator):
                             break
                     
                     if too_close_to_previous:
+                        continue
+                    
+                    # Check if within map bounds
+                    if (world_x < map_min_x or 
+                        world_x > map_max_x or 
+                        world_y < map_min_y or 
+                        world_y > map_max_y):
                         continue
                     
                     # Calculate distance to human
@@ -638,7 +663,7 @@ class HumanEscape(WaypointGenerator):
         self.node.marker_pub.publish(empty_markers)
 
     def find_hiding_spot(self, robot_pos, human_pos):
-        """Find a waypoint that would be hidden from human view"""
+        """Find a waypoint that would be hidden from human view with bounds checking"""
         try:
             # Skip if no map is available
             if self.current_map is None:
@@ -650,6 +675,27 @@ class HumanEscape(WaypointGenerator):
             resolution = self.current_map.info.resolution
             width = self.current_map.info.width
             height = self.current_map.info.height
+            
+            # Calculate map bounds in world coordinates
+            map_min_x = map_origin.position.x
+            map_min_y = map_origin.position.y
+            map_max_x = map_min_x + (width * resolution)
+            map_max_y = map_min_y + (height * resolution)
+            
+            # Add safety margin (2 cells from edges)
+            safety_margin = 2 * resolution
+            map_min_x += safety_margin
+            map_min_y += safety_margin
+            map_max_x -= safety_margin
+            map_max_y -= safety_margin
+            
+            self.node.get_logger().info(f'Map bounds: ({map_min_x:.2f}, {map_min_y:.2f}) to ({map_max_x:.2f}, {map_max_y:.2f})')
+            
+            # Check if robot is within map bounds
+            if (robot_pos[0] < map_min_x or robot_pos[0] > map_max_x or 
+                robot_pos[1] < map_min_y or robot_pos[1] > map_max_y):
+                self.node.get_logger().warn(f'Robot position {robot_pos} is outside map bounds')
+                return None
             
             # Make sure obstacle grid is created from map data
             if not hasattr(self, 'obstacle_grid') or self.obstacle_grid is None:
@@ -672,14 +718,22 @@ class HumanEscape(WaypointGenerator):
             radius = 20  # Search radius in grid cells
             
             # Expand radius until we find at least one candidate
-            while len(hiding_candidates) == 0 and radius <= 50:  # Max radius of 50 cells
+            while len(hiding_candidates) == 0 and radius <= 30:  # Reduce max radius to 30 cells (was 50)
                 for dx in range(-radius, radius+1):
                     for dy in range(-radius, radius+1):
                         test_x = robot_grid_x + dx
                         test_y = robot_grid_y + dy
                         
-                        # Skip if out of bounds
+                        # Skip if out of bounds of grid
                         if test_x < 0 or test_x >= width or test_y < 0 or test_y >= height:
+                            continue
+                        
+                        # Convert grid coords to world coords to check map bounds
+                        world_x = test_x * resolution + map_origin.position.x
+                        world_y = test_y * resolution + map_origin.position.y
+                        
+                        # Skip if outside safe map bounds
+                        if world_x < map_min_x or world_x > map_max_x or world_y < map_min_y or world_y > map_max_y:
                             continue
                         
                         # Skip if too close to current position
@@ -692,10 +746,6 @@ class HumanEscape(WaypointGenerator):
                         
                         # Check if there's a line of sight to human
                         if not self.has_line_of_sight(test_x, test_y, human_grid_x, human_grid_y):
-                            # Convert grid coords back to world coords
-                            world_x = test_x * resolution + map_origin.position.x
-                            world_y = test_y * resolution + map_origin.position.y
-                            
                             # Calculate distance from robot
                             dist = math.sqrt((world_x - robot_pos[0])**2 + (world_y - robot_pos[1])**2)
                             
@@ -734,11 +784,12 @@ class HumanEscape(WaypointGenerator):
                 
                 return pose
             else:
-                self.node.get_logger().warn('No suitable hiding spots found')
+                self.node.get_logger().warn('No suitable hiding spots found within map bounds')
                 return None
         
         except Exception as e:
             self.node.get_logger().error(f'Error finding hiding spot: {str(e)}')
+            self.node.get_logger().error(f'Traceback: {traceback.format_exc()}')
             return None
 
     def has_line_of_sight(self, x1, y1, x2, y2):

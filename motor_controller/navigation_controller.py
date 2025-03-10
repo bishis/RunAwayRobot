@@ -93,6 +93,7 @@ class NavigationController(Node):
         self.is_navigating = False
         self.goal_start_time = None
         self.previous_waypoint = None
+        self.is_moving_to_hiding_spot = False
 
         # Add state for Nav2 readiness
         self.nav2_ready = False
@@ -528,12 +529,10 @@ class NavigationController(Node):
         self.escape_attempts = 0
         self.previous_escape_waypoint_failed = False
         
-        # Reset hiding spot flag
-        if hasattr(self, 'is_moving_to_hiding_spot'):
-            self.is_moving_to_hiding_spot = False
+        self.is_moving_to_hiding_spot = False
         
         # If there's an escape monitor running, cancel it
-        if hasattr(self, 'escape_monitor_timer') and self.escape_monitor_timer:
+        if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
             self.escape_monitor_timer = None
         

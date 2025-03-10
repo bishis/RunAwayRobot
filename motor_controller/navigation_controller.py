@@ -589,7 +589,27 @@ class NavigationController(Node):
             (goal.pose.position.x - self.current_pose.pose.position.x) ** 2 +
             (goal.pose.position.y - self.current_pose.pose.position.y) ** 2
         )
-
+    
+    def check_human_close_to_goal(self):
+        """Add dynamic escape path monitoring - Only check if actively navigating to an escape point"""
+        self.get_logger().info('Checking human close to goal')
+        if self.is_navigating and self.is_escape_waypoint(self.current_goal) and hasattr(self.human_avoidance, 'waypoint_generator'):
+            # Check if we have a HumanEscape generator
+            waypoint_generator = self.human_avoidance.waypoint_generator
+            if isinstance(waypoint_generator, HumanEscape):
+                # Check if human is intercepting and we need a new escape path
+                new_escape_point = waypoint_generator.check_and_update_escape_if_needed()
+                if new_escape_point is not None:
+                    self.get_logger().warn('Human intercepting escape path - updating escape route')
+                    
+                    # Cancel the current goal BEFORE sending a new one
+                    if self.cancel_current_goal():
+                        # Add a small delay to ensure cancellation is processed
+                        time.sleep(0.2)
+                        self.send_goal(new_escape_point)
+                    else:
+                        self.get_logger().error("Couldn't cancel current goal for dynamic re-planning")
+    
     def check_goal_progress(self):
         """Monitor progress of current navigation goal"""
         if not self.is_navigating or self.current_goal is None:
@@ -624,6 +644,8 @@ class NavigationController(Node):
             
             current_position = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
             
+            self.check_human_close_to_goal()
+
             # Initialize tracking on first call
             if self.last_position_check is None or self.last_check_position is None:
                 self.last_position_check = current_time
@@ -688,24 +710,6 @@ class NavigationController(Node):
             elif distance_moved > self.stuck_threshold or time_diff > 10.0:
                 self.last_position_check = current_time
                 self.last_check_position = current_position
-            
-            # Add dynamic escape path monitoring - Only check if actively navigating to an escape point
-            if self.is_navigating and self.is_escape_waypoint(self.current_goal) and hasattr(self.human_avoidance, 'waypoint_generator'):
-                # Check if we have a HumanEscape generator
-                waypoint_generator = self.human_avoidance.waypoint_generator
-                if isinstance(waypoint_generator, HumanEscape):
-                    # Check if human is intercepting and we need a new escape path
-                    new_escape_point = waypoint_generator.check_and_update_escape_if_needed()
-                    if new_escape_point is not None:
-                        self.get_logger().warn('Human intercepting escape path - updating escape route')
-                        
-                        # Cancel the current goal BEFORE sending a new one
-                        if self.cancel_current_goal():
-                            # Add a small delay to ensure cancellation is processed
-                            time.sleep(0.2)
-                            self.send_goal(new_escape_point)
-                        else:
-                            self.get_logger().error("Couldn't cancel current goal for dynamic re-planning")
             
         except Exception as e:
             self.get_logger().error(f'Error checking goal progress: {str(e)}')

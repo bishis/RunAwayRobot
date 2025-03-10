@@ -597,7 +597,7 @@ class NavigationController(Node):
                         self.get_logger().warn('Goal cancellation timed out waiting for nav2 response')
                     
                     # Add a small delay to ensure cancellation is processed by nav stack
-                    time.sleep(0.3)
+                    time.sleep(0.1)
                     
                 except Exception as e:
                     self.get_logger().error(f'Error in cancel request: {str(e)}')

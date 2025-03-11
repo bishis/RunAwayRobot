@@ -670,11 +670,34 @@ class HumanEscape(WaypointGenerator):
                 self.node.get_logger().error('No map available for hiding spot search')
                 return None
             
-            # Get map info
+            # Verify obstacle grid exists
+            if self.obstacle_grid is None:
+                self.node.get_logger().error('Obstacle grid not initialized for hiding spot search')
+                self.create_obstacle_grid_from_map()
+                if self.obstacle_grid is None:
+                    return None
+            
+            # Get map dimensions
             map_origin = self.current_map.info.origin
             resolution = self.current_map.info.resolution
             width = self.current_map.info.width
             height = self.current_map.info.height
+            
+            # Verify obstacle grid dimensions match map dimensions
+            grid_height, grid_width = self.obstacle_grid.shape
+            self.node.get_logger().info(f'Map bounds: ({map_origin.position.x}, {map_origin.position.y}) to ({map_origin.position.x + width*resolution}, {map_origin.position.y + height*resolution})')
+            self.node.get_logger().info(f'Obstacle grid shape: {self.obstacle_grid.shape}, Map dimensions: {width}x{height}')
+            
+            if grid_width != width or grid_height != height:
+                self.node.get_logger().warn(f'Recreating obstacle grid due to dimension mismatch')
+                self.create_obstacle_grid_from_map()
+                
+                # Check if recreation was successful
+                if self.obstacle_grid is None:
+                    self.node.get_logger().error('Failed to recreate obstacle grid')
+                    return None
+                
+                grid_height, grid_width = self.obstacle_grid.shape
             
             # Calculate map bounds in world coordinates
             map_min_x = map_origin.position.x
@@ -682,29 +705,10 @@ class HumanEscape(WaypointGenerator):
             map_max_x = map_min_x + (width * resolution)
             map_max_y = map_min_y + (height * resolution)
             
-            # Add safety margin (2 cells from edges)
-            safety_margin = 2 * resolution
-            map_min_x += safety_margin
-            map_min_y += safety_margin
-            map_max_x -= safety_margin
-            map_max_y -= safety_margin
-            
-            self.node.get_logger().info(f'Map bounds: ({map_min_x:.2f}, {map_min_y:.2f}) to ({map_max_x:.2f}, {map_max_y:.2f})')
-            
             # Check if robot is within map bounds
             if (robot_pos[0] < map_min_x or robot_pos[0] > map_max_x or 
                 robot_pos[1] < map_min_y or robot_pos[1] > map_max_y):
                 self.node.get_logger().warn(f'Robot position {robot_pos} is outside map bounds')
-                return None
-            
-            # Make sure obstacle grid is created from map data
-            if not hasattr(self, 'obstacle_grid') or self.obstacle_grid is None:
-                self.node.get_logger().info('Creating obstacle grid for hiding spot search')
-                self.create_obstacle_grid_from_map()
-            
-            # Double-check that we have an obstacle grid now
-            if not hasattr(self, 'obstacle_grid') or self.obstacle_grid is None:
-                self.node.get_logger().warn('Failed to create obstacle grid for hiding spot search')
                 return None
             
             # Convert positions to grid coordinates
@@ -724,8 +728,9 @@ class HumanEscape(WaypointGenerator):
                         test_x = robot_grid_x + dx
                         test_y = robot_grid_y + dy
                         
-                        # Skip if out of bounds of grid
-                        if test_x < 0 or test_x >= width or test_y < 0 or test_y >= height:
+                        # Skip if out of bounds of grid - enhanced check
+                        if (test_x < 0 or test_x >= grid_width or 
+                            test_y < 0 or test_y >= grid_height):
                             continue
                         
                         # Convert grid coords to world coords to check map bounds
@@ -740,8 +745,8 @@ class HumanEscape(WaypointGenerator):
                         if abs(dx) < 5 and abs(dy) < 5:
                             continue
                         
-                        # Skip if an obstacle or too close to one
-                        if self.obstacle_grid[test_y][test_x] > 0:
+                        # Skip if an obstacle or too close to one - with bounds check
+                        if test_y < grid_height and test_x < grid_width and self.obstacle_grid[test_y][test_x] > 0:
                             continue
                         
                         # Check if there's a line of sight to human

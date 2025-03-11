@@ -742,7 +742,7 @@ class NavigationController(Node):
                         self.start_shake_defense()
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
-                        self.cancel_current_goal(failed_escape=True)
+                        self.cancel_current_goal()
                         self.reset_escape_state()
                 else:
                     self.planning_attempts += 1

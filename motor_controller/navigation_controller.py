@@ -581,12 +581,12 @@ class NavigationController(Node):
                     
                     # Wait for the cancellation to complete (with timeout)
                     self.get_logger().info('Waiting for cancellation confirmation...')
-                    spin_result = rclpy.spin_until_future_complete(
+                    result = rclpy.spin_until_future_complete(
                         self, cancel_future, timeout_sec=0.3
                     )
                     
-                    # Check if we got a response within timeout
-                    if spin_result == rclpy.executors.FutureReturnCode.SUCCESS:
+                    # Check for successful completion (depends on ROS version)
+                    if result == 0:  # SUCCESS is typically 0
                         cancel_result = cancel_future.result()
                         if cancel_result is not None and cancel_result.accepted:
                             self.get_logger().info('Goal cancellation confirmed by nav2')

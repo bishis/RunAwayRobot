@@ -765,7 +765,13 @@ class HumanEscape(WaypointGenerator):
                 # Create PoseStamped message
                 pose = PoseStamped()
                 pose.header.frame_id = "map"
-                pose.header.stamp = self.node.get_clock().now().to_msg()
+                stamp = self.node.get_clock().now().to_msg()
+                
+                # Mark this as an escape goal by setting the same nanosec value
+                # that we use to identify escape waypoints
+                stamp.nanosec = 1  # Same value used for escape waypoints
+                pose.header.stamp = stamp
+                
                 pose.pose.position.x = best_spot[0]
                 pose.pose.position.y = best_spot[1]
                 pose.pose.position.z = 0.0

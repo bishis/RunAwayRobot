@@ -22,6 +22,7 @@ from nav2_msgs.msg import Costmap
 from std_msgs.msg import Header
 import struct
 from .processors.human_escape import HumanEscape
+import copy
 
 class NavigationController(Node):
     def __init__(self):
@@ -871,7 +872,16 @@ class NavigationController(Node):
                             
                             # Reset escape attempts counter for fresh start
                             self.escape_attempts = 0
-
+                            if hasattr(self.waypoint_generator, 'current_map') and self.waypoint_generator.current_map is not None:
+                                # Store reference map in the human escape planner
+                                if not hasattr(self.human_avoidance.escape_planner, 'reference_map'):
+                                    self.human_avoidance.escape_planner.reference_map = None
+                                
+                                # Deep copy the map to avoid reference issues
+                                self.human_avoidance.escape_planner.reference_map = copy.deepcopy(
+                                    self.waypoint_generator.current_map
+                                )
+                                self.get_logger().info('Saved reference map for hiding spot optimization')
                             return
                         else:
                             self.get_logger().error('Failed to get escape point!')

@@ -666,7 +666,7 @@ class HumanEscape(WaypointGenerator):
         self.node.marker_pub.publish(empty_markers)
 
     def find_hiding_spot(self, robot_pos, human_pos):
-        """Find a waypoint that would be hidden from human view with bounds checking"""
+        """Find an optimal hiding spot from human view across the entire map"""
         try:
             # Skip if no map is available
             if self.current_map is None:
@@ -678,7 +678,6 @@ class HumanEscape(WaypointGenerator):
                 self.node.get_logger().info('Creating obstacle grid for hiding spot search')
                 self.create_obstacle_grid_from_map()
             
-            # Check again in case creation failed
             if not hasattr(self, 'obstacle_grid') or self.obstacle_grid is None:
                 self.node.get_logger().error('Failed to create obstacle grid for hiding spot search')
                 return None
@@ -692,30 +691,29 @@ class HumanEscape(WaypointGenerator):
             # Now we can safely access obstacle_grid
             grid_height, grid_width = self.obstacle_grid.shape
             self.node.get_logger().info(f'Map bounds: ({map_origin.position.x}, {map_origin.position.y}) to ({map_origin.position.x + width*resolution}, {map_origin.position.y + height*resolution})')
-            self.node.get_logger().info(f'Obstacle grid shape: {self.obstacle_grid.shape}, Map dimensions: {width}x{height}')
             
-            if grid_width != width or grid_height != height:
-                self.node.get_logger().warn(f'Recreating obstacle grid due to dimension mismatch')
-                self.create_obstacle_grid_from_map()
-                
-                # Check if recreation was successful
-                if self.obstacle_grid is None:
-                    self.node.get_logger().error('Failed to recreate obstacle grid')
-                    return None
-                
-                grid_height, grid_width = self.obstacle_grid.shape
-            
-            # Calculate map bounds in world coordinates
-            map_min_x = map_origin.position.x
-            map_min_y = map_origin.position.y
-            map_max_x = map_min_x + (width * resolution)
-            map_max_y = map_min_y + (height * resolution)
-            
-            # Check if robot is within map bounds
-            if (robot_pos[0] < map_min_x or robot_pos[0] > map_max_x or 
-                robot_pos[1] < map_min_y or robot_pos[1] > map_max_y):
-                self.node.get_logger().warn(f'Robot position {robot_pos} is outside map bounds')
-                return None
+            # Check newly explored areas if we have a reference map
+            newly_explored_mask = None
+            if hasattr(self, 'reference_map') and self.reference_map is not None:
+                try:
+                    # Compare current map data with reference map to find newly explored areas
+                    current_data = np.array(self.current_map.data).reshape((height, width))
+                    ref_data = np.array(self.reference_map.data).reshape((height, width))
+                    
+                    # Find cells that were unknown (-1) in reference map but are now known
+                    newly_explored_mask = (ref_data == -1) & (current_data != -1) & (current_data < 50)
+                    self.node.get_logger().info(f'Found {np.sum(newly_explored_mask)} newly explored cells')
+                    
+                    # Create distance transform to newly explored areas
+                    if np.any(newly_explored_mask):
+                        newly_explored_distance = ndimage.distance_transform_edt(~newly_explored_mask) * resolution
+                    else:
+                        newly_explored_distance = None
+                except Exception as e:
+                    self.node.get_logger().warn(f'Error computing newly explored areas: {str(e)}')
+                    newly_explored_distance = None
+            else:
+                newly_explored_distance = None
             
             # Convert positions to grid coordinates
             robot_grid_x = int((robot_pos[0] - map_origin.position.x) / resolution)
@@ -723,63 +721,119 @@ class HumanEscape(WaypointGenerator):
             human_grid_x = int((human_pos[0] - map_origin.position.x) / resolution)
             human_grid_y = int((human_pos[1] - map_origin.position.y) / resolution)
             
-            # Find potential hiding spots (cells that have obstacles between them and human)
+            # Find potential hiding spots over the entire map
             hiding_candidates = []
-            radius = 20  # Search radius in grid cells
             
-            # Expand radius until we find at least one candidate
-            while len(hiding_candidates) == 0 and radius <= 30:  # Reduce max radius to 30 cells (was 50)
-                for dx in range(-radius, radius+1):
-                    for dy in range(-radius, radius+1):
-                        test_x = robot_grid_x + dx
-                        test_y = robot_grid_y + dy
+            # Calculate human-to-point distances once for the entire grid
+            human_dist_grid = np.zeros((grid_height, grid_width))
+            for y in range(grid_height):
+                for x in range(grid_width):
+                    dx = (x - human_grid_x) * resolution
+                    dy = (y - human_grid_y) * resolution
+                    human_dist_grid[y, x] = math.sqrt(dx*dx + dy*dy)
+            
+            # Search the entire map
+            self.node.get_logger().info(f'Searching entire map ({width}x{height}) for hiding spots')
+            
+            # Get valid free space mask
+            free_space = np.zeros((grid_height, grid_width), dtype=bool)
+            map_data = np.array(self.current_map.data).reshape((height, width))
+            free_space = (map_data == 0) & (self.obstacle_grid == 0)
+            
+            # Define min and max distances
+            min_dist_from_robot = 0.5  # At least 0.5m away from current position
+            max_dist_from_robot = 8.0  # No more than 8m away
+            
+            # Calculate robot distance grid using distance transform
+            robot_pos_grid = np.zeros((grid_height, grid_width), dtype=bool)
+            if (0 <= robot_grid_y < grid_height) and (0 <= robot_grid_x < grid_width):
+                robot_pos_grid[robot_grid_y, robot_grid_x] = True
+                robot_dist_grid = ndimage.distance_transform_edt(~robot_pos_grid) * resolution
+            else:
+                # Fallback if robot is outside grid
+                robot_dist_grid = np.zeros((grid_height, grid_width))
+                for y in range(grid_height):
+                    for x in range(grid_width):
+                        dx = (x - robot_grid_x) * resolution
+                        dy = (y - robot_grid_y) * resolution
+                        robot_dist_grid[y, x] = math.sqrt(dx*dx + dy*dy)
+            
+            # Process each point in the map
+            for y in range(grid_height):
+                for x in range(grid_width):
+                    # Skip if not free space
+                    if not free_space[y, x]:
+                        continue
+                    
+                    # Get distances
+                    dist_from_robot = robot_dist_grid[y, x]
+                    dist_from_human = human_dist_grid[y, x]
+                    
+                    # Skip if too close or too far from robot
+                    if dist_from_robot < min_dist_from_robot or dist_from_robot > max_dist_from_robot:
+                        continue
+                    
+                    # Skip points too close to previously failed waypoints
+                    world_x = x * resolution + map_origin.position.x
+                    world_y = y * resolution + map_origin.position.y
+                    too_close_to_failed = False
+                    
+                    for fx, fy in self.failed_waypoints:
+                        dist_to_failed = math.sqrt((world_x - fx)**2 + (world_y - fy)**2)
+                        if dist_to_failed < 0.8:  # 0.8m exclusion radius
+                            too_close_to_failed = True
+                            break
+                    
+                    if too_close_to_failed:
+                        continue
+                    
+                    # Check line of sight to human - we want NO line of sight
+                    if not self.has_line_of_sight(x, y, human_grid_x, human_grid_y):
+                        # Calculate score for this position
+                        score = 0.0
                         
-                        # Skip if out of bounds of grid - enhanced check
-                        if (test_x < 0 or test_x >= grid_width or 
-                            test_y < 0 or test_y >= grid_height):
-                            continue
+                        # Base score from distance to human - further is better
+                        score += min(dist_from_human * 1.5, 15.0)  # Up to 15 points for distance
                         
-                        # Convert grid coords to world coords to check map bounds
-                        world_x = test_x * resolution + map_origin.position.x
-                        world_y = test_y * resolution + map_origin.position.y
+                        # Penalty for being too far from robot
+                        score -= min(dist_from_robot * 0.5, 5.0)  # Up to 5 point penalty
                         
-                        # Skip if outside safe map bounds
-                        if world_x < map_min_x or world_x > map_max_x or world_y < map_min_y or world_y > map_max_y:
-                            continue
+                        # Bonus for multiple escape paths
+                        escape_paths = self.count_escape_paths(x, y, radius=4)
+                        score += escape_paths * 0.7  # Each escape path adds 0.7 points
                         
-                        # Skip if too close to current position
-                        if abs(dx) < 5 and abs(dy) < 5:
-                            continue
+                        # Bonus for newly explored areas
+                        if newly_explored_mask is not None and np.any(newly_explored_mask):
+                            if newly_explored_mask[y, x]:
+                                score += 7.0  # Major bonus for being in newly explored area
+                            elif newly_explored_distance is not None:
+                                # Bonus for being near newly explored areas
+                                dist_to_new = newly_explored_distance[y, x] 
+                                if dist_to_new < 2.0:  # Up to 2 bonus points
+                                    score += max(0, 3.0 - dist_to_new)
                         
-                        # Skip if an obstacle or too close to one - with bounds check
-                        if test_y < grid_height and test_x < grid_width and self.obstacle_grid[test_y][test_x] > 0:
-                            continue
-                        
-                        # Check if there's a line of sight to human
-                        if not self.has_line_of_sight(test_x, test_y, human_grid_x, human_grid_y):
-                            # Calculate distance from robot
-                            dist = math.sqrt((world_x - robot_pos[0])**2 + (world_y - robot_pos[1])**2)
-                            
-                            hiding_candidates.append((world_x, world_y, dist))
-                
-                radius += 10  # Increase radius if no candidates found
+                        hiding_candidates.append((world_x, world_y, dist_from_robot, score))
+            
+            # Log the number of candidates found
+            self.node.get_logger().info(f'Found {len(hiding_candidates)} potential hiding spots')
             
             if hiding_candidates:
-                # Sort by distance (closest first)
-                hiding_candidates.sort(key=lambda x: x[2])
+                # Sort by score (highest first)
+                hiding_candidates.sort(key=lambda x: x[3], reverse=True)
                 
-                # Take the closest candidate
+                # Take the best candidate
                 best_spot = hiding_candidates[0]
-                self.node.get_logger().info(f'Found hiding spot at ({best_spot[0]:.2f}, {best_spot[1]:.2f}), '
-                                          f'distance: {best_spot[2]:.2f}m')
+                self.node.get_logger().info(
+                    f'Best hiding spot at ({best_spot[0]:.2f}, {best_spot[1]:.2f}), '
+                    f'distance: {best_spot[2]:.2f}m, score: {best_spot[3]:.2f}'
+                )
                 
                 # Create PoseStamped message
                 pose = PoseStamped()
                 pose.header.frame_id = "map"
                 stamp = self.node.get_clock().now().to_msg()
                 
-                # Mark this as an escape goal by setting the same nanosec value
-                # that we use to identify escape waypoints
+                # Mark this as an escape goal
                 stamp.nanosec = 1  # Same value used for escape waypoints
                 pose.header.stamp = stamp
                 
@@ -801,13 +855,40 @@ class HumanEscape(WaypointGenerator):
                 
                 return pose
             else:
-                self.node.get_logger().warn('No suitable hiding spots found within map bounds')
+                self.node.get_logger().warn('No suitable hiding spots found')
                 return None
         
         except Exception as e:
             self.node.get_logger().error(f'Error finding hiding spot: {str(e)}')
             self.node.get_logger().error(f'Traceback: {traceback.format_exc()}')
             return None
+
+    def count_escape_paths(self, x, y, radius=5):
+        """Count possible escape paths from a point (more is better)"""
+        escape_count = 0
+        directions = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
+        
+        for dx, dy in directions:
+            has_path = True
+            for i in range(1, radius + 1):
+                test_x = x + dx * i
+                test_y = y + dy * i
+                
+                # Check bounds
+                if (test_x < 0 or test_x >= self.obstacle_grid.shape[1] or 
+                    test_y < 0 or test_y >= self.obstacle_grid.shape[0]):
+                    has_path = False
+                    break
+                    
+                # Check if obstacle
+                if self.obstacle_grid[test_y, test_x] > 0:
+                    has_path = False
+                    break
+                    
+            if has_path:
+                escape_count += 1
+                
+        return escape_count
 
     def has_line_of_sight(self, x1, y1, x2, y2):
         """Check if there's a clear line of sight between two grid cells"""

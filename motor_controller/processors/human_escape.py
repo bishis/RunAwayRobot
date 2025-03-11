@@ -666,16 +666,21 @@ class HumanEscape(WaypointGenerator):
         self.node.marker_pub.publish(empty_markers)
 
     def find_hiding_spot(self, robot_pos, human_pos):
-        """Find an optimal hiding spot from human view across the entire map"""
+        """Find an optimal hiding spot from human view with improved error handling"""
         try:
             # Skip if no map is available
             if self.current_map is None:
                 self.node.get_logger().error('No map available for hiding spot search')
                 return None
             
-            # Create obstacle grid if it doesn't exist
-            if not hasattr(self, 'obstacle_grid') or self.obstacle_grid is None:
-                self.node.get_logger().info('Creating obstacle grid for hiding spot search')
+            # Create obstacle grid if it doesn't exist or is wrong size
+            map_width = self.current_map.info.width
+            map_height = self.current_map.info.height
+            
+            if (not hasattr(self, 'obstacle_grid') or 
+                self.obstacle_grid is None or 
+                self.obstacle_grid.shape != (map_height, map_width)):
+                self.node.get_logger().info('Creating/updating obstacle grid for hiding spot search')
                 self.create_obstacle_grid_from_map()
             
             if not hasattr(self, 'obstacle_grid') or self.obstacle_grid is None:
@@ -685,35 +690,62 @@ class HumanEscape(WaypointGenerator):
             # Get map dimensions
             map_origin = self.current_map.info.origin
             resolution = self.current_map.info.resolution
-            width = self.current_map.info.width
-            height = self.current_map.info.height
             
-            # Now we can safely access obstacle_grid
+            # Verify grid dimensions - recreate if they don't match
             grid_height, grid_width = self.obstacle_grid.shape
-            self.node.get_logger().info(f'Map bounds: ({map_origin.position.x}, {map_origin.position.y}) to ({map_origin.position.x + width*resolution}, {map_origin.position.y + height*resolution})')
+            if grid_width != map_width or grid_height != map_height:
+                self.node.get_logger().warn(
+                    f'Obstacle grid shape mismatch: grid={self.obstacle_grid.shape}, map={map_height}x{map_width}')
+                self.create_obstacle_grid_from_map()
+                
+                # Check if recreation succeeded
+                if self.obstacle_grid is None or self.obstacle_grid.shape != (map_height, map_width):
+                    self.node.get_logger().error('Failed to create correctly sized obstacle grid')
+                    return None
+                
+                grid_height, grid_width = self.obstacle_grid.shape
             
-            # Check newly explored areas if we have a reference map
-            newly_explored_mask = None
+            # Check for newly explored areas if we have a reference map
+            newly_explored_distance = None
             if hasattr(self, 'reference_map') and self.reference_map is not None:
                 try:
-                    # Compare current map data with reference map to find newly explored areas
-                    current_data = np.array(self.current_map.data).reshape((height, width))
-                    ref_data = np.array(self.reference_map.data).reshape((height, width))
+                    # Get dimensions of both maps
+                    ref_width = self.reference_map.info.width
+                    ref_height = self.reference_map.info.height
                     
-                    # Find cells that were unknown (-1) in reference map but are now known
-                    newly_explored_mask = (ref_data == -1) & (current_data != -1) & (current_data < 50)
-                    self.node.get_logger().info(f'Found {np.sum(newly_explored_mask)} newly explored cells')
-                    
-                    # Create distance transform to newly explored areas
-                    if np.any(newly_explored_mask):
-                        newly_explored_distance = ndimage.distance_transform_edt(~newly_explored_mask) * resolution
+                    # Check if maps have the same dimensions
+                    if ref_width == map_width and ref_height == map_height:
+                        # Compare current map data with reference map to find newly explored areas
+                        current_data = np.array(self.current_map.data).reshape((map_height, map_width))
+                        ref_data = np.array(self.reference_map.data).reshape((map_height, map_width))
+                        
+                        # Find cells that were unknown (-1) in reference map but are now known
+                        newly_explored_mask = (ref_data == -1) & (current_data != -1) & (current_data < 50)
+                        self.node.get_logger().info(f'Found {np.sum(newly_explored_mask)} newly explored cells')
+                        
+                        # Create distance transform to newly explored areas
+                        if np.any(newly_explored_mask):
+                            newly_explored_distance = ndimage.distance_transform_edt(~newly_explored_mask) * resolution
                     else:
-                        newly_explored_distance = None
+                        self.node.get_logger().warn(
+                            f'Reference map dimensions ({ref_height}x{ref_width}) don\'t match current map ({map_height}x{map_width})')
                 except Exception as e:
                     self.node.get_logger().warn(f'Error computing newly explored areas: {str(e)}')
-                    newly_explored_distance = None
-            else:
-                newly_explored_distance = None
+            
+            # Prepare for grid search
+            self.node.get_logger().info(f'Searching entire map ({map_width}x{map_height}) for hiding spots')
+            
+            # Get current map data properly shaped
+            map_data = np.array(self.current_map.data).reshape((map_height, map_width))
+            
+            # Create free space mask - ensure shapes match
+            if self.obstacle_grid.shape != map_data.shape:
+                self.node.get_logger().error(
+                    f'Shape mismatch: map={map_data.shape}, obstacle_grid={self.obstacle_grid.shape}')
+                return None
+            
+            # Create free space mask safely
+            free_space = (map_data == 0) & (self.obstacle_grid == 0)
             
             # Convert positions to grid coordinates
             robot_grid_x = int((robot_pos[0] - map_origin.position.x) / resolution)
@@ -721,63 +753,41 @@ class HumanEscape(WaypointGenerator):
             human_grid_x = int((human_pos[0] - map_origin.position.x) / resolution)
             human_grid_y = int((human_pos[1] - map_origin.position.y) / resolution)
             
-            # Find potential hiding spots over the entire map
-            hiding_candidates = []
-            
-            # Calculate human-to-point distances once for the entire grid
-            human_dist_grid = np.zeros((grid_height, grid_width))
-            for y in range(grid_height):
-                for x in range(grid_width):
+            # Calculate human-to-point distances
+            human_dist_grid = np.zeros((map_height, map_width))
+            for y in range(map_height):
+                for x in range(map_width):
                     dx = (x - human_grid_x) * resolution
                     dy = (y - human_grid_y) * resolution
                     human_dist_grid[y, x] = math.sqrt(dx*dx + dy*dy)
             
-            # Search the entire map
-            self.node.get_logger().info(f'Searching entire map ({width}x{height}) for hiding spots')
-            
-            # Get valid free space mask
-            free_space = np.zeros((grid_height, grid_width), dtype=bool)
-            map_data = np.array(self.current_map.data).reshape((height, width))
-            free_space = (map_data == 0) & (self.obstacle_grid == 0)
-            
-            # Define min and max distances
+            # Define distance limits
             min_dist_from_robot = 0.5  # At least 0.5m away from current position
             max_dist_from_robot = 8.0  # No more than 8m away
             
-            # Calculate robot distance grid using distance transform
-            robot_pos_grid = np.zeros((grid_height, grid_width), dtype=bool)
-            if (0 <= robot_grid_y < grid_height) and (0 <= robot_grid_x < grid_width):
-                robot_pos_grid[robot_grid_y, robot_grid_x] = True
-                robot_dist_grid = ndimage.distance_transform_edt(~robot_pos_grid) * resolution
-            else:
-                # Fallback if robot is outside grid
-                robot_dist_grid = np.zeros((grid_height, grid_width))
-                for y in range(grid_height):
-                    for x in range(grid_width):
-                        dx = (x - robot_grid_x) * resolution
-                        dy = (y - robot_grid_y) * resolution
-                        robot_dist_grid[y, x] = math.sqrt(dx*dx + dy*dy)
-            
-            # Process each point in the map
-            for y in range(grid_height):
-                for x in range(grid_width):
+            # Find hiding candidates that meet our criteria
+            hiding_candidates = []
+
+            # Process grid in smaller blocks to avoid memory issues
+            for y in range(map_height):
+                for x in range(map_width):
                     # Skip if not free space
                     if not free_space[y, x]:
                         continue
                     
-                    # Get distances
-                    dist_from_robot = robot_dist_grid[y, x]
-                    dist_from_human = human_dist_grid[y, x]
+                    # Convert to world coordinates
+                    world_x = x * resolution + map_origin.position.x
+                    world_y = y * resolution + map_origin.position.y
+                    
+                    # Calculate distance from robot
+                    dist_from_robot = math.sqrt((world_x - robot_pos[0])**2 + (world_y - robot_pos[1])**2)
                     
                     # Skip if too close or too far from robot
                     if dist_from_robot < min_dist_from_robot or dist_from_robot > max_dist_from_robot:
                         continue
                     
-                    # Skip points too close to previously failed waypoints
-                    world_x = x * resolution + map_origin.position.x
-                    world_y = y * resolution + map_origin.position.y
+                    # Skip if too close to previous waypoints
                     too_close_to_failed = False
-                    
                     for fx, fy in self.failed_waypoints:
                         dist_to_failed = math.sqrt((world_x - fx)**2 + (world_y - fy)**2)
                         if dist_to_failed < 0.8:  # 0.8m exclusion radius
@@ -789,34 +799,39 @@ class HumanEscape(WaypointGenerator):
                     
                     # Check line of sight to human - we want NO line of sight
                     if not self.has_line_of_sight(x, y, human_grid_x, human_grid_y):
+                        # Get distance from human
+                        dist_from_human = human_dist_grid[y, x]
+                        
                         # Calculate score for this position
                         score = 0.0
                         
                         # Base score from distance to human - further is better
-                        score += min(dist_from_human * 1.5, 15.0)  # Up to 15 points for distance
+                        score += min(dist_from_human * 1.5, 15.0) 
                         
                         # Penalty for being too far from robot
-                        score -= min(dist_from_robot * 0.5, 5.0)  # Up to 5 point penalty
+                        score -= min(dist_from_robot * 0.5, 5.0)
                         
-                        # Bonus for multiple escape paths
-                        escape_paths = self.count_escape_paths(x, y, radius=4)
-                        score += escape_paths * 0.7  # Each escape path adds 0.7 points
+                        # Count escape paths if we can
+                        try:
+                            escape_paths = self.count_escape_paths(x, y, radius=4)
+                            score += escape_paths * 0.7  # Each escape path adds 0.7 points
+                        except Exception:
+                            # Skip score adjustment if there's an error
+                            pass
                         
                         # Bonus for newly explored areas
-                        if newly_explored_mask is not None and np.any(newly_explored_mask):
-                            if newly_explored_mask[y, x]:
-                                score += 7.0  # Major bonus for being in newly explored area
-                            elif newly_explored_distance is not None:
-                                # Bonus for being near newly explored areas
-                                dist_to_new = newly_explored_distance[y, x] 
-                                if dist_to_new < 2.0:  # Up to 2 bonus points
+                        if newly_explored_distance is not None:
+                            try:
+                                dist_to_new = newly_explored_distance[y, x]
+                                if dist_to_new < 2.0:  # Within 2m of new areas
                                     score += max(0, 3.0 - dist_to_new)
+                            except IndexError:
+                                # Skip bonus if there's a shape mismatch
+                                pass
                         
                         hiding_candidates.append((world_x, world_y, dist_from_robot, score))
             
-            # Log the number of candidates found
-            self.node.get_logger().info(f'Found {len(hiding_candidates)} potential hiding spots')
-            
+            # Process candidates
             if hiding_candidates:
                 # Sort by score (highest first)
                 hiding_candidates.sort(key=lambda x: x[3], reverse=True)
@@ -966,7 +981,7 @@ class HumanEscape(WaypointGenerator):
         return dist_to_path < interception_threshold
 
     def create_obstacle_grid_from_map(self):
-        """Create an obstacle grid from the current map data"""
+        """Create an obstacle grid from the current map data with dimension verification"""
         try:
             if self.current_map is None:
                 self.node.get_logger().warn('No map available to create obstacle grid')
@@ -975,9 +990,25 @@ class HumanEscape(WaypointGenerator):
             # Get map dimensions and data
             width = self.current_map.info.width
             height = self.current_map.info.height
-            map_data = np.array(self.current_map.data).reshape((height, width))
             
-            # Create obstacle grid - mark occupied and unknown cells
+            # Sanity check for map dimensions
+            if width <= 0 or height <= 0 or len(self.current_map.data) != width * height:
+                self.node.get_logger().error(
+                    f'Invalid map dimensions: {width}x{height}, data length: {len(self.current_map.data)}')
+                self.obstacle_grid = None
+                return
+            
+            # Reshape map data with explicit size checking
+            try:
+                map_data = np.array(self.current_map.data).reshape((height, width))
+            except ValueError as e:
+                self.node.get_logger().error(
+                    f'Error reshaping map data: {str(e)}. '
+                    f'Map dimensions: {width}x{height}, data length: {len(self.current_map.data)}')
+                self.obstacle_grid = None
+                return
+            
+            # Create obstacle grid with correct dimensions first
             self.obstacle_grid = np.zeros((height, width), dtype=np.uint8)
             
             # Mark occupied cells (value > 50) as obstacles
@@ -987,16 +1018,21 @@ class HumanEscape(WaypointGenerator):
             self.obstacle_grid[map_data == -1] = 1
             
             # Add padding around obstacles for safety
-            self.obstacle_grid = ndimage.binary_dilation(
-                self.obstacle_grid, 
-                structure=np.ones((3, 3)),
-                iterations=2
-            ).astype(np.uint8)
+            try:
+                self.obstacle_grid = ndimage.binary_dilation(
+                    self.obstacle_grid, 
+                    structure=np.ones((3, 3)),
+                    iterations=2
+                ).astype(np.uint8)
+            except Exception as e:
+                self.node.get_logger().error(f'Error dilating obstacles: {str(e)}')
+                # Continue with undilated grid
             
             self.node.get_logger().info(f'Created obstacle grid with shape {self.obstacle_grid.shape}')
             
         except Exception as e:
             self.node.get_logger().error(f'Error creating obstacle grid: {str(e)}')
+            self.node.get_logger().error(f'Traceback: {traceback.format_exc()}')
             self.obstacle_grid = None
 
     def process_map(self, map_msg):

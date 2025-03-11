@@ -1179,6 +1179,8 @@ class NavigationController(Node):
     def find_and_move_to_hiding_spot(self):
         """Find a better hiding spot after initial escape is successful"""
         self.get_logger().info('Looking for a better hiding spot...')
+        self.get_logger().info('Waiting for 3 seconds to update map before searching for hiding spot')
+        time.sleep(3)
         
         # Skip if we don't have human position data
         if self.last_human_position is None:

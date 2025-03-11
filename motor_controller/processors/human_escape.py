@@ -26,6 +26,9 @@ class HumanEscape(WaypointGenerator):
         self.previous_waypoints = []
         self.human_positions = []
         
+        # Initialize obstacle grid
+        self.obstacle_grid = None
+        
     def is_human_intercepting_escape(self):
         """Check if human is intercepting current escape path"""
         if not hasattr(self, 'previous_escape_waypoint') or self.previous_escape_waypoint is None:
@@ -670,12 +673,15 @@ class HumanEscape(WaypointGenerator):
                 self.node.get_logger().error('No map available for hiding spot search')
                 return None
             
-            # Verify obstacle grid exists
-            if self.obstacle_grid is None:
-                self.node.get_logger().error('Obstacle grid not initialized for hiding spot search')
+            # Create obstacle grid if it doesn't exist
+            if not hasattr(self, 'obstacle_grid') or self.obstacle_grid is None:
+                self.node.get_logger().info('Creating obstacle grid for hiding spot search')
                 self.create_obstacle_grid_from_map()
-                if self.obstacle_grid is None:
-                    return None
+            
+            # Check again in case creation failed
+            if not hasattr(self, 'obstacle_grid') or self.obstacle_grid is None:
+                self.node.get_logger().error('Failed to create obstacle grid for hiding spot search')
+                return None
             
             # Get map dimensions
             map_origin = self.current_map.info.origin
@@ -683,7 +689,7 @@ class HumanEscape(WaypointGenerator):
             width = self.current_map.info.width
             height = self.current_map.info.height
             
-            # Verify obstacle grid dimensions match map dimensions
+            # Now we can safely access obstacle_grid
             grid_height, grid_width = self.obstacle_grid.shape
             self.node.get_logger().info(f'Map bounds: ({map_origin.position.x}, {map_origin.position.y}) to ({map_origin.position.x + width*resolution}, {map_origin.position.y + height*resolution})')
             self.node.get_logger().info(f'Obstacle grid shape: {self.obstacle_grid.shape}, Map dimensions: {width}x{height}')

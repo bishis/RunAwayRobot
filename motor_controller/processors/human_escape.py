@@ -346,7 +346,7 @@ class HumanEscape(WaypointGenerator):
                     has_line_of_sight = False
                     
                     # Check from multiple points around the human's perimeter
-                    num_angles = 16  # Check 16 points around the perimeter
+                    num_angles = 32  # Check 16 points around the perimeter
                     for angle_idx in range(num_angles):
                         angle = 2 * math.pi * angle_idx / num_angles
                         

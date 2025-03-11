@@ -783,8 +783,12 @@ class NavigationController(Node):
         self.is_tracking_human = msg.data
         
         if self.is_tracking_human and not was_tracking:
-            # Cancel current navigation goal when starting to track
-            self.cancel_current_goal()
+            # Manual cancel of goal to save time
+            try:
+                self.current_goal_handle.cancel_goal_async()
+                self.get_logger().info('Goal cancelled successfully')
+            except Exception as e:
+                self.get_logger().error(f'Error cancelling goal: {str(e)}')
 
     def tracking_cmd_callback(self, msg: PoseStamped):
         """Handle tracking information from human coordinates"""

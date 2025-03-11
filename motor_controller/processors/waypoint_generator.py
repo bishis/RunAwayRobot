@@ -468,94 +468,57 @@ class WaypointGenerator:
         self.last_waypoint_change = current_time
         return self.current_waypoint
 
-    def create_visualization_markers(self, waypoint, is_escape=False, is_hiding=False):
-        """Create visualization markers for the waypoint"""
-        marker_array = MarkerArray()
+    def create_visualization_markers(self, waypoint: PoseStamped = None, is_escape: bool = False, is_hiding: bool = False) -> MarkerArray:
+        """Create visualization markers for waypoint and frontiers
         
-        # Create a marker for the position
-        position_marker = Marker()
-        position_marker.header.frame_id = "map"
-        position_marker.header.stamp = self.node.get_clock().now().to_msg()
-        position_marker.ns = "waypoint"
-        position_marker.id = 0
-        position_marker.type = Marker.SPHERE
-        position_marker.action = Marker.ADD
+        Args:
+            waypoint: Optional waypoint to visualize
+            is_escape: If True, use red color for escape waypoint
+            is_hiding: If True, use purple color for hiding spot
+        """
+        markers = MarkerArray()
         
-        # Set the position
-        position_marker.pose.position.x = waypoint.pose.position.x
-        position_marker.pose.position.y = waypoint.pose.position.y
-        position_marker.pose.position.z = 0.0
-        position_marker.pose.orientation.w = 1.0
+        # Add waypoint marker if provided
+        if waypoint is not None:
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.header.stamp = self.node.get_clock().now().to_msg()
+            marker.ns = 'waypoints'
+            marker.id = 0
+            marker.type = Marker.SPHERE
+            marker.action = Marker.ADD
+            
+            # Set position
+            marker.pose = waypoint.pose
+            
+            # Set scale
+            marker.scale.x = self.waypoint_size
+            marker.scale.y = self.waypoint_size
+            marker.scale.z = 0.1
+            
+            # Set color based on type
+            if is_hiding:
+                # Purple for hiding spots
+                marker.color.r = 0.8
+                marker.color.g = 0.0
+                marker.color.b = 0.8
+                marker.color.a = 0.8
+            elif is_escape:
+                # Red for escape waypoints
+                marker.color.r = 1.0
+                marker.color.g = 0.0
+                marker.color.b = 0.0
+                marker.color.a = 0.8
+            else:
+                # Green for exploration waypoints
+                marker.color.r = 0.0
+                marker.color.g = 1.0
+                marker.color.b = 0.0
+                marker.color.a = 0.8
+            
+            markers.markers.append(marker)
         
-        # Set the scale
-        position_marker.scale.x = 0.2
-        position_marker.scale.y = 0.2
-        position_marker.scale.z = 0.2
-        
-        # Set the color based on type
-        if is_hiding:
-            # Purple for hiding spots
-            position_marker.color.r = 0.8
-            position_marker.color.g = 0.0
-            position_marker.color.b = 0.8
-            position_marker.color.a = 1.0
-        elif is_escape:
-            # Red for escape waypoints
-            position_marker.color.r = 1.0
-            position_marker.color.g = 0.0
-            position_marker.color.b = 0.0
-            position_marker.color.a = 1.0
-        else:
-            # Green for normal waypoints
-            position_marker.color.r = 0.0
-            position_marker.color.g = 1.0
-            position_marker.color.b = 0.0
-            position_marker.color.a = 1.0
-        
-        # Add the marker to the array
-        marker_array.markers.append(position_marker)
-        
-        # Create a marker for the orientation
-        orientation_marker = Marker()
-        orientation_marker.header.frame_id = "map"
-        orientation_marker.header.stamp = self.node.get_clock().now().to_msg()
-        orientation_marker.ns = "waypoint_direction"
-        orientation_marker.id = 1
-        orientation_marker.type = Marker.ARROW
-        orientation_marker.action = Marker.ADD
-        
-        # Set the position and orientation
-        orientation_marker.pose = waypoint.pose
-        
-        # Set the scale
-        orientation_marker.scale.x = 0.5  # Length of the arrow
-        orientation_marker.scale.y = 0.1  # Width of the arrow
-        orientation_marker.scale.z = 0.1  # Height of the arrow
-        
-        # Set the color based on type
-        if is_hiding:
-            # Purple for hiding spots
-            orientation_marker.color.r = 0.8
-            orientation_marker.color.g = 0.0
-            orientation_marker.color.b = 0.8
-            orientation_marker.color.a = 1.0
-        elif is_escape:
-            # Red for escape waypoints
-            orientation_marker.color.r = 1.0
-            orientation_marker.color.g = 0.0
-            orientation_marker.color.b = 0.0
-            orientation_marker.color.a = 1.0
-        else:
-            # Blue for normal waypoint direction
-            orientation_marker.color.r = 0.0
-            orientation_marker.color.g = 0.0
-            orientation_marker.color.b = 1.0
-            orientation_marker.color.a = 1.0
-        
-        # Add the marker to the array
-        marker_array.markers.append(orientation_marker)
-        
-        return marker_array
+        return markers
 
     def validate_existing_waypoints(self):
         """Revalidate all existing waypoints against current map"""

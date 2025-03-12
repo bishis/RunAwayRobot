@@ -1230,30 +1230,19 @@ class NavigationController(Node):
             if self.escape_monitor_timer:
                 self.escape_monitor_timer.cancel()
             return False
-
-    def publish_status(self, status_text, human_distance=None, escape_status=None):
-        """Publish status message for display"""
+        
+    def publish_image(self, image):
+        """Publish image to the image topic"""
         msg = String()
-        parts = [status_text]
+        msg.data = f"{image};"
+        self.image_pub.publish(msg)
         
-        if human_distance is not None:
-            parts.append(f"{human_distance:.2f}")
-        else:
-            parts.append("")
-        
-        if escape_status is not None:
-            parts.append(escape_status)
-        else:
-            parts.append("")
-        
-        msg.data = ";".join(parts)
-        self.status_pub.publish(msg)
-
-    def publish_alert(self, alert_type):
-        """Publish sound alert"""
+    def publish_sound(self, sound):
+        """Publish sound to the sound topic"""
         msg = String()
-        msg.data = alert_type
+        msg.data = f"{sound};"
         self.alert_pub.publish(msg)
+
 
 def main(args=None):
     rclpy.init(args=args)

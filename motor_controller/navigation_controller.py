@@ -910,12 +910,12 @@ class NavigationController(Node):
             self.exploration_loop_timer.cancel()
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
-        self.escape_monitor_timer = self.create_timer(0.1, self.monitor_escape_sequence(hide_spot=False))
+        self.escape_monitor_timer = self.create_timer(0.1, self.monitor_escape_sequence)
 
-    def monitor_escape_sequence(self, hide_spot=False):
+    def monitor_escape_sequence(self):
         """Monitor the escape sequence: turn -> resume"""
         try:
-            if self.is_tracking_human and not hide_spot:
+            if self.is_tracking_human:
                 self.get_logger().info('Human detected, stopping turn.')
                 self.wheel_speeds_pub.publish(Twist())  # Stop turning
                 self.escape_again()  # Call escape again
@@ -951,10 +951,7 @@ class NavigationController(Node):
                         return
                     else:
                         self.cleanup_escape_monitoring()
-                        if hide_spot:
-                            return
-                        else:
-                            self.resume_exploration()
+                        self.resume_exploration()
                     return
             else:
                 # No known human position, cleanup and resume
@@ -1170,14 +1167,12 @@ class NavigationController(Node):
         
         current_time = self.get_clock().now()
         time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
-        # If the robot is currently rotating to face the human, use a longer timeout
         if hasattr(self, 'is_rotating_to_human') and self.is_rotating_to_human:
             tracking_timeout = self.human_tracking_timeout * 2.0  # Double timeout during rotation
             self.get_logger().debug(f'Using extended tracking timeout during rotation: {tracking_timeout:.1f}s')
         else:
             tracking_timeout = self.human_tracking_timeout
         
-        # If we've seen the human recently, continue tracking and pause exploration
         if time_since_human < tracking_timeout:
             return True
         else:
@@ -1197,8 +1192,7 @@ class NavigationController(Node):
             return False
         
         self.reset_escape_state()
-        self.escape_monitor_timer = self.create_timer(0.1, self.monitor_escape_sequence(hide_spot=True))
-        time.sleep(11)
+        time.sleep(3)
         self.escape_monitor_timer.cancel()
         
         robot_pos = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
@@ -1220,8 +1214,6 @@ class NavigationController(Node):
             return True
         else:
             self.get_logger().warn('No better hiding spot found, staying at current position')
-            if self.escape_monitor_timer:
-                self.escape_monitor_timer.cancel()
             return False
         
     def publish_image(self, image: str):

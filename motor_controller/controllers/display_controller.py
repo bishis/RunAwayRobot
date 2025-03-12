@@ -186,11 +186,7 @@ class DisplayController:
             else:
                 # If this is a single iteration pattern, play it once
                 if isinstance(pattern, list) and all(isinstance(x, tuple) for x in pattern):
-                    # Check if using new format (freq, volume, duration) or old format (freq, on_time, off_time)
                     if len(pattern) > 0 and len(pattern[0]) == 3:
-                        # Try to determine format based on values
-                        sample_tuple = pattern[0]
-                        # Process tuples as (frequency, volume, duration)
                         for freq, vol, dur in pattern:
                             if not self.is_buzzer_active:
                                 break
@@ -201,29 +197,6 @@ class DisplayController:
                             time.sleep(dur)
                             
                             self.buzzer.off()
-
-                else:
-                    # Fallback to old loop-based pattern behavior
-                    start_time = time.time()
-                    
-                    while time.time() - start_time < duration and self.is_buzzer_active:
-                        for item in pattern:
-                            if not self.is_buzzer_active:
-                                break
-                            
-                            # Check if tuple contains 3 elements
-                            if len(item) == 3:
-                                freq, vol, dur = item
-                                # New format: (frequency, volume, duration)
-                                self.buzzer.frequency = freq
-                                self.buzzer.value = vol
-                                time.sleep(dur)
-                                self.buzzer.off()
-
-                            
-                            # Check duration again
-                            if time.time() - start_time >= duration:
-                                break
             
             # Ensure buzzer is off when done
             self.buzzer.off()

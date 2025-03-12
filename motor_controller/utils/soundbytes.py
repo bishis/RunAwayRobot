@@ -102,8 +102,6 @@ jingle_map = {
     "error": error_jingle,
     "warning": warning_jingle,
     "low_battery": low_battery_jingle,
-    "follow_me": follow_me_jingle,
-    "obstacle": obstacle_detected_jingle,
     "new_waypoint": new_waypoint_jingle
 }
 

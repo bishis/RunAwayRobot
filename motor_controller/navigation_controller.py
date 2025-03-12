@@ -284,7 +284,6 @@ class NavigationController(Node):
                     self.alert_pub.publish("startup")
                     self.get_logger().info('Nav2 stack is ready!')
                     self.nav2_ready = True
-                    # Stop checking once ready
                     self.nav2_check_timer.cancel()
         except Exception as e:
             self.get_logger().warn(f'Error checking Nav2 readiness: {str(e)}')
@@ -1189,12 +1188,10 @@ class NavigationController(Node):
         self.get_logger().info('Looking for a better hiding spot...')
         self.get_logger().info('Waiting for 3 seconds to update map before searching for hiding spot')
         
-        # Skip if we don't have human position data
         if self.last_human_position is None:
             self.get_logger().warn('No human position data available for hiding spot search')
             return False
         
-        # Get current robot position
         if self.current_pose is None:
             self.get_logger().warn('No robot pose available for hiding spot search')
             return False
@@ -1207,23 +1204,18 @@ class NavigationController(Node):
         robot_pos = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
         human_pos = self.last_human_position
         
-        # Log positions for debugging
         self.get_logger().info(f'Searching for hiding spot: robot at {robot_pos}, human at {human_pos}')
         
-        # Call the human avoidance controller to find a hiding spot
         hiding_point = self.human_avoidance.find_hiding_spot(robot_pos, human_pos)
         
         if hiding_point is not None:
             self.get_logger().info(f'Found hiding spot at ({hiding_point.pose.position.x:.2f}, {hiding_point.pose.position.y:.2f})')
             
-            # Set flag to indicate we're moving to a hiding spot (not a regular escape)
             self.is_moving_to_hiding_spot = True
             
-            # Create visualization markers (purple for hiding spot)
             markers = self.waypoint_generator.create_visualization_markers(hiding_point, is_hiding=True)
             self.marker_pub.publish(markers)
             
-            # Send the goal
             self.send_goal(hiding_point)
             return True
         else:
@@ -1232,13 +1224,13 @@ class NavigationController(Node):
                 self.escape_monitor_timer.cancel()
             return False
         
-    def publish_image(self, image: String):
+    def publish_image(self, image: str):
         """Publish image to the image topic"""
         msg = String()
         msg.data = f"{image};"
         self.image_pub.publish(msg)
         
-    def publish_sound(self, sound: String):
+    def publish_sound(self, sound: str):
         """Publish sound to the sound topic"""
         msg = String()
         msg.data = f"{sound};"

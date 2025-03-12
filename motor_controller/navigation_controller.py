@@ -561,6 +561,12 @@ class NavigationController(Node):
         """Cancel the current navigation goal and wait for confirmation"""
         try:
             if self.current_goal_handle is not None:
+
+                cmd = Twist()
+                cmd.linear.x = 0.0
+                cmd.angular.z = 0.0
+                self.wheel_speeds_pub.publish(cmd)
+                
                 self.clear_visualization_markers()
                 
                 # Log what type of goal we're cancelling

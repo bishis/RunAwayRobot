@@ -910,7 +910,7 @@ class NavigationController(Node):
             self.exploration_loop_timer.cancel()
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
-        self.escape_monitor_timer = self.create_timer(0.1, self.monitor_escape_sequence, hide_spot=False)
+        self.escape_monitor_timer = self.create_timer(0.1, self.monitor_escape_sequence(hide_spot=False))
 
     def monitor_escape_sequence(self, hide_spot=False):
         """Monitor the escape sequence: turn -> resume"""
@@ -1197,7 +1197,7 @@ class NavigationController(Node):
             return False
         
         self.reset_escape_state()
-        self.escape_monitor_timer = self.create_timer(0.1, self.monitor_escape_sequence, hide_spot=True)
+        self.escape_monitor_timer = self.create_timer(0.1, self.monitor_escape_sequence(hide_spot=True))
         time.sleep(11)
         self.escape_monitor_timer.cancel()
         

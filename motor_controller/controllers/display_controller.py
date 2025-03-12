@@ -70,12 +70,12 @@ class DisplayController:
         except Exception as e:
             self.node.get_logger().error(f'Error clearing display: {str(e)}')
     
-    def show_text(self, text_lines, clear_first=True):
+    def show_text(self, text, clear_first=True):
         """
         Display text on the OLED display
         
         Args:
-            text_lines: List of strings to display
+            text: String or list of strings to display
             clear_first: Whether to clear the display first
         """
         if not self.is_display_active or self.oled is None:
@@ -93,9 +93,46 @@ class DisplayController:
             if clear_first:
                 self.oled.clear()
             
+            # Process input text
+            if isinstance(text, str):
+                # Split single string into lines
+                text_lines = text.split('\n')
+            elif isinstance(text, list):
+                # Use provided list
+                text_lines = text
+            else:
+                # Convert anything else to string
+                text_lines = [str(text)]
+            
+            # Handle word wrapping for long lines
+            wrapped_lines = []
+            max_chars_per_line = 21  # Approximate for default font
+            
+            for line in text_lines:
+                if len(line) <= max_chars_per_line:
+                    wrapped_lines.append(line)
+                else:
+                    # Simple word wrapping
+                    words = line.split()
+                    current_line = ""
+                    
+                    for word in words:
+                        test_line = current_line + " " + word if current_line else word
+                        if len(test_line) <= max_chars_per_line:
+                            current_line = test_line
+                        else:
+                            wrapped_lines.append(current_line)
+                            current_line = word
+                    
+                    if current_line:
+                        wrapped_lines.append(current_line)
+            
             # Draw each line of text
             line_height = 10
-            for i, line in enumerate(text_lines):
+            for i, line in enumerate(wrapped_lines):
+                if i * line_height >= self.oled.height:
+                    break  # Don't draw beyond display boundaries
+                
                 y_pos = i * line_height
                 draw.text((0, y_pos), line, font=font, fill=255)
             

@@ -789,7 +789,7 @@ class NavigationController(Node):
                 self.current_goal_handle.cancel_goal_async()
                 self.get_logger().info('Goal cancelled successfully')
             except Exception as e:
-                self.get_logger().error(f'Error cancelling goal: {str(e)}')
+                self.get_logger().error(f'Error cancelling goal ahmed: {str(e)}')
 
     def tracking_cmd_callback(self, msg: PoseStamped):
         """Handle tracking information from human coordinates"""

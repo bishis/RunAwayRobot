@@ -105,29 +105,6 @@ class DisplayController:
         except Exception as e:
             self.node.get_logger().error(f'Error displaying text: {str(e)}')
     
-    def show_status(self, status_text, human_distance=None, escape_status=None):
-        """
-        Display robot status information
-        
-        Args:
-            status_text: Main status text
-            human_distance: Distance to human (if detected)
-            escape_status: Current escape status (if applicable)
-        """
-        lines = [f"Status: {status_text}"]
-        
-        if human_distance is not None:
-            lines.append(f"Human: {human_distance:.2f}m")
-        
-        if escape_status is not None:
-            lines.append(f"Escape: {escape_status}")
-        
-        # Add current time
-        current_time = time.strftime("%H:%M:%S")
-        lines.append(f"Time: {current_time}")
-        
-        self.show_text(lines)
-    
     def sound_buzzer(self, pattern=None, duration=1.0, frequency=1000, volume=0.5):
         """
         Sound the buzzer with a specific pattern and frequency
@@ -204,49 +181,6 @@ class DisplayController:
                 self.buzzer.off()
         except Exception as e:
             self.node.get_logger().error(f'Error stopping buzzer: {str(e)}')
-    
-    def sound_alert(self, alert_type):
-        """
-        Sound a predefined alert pattern with different tones
-        
-        Args:
-            alert_type: String identifying the alert type:
-                        'human_detected', 'escape', 'hiding', etc.
-        """
-        if alert_type == 'human_detected':
-            # Rising tones for human detection
-            pattern = [
-                (800, 0.1, 0.1),
-                (1000, 0.1, 0.1),
-                (1200, 0.1, 0.1)
-            ]
-            self.sound_buzzer(pattern=pattern, duration=2.0)
-        
-        elif alert_type == 'escape':
-            # Urgent descending tones for escape
-            pattern = [
-                (1500, 0.2, 0.1),
-                (1200, 0.2, 0.1),
-                (1000, 0.3, 0.2)
-            ]
-            self.sound_buzzer(pattern=pattern, duration=2.5)
-        
-        elif alert_type == 'hiding':
-            # Low tone for hiding (stealthy)
-            self.sound_buzzer(frequency=600, duration=0.5)
-        
-        elif alert_type == 'success':
-            # Victory pattern - ascending tones
-            pattern = [
-                (1000, 0.1, 0.1),
-                (1200, 0.1, 0.1),
-                (1500, 0.3, 0.2)
-            ]
-            self.sound_buzzer(pattern=pattern, duration=2.0)
-        
-        else:
-            # Default alert is a single beep
-            self.sound_buzzer(frequency=1000, duration=0.2)
     
     def play_tone(self, frequency, duration, volume=0.5):
         """

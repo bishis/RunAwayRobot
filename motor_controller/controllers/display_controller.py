@@ -184,41 +184,42 @@ class DisplayController:
                 time.sleep(duration)
                 self.buzzer.off()
             else:
-                # Pattern-based tones
-                start_time = time.time()
-                
                 # If this is a single iteration pattern, play it once
                 if isinstance(pattern, list) and all(isinstance(x, tuple) for x in pattern):
-                    # Single play through the pattern
-                    for freq, on_time, off_time in pattern:
-                        if not self.is_buzzer_active:
-                            break
-                        
-                        # Play tone at specified frequency
-                        self.buzzer.frequency = freq
-                        self.buzzer.value = volume
-                        time.sleep(on_time)
-                        
-                        # Pause between tones if needed
-                        if off_time > 0:
-                            self.buzzer.off()
-                            time.sleep(off_time)
-                else:
-                    # This is for backward compatibility with older pattern format
-                    # that might contain loops
-                    while time.time() - start_time < duration and self.is_buzzer_active:
-                        for freq, on_time, off_time in pattern:
+                    # Check if using new format (freq, volume, duration) or old format (freq, on_time, off_time)
+                    if len(pattern) > 0 and len(pattern[0]) == 3:
+                        # Try to determine format based on values
+                        sample_tuple = pattern[0]
+                        # Process tuples as (frequency, volume, duration)
+                        for freq, vol, dur in pattern:
                             if not self.is_buzzer_active:
                                 break
                             
-                            # Play tone at specified frequency
+                            # Play tone at specified frequency and volume
                             self.buzzer.frequency = freq
-                            self.buzzer.value = volume
-                            time.sleep(on_time)
+                            self.buzzer.value = vol
+                            time.sleep(dur)
                             
-                            # Pause between tones
                             self.buzzer.off()
-                            time.sleep(off_time)
+
+                else:
+                    # Fallback to old loop-based pattern behavior
+                    start_time = time.time()
+                    
+                    while time.time() - start_time < duration and self.is_buzzer_active:
+                        for item in pattern:
+                            if not self.is_buzzer_active:
+                                break
+                            
+                            # Check if tuple contains 3 elements
+                            if len(item) == 3:
+                                freq, vol, dur = item
+                                # New format: (frequency, volume, duration)
+                                self.buzzer.frequency = freq
+                                self.buzzer.value = vol
+                                time.sleep(dur)
+                                self.buzzer.off()
+
                             
                             # Check duration again
                             if time.time() - start_time >= duration:

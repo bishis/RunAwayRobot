@@ -28,11 +28,9 @@ class NavigationController(Node):
     def __init__(self):
         super().__init__('navigation_controller')
         
-        # Initialize tf2 buffer and listener FIRST
         self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)  # Pass 'self' as the node
+        self.tf_listener = TransformListener(self.tf_buffer, self)  
         
-        # Initialize current_pose with proper structure
         self.current_pose = PoseStamped()
         self.current_pose.header.frame_id = 'map'
         self.current_pose.pose.position.x = 0.0
@@ -43,15 +41,13 @@ class NavigationController(Node):
         self.current_pose.pose.orientation.y = 0.0
         self.current_pose.pose.orientation.z = 0.0
         
-        # Parameters
         self.declare_parameter('robot_radius', 0.16)
         self.declare_parameter('safety_margin', 0.3)
         self.declare_parameter('max_linear_speed', 0.07)
-        self.declare_parameter('max_angular_speed', 1.0)  # Actual max rotation speed
+        self.declare_parameter('max_angular_speed', 1.0) 
         self.declare_parameter('min_rotation_speed', 0.8)
         self.declare_parameter('goal_timeout', 30.0)
         
-        # Get parameters
         self.robot_radius = self.get_parameter('robot_radius').value
         self.safety_margin = self.get_parameter('safety_margin').value
         self.max_linear_speed = self.get_parameter('max_linear_speed').value
@@ -59,7 +55,6 @@ class NavigationController(Node):
         self.min_rotation_speed = self.get_parameter('min_rotation_speed').value
         self.goal_timeout = self.get_parameter('goal_timeout').value
         
-        # Initialize waypoint generator AFTER tf setup
         self.waypoint_generator = WaypointGenerator(
             node=self,
             min_distance=0.5,
@@ -454,12 +449,10 @@ class NavigationController(Node):
                     else:
                         self.get_logger().warn("Failed to cancel previous goal, may cause interference")
                     
-                    # Use previous_escape_waypoint_failed=True only if status is a real failure (not preemption)
                     self.previous_escape_waypoint_failed = (status != GoalStatus.STATUS_CANCELED)
                     
                     escape_point = self.human_avoidance.plan_escape(self.previous_escape_waypoint_failed)
                     if escape_point is not None:
-                        # Make sure we're not navigating before sending a new goal
                         if not self.is_navigating:
                             self.send_goal(escape_point)
                         else:
@@ -701,7 +694,7 @@ class NavigationController(Node):
             
             current_position = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
             
-            # self.check_human_close_to_goal()
+            self.check_human_close_to_goal()
 
             # Initialize tracking on first call
             if self.last_position_check is None or self.last_check_position is None:

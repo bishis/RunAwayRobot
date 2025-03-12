@@ -479,27 +479,6 @@ class HumanEscape(WaypointGenerator):
                 return self.previous_escape_waypoint
             return None
     
-    def calculate_path_clearance(self, start_x, start_y, end_x, end_y, map_data):
-        """Calculate average clearance along path between points"""
-        # Use Bresenham's line algorithm to get path cells
-        path_cells = self.get_line_cells(start_x, start_y, end_x, end_y)
-        
-        if not path_cells:
-            return 0.0
-            
-        # Calculate minimum clearance along path
-        clearances = []
-        for x, y in path_cells:
-            if x < 0 or x >= map_data.shape[1] or y < 0 or y >= map_data.shape[0]:
-                continue
-            # Count free cells in 3x3 neighborhood
-            neighborhood = map_data[max(0,y-1):min(y+2,map_data.shape[0]),
-                                  max(0,x-1):min(x+2,map_data.shape[1])]
-            clearance = np.sum(neighborhood < 50) / neighborhood.size
-            clearances.append(clearance)
-            
-        return min(clearances) if clearances else 0.0
-    
     def get_line_cells(self, x0, y0, x1, y1):
         """Get cells along a line using Bresenham's algorithm"""
         cells = []

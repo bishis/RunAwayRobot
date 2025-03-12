@@ -19,7 +19,7 @@ class DisplayController:
         self.is_display_active = False
         
         # Initialize buzzer with GPIO Zero PWM
-        self.buzzer_pin = 25
+        self.buzzer_pin = 21
         self.buzzer = None
         self.is_buzzer_active = False
         self.buzzer_thread = None

@@ -427,7 +427,7 @@ class NavigationController(Node):
             if self.last_human_timestamp is not None:
                 time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
                 # Consider human still present if seen in the last 2 seconds
-                human_still_present = time_since_human < 2.0
+                human_still_present = time_since_human < 5.0
             
             if status != GoalStatus.STATUS_SUCCEEDED and self.is_escape_waypoint(self.current_goal):
                 # Add debug information to help diagnose escape failures
@@ -679,7 +679,7 @@ class NavigationController(Node):
             if self.last_human_timestamp is not None:
                 time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
                 # Consider human still present if seen in the last 2 seconds
-                human_still_present = time_since_human < 2.0
+                human_still_present = time_since_human < 5.0
 
             # Check for overall goal timeout
             goal_timeout_reached = False
@@ -906,12 +906,12 @@ class NavigationController(Node):
             self.exploration_loop_timer.cancel()
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
-        self.escape_monitor_timer = self.create_timer(0.1, self.monitor_escape_sequence)
+        self.escape_monitor_timer = self.create_timer(0.1, self.monitor_escape_sequence, hide_spot=False)
 
-    def monitor_escape_sequence(self):
+    def monitor_escape_sequence(self, hide_spot=False):
         """Monitor the escape sequence: turn -> resume"""
         try:
-            if self.is_tracking_human:
+            if self.is_tracking_human and not hide_spot:
                 self.get_logger().info('Human detected, stopping turn.')
                 self.wheel_speeds_pub.publish(Twist())  # Stop turning
                 self.escape_again()  # Call escape again
@@ -947,7 +947,10 @@ class NavigationController(Node):
                         return
                     else:
                         self.cleanup_escape_monitoring()
-                        self.resume_exploration()
+                        if hide_spot:
+                            return
+                        else:
+                            self.resume_exploration()
                     return
             else:
                 # No known human position, cleanup and resume
@@ -1192,7 +1195,9 @@ class NavigationController(Node):
             return False
         
         self.reset_escape_state()
-        time.sleep(4)
+        self.escape_monitor_timer = self.create_timer(0.1, self.monitor_escape_sequence, hide_spot=True)
+        time.sleep(11)
+        self.escape_monitor_timer.cancel()
         
         robot_pos = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
         human_pos = self.last_human_position
@@ -1218,6 +1223,8 @@ class NavigationController(Node):
             return True
         else:
             self.get_logger().warn('No better hiding spot found, staying at current position')
+            if self.escape_monitor_timer:
+                self.escape_monitor_timer.cancel()
             return False
 
 

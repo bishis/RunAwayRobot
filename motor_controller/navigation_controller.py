@@ -281,7 +281,7 @@ class NavigationController(Node):
         try:
             if not self.nav2_ready:
                 if self.nav_client.wait_for_server(timeout_sec=0.1):
-                    self.alert_pub.publish("startup")
+                    self.publish_sound("startup")
                     self.get_logger().info('Nav2 stack is ready!')
                     self.nav2_ready = True
                     self.nav2_check_timer.cancel()

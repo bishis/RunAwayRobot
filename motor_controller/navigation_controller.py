@@ -1192,7 +1192,7 @@ class NavigationController(Node):
             return False
         
         self.reset_escape_state()
-        time.sleep(3)
+        time.sleep(4)
         
         robot_pos = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
         human_pos = self.last_human_position

@@ -7,6 +7,7 @@ from .controllers.motor_controller import MotorController
 from .controllers.display_controller import DisplayController
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
+from .utils.soundbytes import get_jingle
 
 class HardwareController(Node):
     """Controls robot hardware including motors, display and buzzer"""
@@ -115,28 +116,10 @@ class HardwareController(Node):
     def status_callback(self, msg: String):
         """Handle status updates for display"""
         try:
-            # Parse the status message - expected format: "status;human_distance;escape_status"
-            parts = msg.data.split(';')
-            status_text = parts[0]
-            
-            human_distance = None
-            escape_status = None
-            
-            if len(parts) > 1 and parts[1]:
-                try:
-                    human_distance = float(parts[1])
-                except ValueError:
-                    pass
-                    
-            if len(parts) > 2:
-                escape_status = parts[2]
+            msg = msg.data
             
             # Display on OLED
-            self.display_controller.show_status(
-                status_text, 
-                human_distance=human_distance,
-                escape_status=escape_status
-            )
+            self.display_controller.show_text(msg)
             
         except Exception as e:
             self.get_logger().error(f'Error processing display status: {str(e)}')
@@ -145,7 +128,8 @@ class HardwareController(Node):
         """Handle sound alert requests"""
         try:
             alert_type = msg.data.strip()
-            self.display_controller.sound_alert(alert_type)
+            sound = get_jingle(alert_type)
+            self.display_controller.sound_buzzer(sound)
         except Exception as e:
             self.get_logger().error(f'Error processing sound alert: {str(e)}')
 

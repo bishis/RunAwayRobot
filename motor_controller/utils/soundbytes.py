@@ -128,3 +128,4 @@ def get_jingle(name):
     else:
         # Default beep if jingle not found
         return [(1000, 0.2, 0)]
+

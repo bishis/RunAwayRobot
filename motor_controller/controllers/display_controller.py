@@ -110,14 +110,18 @@ class DisplayController:
         Sound the buzzer with a specific pattern and frequency
         
         Args:
-            pattern: List of (frequency, on_time, off_time) tuples
+            pattern: List of (frequency, on_time, off_time) tuples or a complete jingle
                     If None, buzzer will sound at specified frequency for 'duration' seconds
-            duration: Total duration to sound if pattern is None
+            duration: Total duration to sound if pattern is None, or max time to play pattern
             frequency: Tone frequency in Hz (if pattern is None)
             volume: Volume level as duty cycle (0.0 to 1.0)
         """
         # Cancel any existing buzzer thread
         self.stop_buzzer()
+        
+        # Handle the case where pattern might be directly from a jingle function
+        if callable(pattern):
+            pattern = pattern()
         
         # Start new buzzer thread
         self.buzzer_thread = threading.Thread(
@@ -145,7 +149,10 @@ class DisplayController:
             else:
                 # Pattern-based tones
                 start_time = time.time()
-                while time.time() - start_time < duration and self.is_buzzer_active:
+                
+                # If this is a single iteration pattern, play it once
+                if isinstance(pattern, list) and all(isinstance(x, tuple) for x in pattern):
+                    # Single play through the pattern
                     for freq, on_time, off_time in pattern:
                         if not self.is_buzzer_active:
                             break
@@ -155,9 +162,30 @@ class DisplayController:
                         self.buzzer.value = volume
                         time.sleep(on_time)
                         
-                        # Pause between tones
-                        self.buzzer.off()
-                        time.sleep(off_time)
+                        # Pause between tones if needed
+                        if off_time > 0:
+                            self.buzzer.off()
+                            time.sleep(off_time)
+                else:
+                    # This is for backward compatibility with older pattern format
+                    # that might contain loops
+                    while time.time() - start_time < duration and self.is_buzzer_active:
+                        for freq, on_time, off_time in pattern:
+                            if not self.is_buzzer_active:
+                                break
+                            
+                            # Play tone at specified frequency
+                            self.buzzer.frequency = freq
+                            self.buzzer.value = volume
+                            time.sleep(on_time)
+                            
+                            # Pause between tones
+                            self.buzzer.off()
+                            time.sleep(off_time)
+                            
+                            # Check duration again
+                            if time.time() - start_time >= duration:
+                                break
             
             # Ensure buzzer is off when done
             self.buzzer.off()

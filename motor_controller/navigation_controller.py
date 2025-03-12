@@ -281,6 +281,7 @@ class NavigationController(Node):
         try:
             if not self.nav2_ready:
                 if self.nav_client.wait_for_server(timeout_sec=0.1):
+                    self.alert_pub.publish("startup")
                     self.get_logger().info('Nav2 stack is ready!')
                     self.nav2_ready = True
                     # Stop checking once ready
@@ -1231,13 +1232,13 @@ class NavigationController(Node):
                 self.escape_monitor_timer.cancel()
             return False
         
-    def publish_image(self, image):
+    def publish_image(self, image: String):
         """Publish image to the image topic"""
         msg = String()
         msg.data = f"{image};"
         self.image_pub.publish(msg)
         
-    def publish_sound(self, sound):
+    def publish_sound(self, sound: String):
         """Publish sound to the sound topic"""
         msg = String()
         msg.data = f"{sound};"

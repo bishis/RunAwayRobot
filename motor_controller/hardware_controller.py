@@ -4,26 +4,38 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from .controllers.motor_controller import MotorController
+from .controllers.display_controller import DisplayController
+from std_msgs.msg import String
+from sensor_msgs.msg import Image
 
 class HardwareController(Node):
-    """Controls robot hardware using binary speed values"""
+    """Controls robot hardware including motors, display and buzzer"""
     
     def __init__(self):
         super().__init__('hardware_controller')
         
-        # Declare parameters
+        # Declare motor parameters
         self.declare_parameter('left_dir_pin', 27)
         self.declare_parameter('left_pwm_pin', 18)
         self.declare_parameter('right_dir_pin', 17)
         self.declare_parameter('right_pwm_pin', 4)
         self.declare_parameter('pwm_frequency', 1000)
         
-        # Get parameters
+        # Declare display and buzzer parameters
+        self.declare_parameter('buzzer_pin', 25)
+        self.declare_parameter('oled_address', '0x3C')
+        self.declare_parameter('oled_width', 128)
+        self.declare_parameter('oled_height', 64)
+        
+        # Get motor parameters
         left_dir_pin = self.get_parameter('left_dir_pin').value
         left_pwm_pin = self.get_parameter('left_pwm_pin').value
         right_dir_pin = self.get_parameter('right_dir_pin').value
         right_pwm_pin = self.get_parameter('right_pwm_pin').value
         pwm_frequency = self.get_parameter('pwm_frequency').value
+        
+        # Get display parameters
+        buzzer_pin = self.get_parameter('buzzer_pin').value
         
         # Create motor controller with parameters
         self.motor_controller = MotorController(
@@ -33,6 +45,9 @@ class HardwareController(Node):
             right_pwm_pin=right_pwm_pin,
             pwm_frequency=pwm_frequency
         )
+        
+        # Create display controller
+        self.display_controller = DisplayController(self)
         
         # Create subscriber for wheel speeds
         self.wheel_speeds_sub = self.create_subscription(
@@ -49,7 +64,26 @@ class HardwareController(Node):
             10
         )
         
-        self.get_logger().info('Hardware controller initialized')
+        # Create subscribers for display and sound
+        self.status_sub = self.create_subscription(
+            String,
+            'robot_status',
+            self.status_callback,
+            10
+        )
+        
+        self.alert_sub = self.create_subscription(
+            String,
+            'sound_alert',
+            self.alert_callback,
+            10
+        )
+        
+        # Display startup message
+        self.display_controller.show_status("Robot Ready", escape_status="System OK")
+        self.display_controller.sound_alert('success')
+        
+        self.get_logger().info('Hardware controller initialized with display/buzzer support')
 
     def wheel_speeds_callback(self, msg: Twist):
         try:
@@ -77,11 +111,51 @@ class HardwareController(Node):
         except Exception as e:
             self.get_logger().error(f'Error in wheel speeds callback: {str(e)}')
             self.motor_controller.stop_motors()
+    
+    def status_callback(self, msg: String):
+        """Handle status updates for display"""
+        try:
+            # Parse the status message - expected format: "status;human_distance;escape_status"
+            parts = msg.data.split(';')
+            status_text = parts[0]
+            
+            human_distance = None
+            escape_status = None
+            
+            if len(parts) > 1 and parts[1]:
+                try:
+                    human_distance = float(parts[1])
+                except ValueError:
+                    pass
+                    
+            if len(parts) > 2:
+                escape_status = parts[2]
+            
+            # Display on OLED
+            self.display_controller.show_status(
+                status_text, 
+                human_distance=human_distance,
+                escape_status=escape_status
+            )
+            
+        except Exception as e:
+            self.get_logger().error(f'Error processing display status: {str(e)}')
+    
+    def alert_callback(self, msg: String):
+        """Handle sound alert requests"""
+        try:
+            alert_type = msg.data.strip()
+            self.display_controller.sound_alert(alert_type)
+        except Exception as e:
+            self.get_logger().error(f'Error processing sound alert: {str(e)}')
 
     def __del__(self):
         """Cleanup when node is destroyed"""
         if hasattr(self, 'motor_controller'):
             self.motor_controller.stop_motors()
+        
+        if hasattr(self, 'display_controller'):
+            self.display_controller.cleanup()
 
 
 def main(args=None):
@@ -92,9 +166,13 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
-        # Ensure motors are stopped
+        # Ensure motors are stopped and display is cleaned up
         if hasattr(node, 'motor_controller'):
             node.motor_controller.stop_motors()
+            
+        if hasattr(node, 'display_controller'):
+            node.display_controller.cleanup()
+            
         node.destroy_node()
         rclpy.shutdown()
 

@@ -11,7 +11,7 @@ from action_msgs.msg import GoalStatus
 import numpy as np
 import math
 from .processors.waypoint_generator import WaypointGenerator
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from .processors.human_avoidance_controller import HumanAvoidanceController
 from std_srvs.srv import Empty
 from tf2_ros import TransformException, Buffer, TransformListener
@@ -193,6 +193,10 @@ class NavigationController(Node):
         self.tf_fallback_to_latest = True  # Use latest available transform if requested time is not available
         self.tf_use_sim_time = False  # Whether using simulation time
         self.tf_last_error_time = self.get_clock().now()  # Track last error time to avoid spamming logs
+
+        # Add these publishers in the __init__ method
+        self.status_pub = self.create_publisher(String, 'robot_status', 10)
+        self.alert_pub = self.create_publisher(String, 'sound_alert', 10)
 
     def get_current_pose(self):
         """Get current robot pose with robust transform handling"""
@@ -1227,6 +1231,29 @@ class NavigationController(Node):
                 self.escape_monitor_timer.cancel()
             return False
 
+    def publish_status(self, status_text, human_distance=None, escape_status=None):
+        """Publish status message for display"""
+        msg = String()
+        parts = [status_text]
+        
+        if human_distance is not None:
+            parts.append(f"{human_distance:.2f}")
+        else:
+            parts.append("")
+        
+        if escape_status is not None:
+            parts.append(escape_status)
+        else:
+            parts.append("")
+        
+        msg.data = ";".join(parts)
+        self.status_pub.publish(msg)
+
+    def publish_alert(self, alert_type):
+        """Publish sound alert"""
+        msg = String()
+        msg.data = alert_type
+        self.alert_pub.publish(msg)
 
 def main(args=None):
     rclpy.init(args=args)

@@ -463,6 +463,9 @@ class NavigationController(Node):
                             self.get_logger().error("Still navigating, can't send new escape goal")
                     else:
                         self.get_logger().error('Failed to find escape point!')
+                        self.publish_sound("escape_failed")
+                        self.reset_escape_state()
+                        self.start_escape_monitoring()
                 elif self.escape_attempts > self.max_escape_attempts and human_still_present:
                     self.get_logger().info('Trapped - max escape attempts reached, starting shake defense')
                     self.cancel_current_goal()
@@ -740,6 +743,9 @@ class NavigationController(Node):
                             self.send_goal(escape_point)  # Retry escape point
                         else:
                             self.get_logger().error('Failed to find escape point!')
+                            self.publish_sound("escape_failed")
+                            self.reset_escape_state()
+                            self.start_escape_monitoring()
                     elif self.escape_attempts > self.max_escape_attempts and human_still_present:
                         self.get_logger().info('Trapped')
                         self.cancel_current_goal()

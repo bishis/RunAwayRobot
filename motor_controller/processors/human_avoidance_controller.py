@@ -65,6 +65,8 @@ class HumanAvoidanceController:
         if hasattr(node, 'latest_scan'):
             self.latest_scan = node.latest_scan
             
+        # Add safety timer attribute
+        self.backing_safety_timer = None
 
     def calculate_turn_command(self, robot_pose, human_x, human_y) -> float:
         """Calculate turn speed to face human based on robot pose and human position."""
@@ -173,7 +175,7 @@ class HumanAvoidanceController:
             return 'safe', float('inf')
 
     def get_avoidance_command(self, human_distance, human_angle, robot_pose=None, human_pos=None):
-        """Calculate avoidance command based on human position"""
+        """Calculate avoidance command based on human position with improved backing safety"""
         cmd = Twist()
         
         # First check rear safety and get distance
@@ -182,6 +184,8 @@ class HumanAvoidanceController:
         if rear_status == 'critical':
             self.node.get_logger().warn('Critical distance detected - initiating escape!')
             self.is_turning = False  # Reset turning flag
+            # Make sure to cancel any active backing timer
+            self.stop_backing_safety_timer()
             return cmd, True  # Trigger escape
         
         # Handle turning to face human (using robot pose and human position)
@@ -194,6 +198,8 @@ class HumanAvoidanceController:
             if self.is_turning:
                 # If turning, only turn (no backup)
                 self.node.get_logger().info('Turning to face human')
+                # Make sure backing timer is stopped during turning
+                self.stop_backing_safety_timer()
                 return cmd, False
             else:
                 # Human is centered - stop turning
@@ -202,6 +208,7 @@ class HumanAvoidanceController:
                 # Check if we need to escape when in ready-to-flee mode
                 if rear_status == 'ready' and human_distance < self.min_safe_distance:
                     self.node.get_logger().warn('Ready to flee and human too close - initiating escape!')
+                    self.stop_backing_safety_timer()
                     return cmd, True  # Trigger escape
                 
                 # Only allow backup when human is centered and we're not too close to wall
@@ -220,8 +227,15 @@ class HumanAvoidanceController:
                             f'Robot facing human - backing up at {backup_speed:.2f} m/s '
                             f'(wall distance: {rear_distance:.2f}m, target: {target_distance:.2f}m)'
                         )
+                        
+                        # Start the backing safety timer if we're backing up
+                        self.start_backing_safety_timer()
                     else:
                         self.node.get_logger().info('At target distance from wall - holding position')
+                        self.stop_backing_safety_timer()
+                else:
+                    # Not backing up, ensure timer is stopped
+                    self.stop_backing_safety_timer()
                 
                 return cmd, False
             
@@ -230,6 +244,7 @@ class HumanAvoidanceController:
             stop_cmd = Twist()
             self.is_turning = False  # Reset turning flag
             self.last_image_x = None
+            self.stop_backing_safety_timer()
             return stop_cmd, False
 
     def plan_escape(self, previous_attempt_failed=False):
@@ -328,6 +343,43 @@ class HumanAvoidanceController:
         
         # Use escape planner to find hiding spots
         return self.escape_planner.find_hiding_spot(robot_pos, human_pos)
+
+    def start_backing_safety_timer(self):
+        """Start a timer to continuously check rear distance while backing up"""
+        if not hasattr(self, 'backing_safety_timer') or self.backing_safety_timer is None:
+            self.backing_safety_timer = self.node.create_timer(0.1, self.check_backing_safety)
+            self.node.get_logger().info('Backing safety monitoring activated')
+
+    def stop_backing_safety_timer(self):
+        """Stop the backing safety timer"""
+        if hasattr(self, 'backing_safety_timer') and self.backing_safety_timer is not None:
+            self.backing_safety_timer.cancel()
+            self.backing_safety_timer = None
+            self.node.get_logger().debug('Backing safety monitoring deactivated')
+
+    def check_backing_safety(self):
+        """Check rear safety while backing up and stop if too close to obstacles"""
+        try:
+            # Check the rear scan data
+            rear_status, rear_distance = self.check_rear_safety()
+            
+            if rear_status == 'critical':
+                self.node.get_logger().warn(f'SAFETY STOP: Critical rear distance detected ({rear_distance:.2f}m) while backing')
+                
+                # Send immediate stop command
+                stop_cmd = Twist()
+                self.node.wheel_speeds_pub.publish(stop_cmd)
+                
+                # Stop the timer since we're no longer backing up
+                self.stop_backing_safety_timer()
+                
+                # Optional: could trigger escape here if needed
+                # self.node.execute_escape_plan()
+        except Exception as e:
+            self.node.get_logger().error(f'Error in backing safety check: {str(e)}')
+            # On error, stop backing to be safe
+            stop_cmd = Twist()
+            self.node.wheel_speeds_pub.publish(stop_cmd)
 
     
 

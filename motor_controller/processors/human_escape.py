@@ -713,9 +713,6 @@ class HumanEscape(WaypointGenerator):
                         f'Reference ({ref_height}x{ref_width} at {ref_origin_x},{ref_origin_y})'
                     )
                     
-                    # Handle different map dimensions - create expanded bounding box around both maps
-                    # This helps us identify newly explored regions even if maps have different dimensions
-                    
                     # Create a mask for the current free space
                     current_data = np.array(self.current_map.data).reshape((map_height, map_width))
                     free_space = (current_data == 0) & (self.obstacle_grid == 0)

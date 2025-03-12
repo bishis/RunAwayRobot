@@ -532,7 +532,7 @@ class HumanEscape(WaypointGenerator):
         return cells
     
     def check_and_update_escape_if_needed(self):
-        """Check if human is intercepting escape path and find new path if needed"""
+        """Check if human is near the escape goal and find new path if needed"""
         try:
             # Skip if missing required data
             if (not hasattr(self.node, 'last_human_position') or 
@@ -547,7 +547,7 @@ class HumanEscape(WaypointGenerator):
             target_pos = (self.node.current_goal.pose.position.x, self.node.current_goal.pose.position.y)
             human_pos = self.node.last_human_position
             
-            # Check how long we've been on this escape path
+            # Initialize time tracking if needed
             current_time = self.node.get_clock().now()
             if not hasattr(self, 'escape_start_time'):
                 self.escape_start_time = current_time
@@ -558,89 +558,35 @@ class HumanEscape(WaypointGenerator):
             # Don't replan if we just started this escape (give it at least 1 second)
             time_since_escape_start = (current_time - self.escape_start_time).nanoseconds / 1e9
             if time_since_escape_start < 1.0:
-                self.node.get_logger().debug(f"Ignoring path check - escape just started {time_since_escape_start:.1f}s ago")
                 return None
             
             # Don't replan too frequently (minimum 2 seconds between replans)
             time_since_last_replan = (current_time - self.last_replan_time).nanoseconds / 1e9
             if time_since_last_replan < 2.0:
-                self.node.get_logger().debug(f"Waiting for replan cooldown ({time_since_last_replan:.1f}s < 2.0s)")
                 return None
             
-            # Calculate distances
-            human_to_robot_dist = math.sqrt((human_pos[0] - robot_pos[0])**2 + (human_pos[1] - robot_pos[1])**2)
-            path_length = math.sqrt((target_pos[0] - robot_pos[0])**2 + (target_pos[1] - robot_pos[1])**2)
+            # Calculate human-to-goal distance
+            human_to_goal_dist = math.sqrt((human_pos[0] - target_pos[0])**2 + (human_pos[1] - target_pos[1])**2)
             
-            # If the human is far away or we're very close to goal, no need to replan
-            if human_to_robot_dist > 3.0 or path_length < 0.8:
-                return None
-            
-            # Calculate how far along our path we've moved
-            if hasattr(self, 'last_robot_pos'):
-                progress = math.sqrt(
-                    (robot_pos[0] - self.last_robot_pos[0])**2 + 
-                    (robot_pos[1] - self.last_robot_pos[1])**2
-                )
-                
-                # If we're making good progress and human isn't super close, continue on path
-                if progress > 0.3 and human_to_robot_dist > 1.2:
-                    self.last_robot_pos = robot_pos
-                    return None
-            
-            # Store position for next comparison
-            self.last_robot_pos = robot_pos
-            
-            # Check if human is in the escape path
-            result = self.is_human_intercepting_path(robot_pos, target_pos, human_pos)
-            
-            if result:
-                human_to_waypoint = math.sqrt(
-                    (human_pos[0] - target_pos[0])**2 + 
-                    (human_pos[1] - target_pos[1])**2
-                )
-                
-                self.node.get_logger().warn(
-                    f"Human may intercept escape path! Human-to-waypoint: {human_to_waypoint:.2f}m, "
-                    f"Robot-to-waypoint: {path_length:.2f}m"
-                )
-                
-                # Check human movement direction (if we have history)
-                if hasattr(self, 'last_human_pos') and self.last_human_pos is not None:
-                    human_dx = human_pos[0] - self.last_human_pos[0]
-                    human_dy = human_pos[1] - self.last_human_pos[1]
-                    
-                    # Project human movement onto path direction
-                    path_dx = target_pos[0] - robot_pos[0]
-                    path_dy = target_pos[1] - robot_pos[1]
-                    path_mag = math.sqrt(path_dx**2 + path_dy**2)
-                    
-                    if path_mag > 0:
-                        path_dx /= path_mag
-                        path_dy /= path_mag
-                        
-                        # Dot product tells us if human is moving toward path
-                        dot_product = human_dx * path_dx + human_dy * path_dy
-                        
-                        # If human is moving away from our path, don't replan
-                        if dot_product < 0:
-                            self.node.get_logger().info("Human is moving away from our path, continuing current plan")
-                            self.last_human_pos = human_pos
-                            return None
+            # Check if human is near the goal (within 50cm radius)
+            if human_to_goal_dist < 0.5:
+                self.node.get_logger().warn(f"Human is near the escape goal! Distance: {human_to_goal_dist:.2f}m")
                 
                 # Update time tracking
                 self.last_replan_time = current_time
                 self.last_human_pos = human_pos
                 
-                # Human is intercepting, generate new path
-                self.node.get_logger().info("Human is intercepting escape path, generating new escape plan")
+                # Human is near goal, generate new path
+                self.node.get_logger().info("Human is near the escape goal, generating new escape plan")
                 return self.get_furthest_waypoint(True)  # Generate new escape point
             
-            # Update human position history
+            # Store position for next comparison
+            self.last_robot_pos = robot_pos
             self.last_human_pos = human_pos
             return None
         
         except Exception as e:
-            self.node.get_logger().error(f"Error checking path interception: {str(e)}")
+            self.node.get_logger().error(f"Error checking goal proximity: {str(e)}")
             return None
 
     def force_escape_waypoint_change(self):
@@ -1011,7 +957,6 @@ class HumanEscape(WaypointGenerator):
         )
         
         # Calculate intercept threshold based on distance
-        # Closer to robot = needs more space due to turning radius
         interception_threshold = 0.8  # Base distance
         
         # If human is really close to the robot, consider it an interception

@@ -469,6 +469,7 @@ class NavigationController(Node):
                     self.get_logger().error('Max escape attempts reached, giving up escape plan')
                     self.cancel_current_goal()
                     self.reset_escape_state()
+                    self.reset_navigation_state()
                     return
             elif status != GoalStatus.STATUS_SUCCEEDED and not self.is_escape_waypoint(self.current_goal):
                 self.get_logger().warn(f'Navigation failed with status: {status}')

@@ -133,7 +133,7 @@ class NavigationController(Node):
         self.human_avoidance = HumanAvoidanceController(self, self.waypoint_generator)
 
         # Add escape-specific parameters
-        self.max_escape_attempts = 3  # Number of retry attempts for escape
+        self.max_escape_attempts = 1  # Number of retry attempts for escape
         self.escape_attempts = 0  # Counter for escape attempts
         
         # Add storage for last seen human position
@@ -566,7 +566,7 @@ class NavigationController(Node):
                 cmd.linear.x = 0.0
                 cmd.angular.z = 0.0
                 self.wheel_speeds_pub.publish(cmd)
-                
+
                 self.clear_visualization_markers()
                 
                 # Log what type of goal we're cancelling
@@ -972,8 +972,8 @@ class NavigationController(Node):
 
     def resume_exploration(self):
         """Clean up escape monitoring and resume exploration"""
-        self.cleanup_escape_monitoring()  # Make sure monitoring is cleaned up
-        self.escape_attempts = 0  # Reset escape attempts
+        self.cleanup_escape_monitoring()
+        self.escape_attempts = 0 
         
         # Clear old markers before resuming
         self.clear_visualization_markers()

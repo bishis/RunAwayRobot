@@ -81,8 +81,9 @@ class HardwareController(Node):
         )
         
         # Display startup message
-        self.display_controller.show_status("Robot Ready", escape_status="System OK")
-        self.display_controller.sound_alert('success')
+        self.display_controller.show_text("Robot Ready")
+        sound = get_jingle('success')
+        self.display_controller.sound_buzzer(sound)
         
         self.get_logger().info('Hardware controller initialized with display/buzzer support')
 

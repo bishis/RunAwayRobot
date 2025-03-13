@@ -42,7 +42,6 @@ class HardwareController(Node):
         # Get display parameters
         buzzer_pin = self.get_parameter('buzzer_pin').value
         
-        self.sound_finished = False
         # Create motor controller with parameters
         self.motor_controller = MotorController(
             left_dir_pin=left_dir_pin,
@@ -192,12 +191,11 @@ class HardwareController(Node):
     def alert_callback(self, msg: String):
         """Handle sound alert requests"""
         try:
-            if msg.data.strip() == "" or self.sound_finished:
+            if msg.data.strip() == "":
                 return
-            self.sound_finished = True
             alert_type = msg.data.strip()
             sound = get_jingle(alert_type)
-            self.sound_finished = self.display_controller.sound_buzzer(sound)
+            self.display_controller.sound_buzzer(sound)
         except Exception as e:
             self.get_logger().error(f'Error processing sound alert: {str(e)}')
 

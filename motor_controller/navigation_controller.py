@@ -436,7 +436,7 @@ class NavigationController(Node):
                 time.sleep(0.5)
                 
                 self.escape_attempts += 1
-                if self.escape_attempts < self.max_escape_attempts:
+                if self.escape_attempts <= self.max_escape_attempts:
                     self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
                     
                     # Important: Cancel the current goal BEFORE planning a new one,
@@ -461,7 +461,7 @@ class NavigationController(Node):
                         self.publish_sound("stuck")
                         self.reset_escape_state()
                         self.start_escape_monitoring()
-                elif self.escape_attempts >= self.max_escape_attempts and (human_still_present or self.distance_from_last_known_human() < 0.45):
+                elif self.escape_attempts > self.max_escape_attempts and (human_still_present or self.distance_from_last_known_human() < 0.45):
                     self.get_logger().info('Trapped - max escape attempts reached, starting shake defense')
                     self.cancel_current_goal()
                     self.start_shake_defense()
@@ -720,7 +720,7 @@ class NavigationController(Node):
                 # Different handling based on goal type
                 if self.is_escape_waypoint(self.current_goal):
                     self.escape_attempts += 1
-                    if self.escape_attempts < self.max_escape_attempts:
+                    if self.escape_attempts <= self.max_escape_attempts:
                         self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
                         
                         # Pass the failure flag to plan_escape
@@ -733,7 +733,7 @@ class NavigationController(Node):
                             self.publish_sound("error")
                             self.reset_escape_state()
                             self.start_escape_monitoring()
-                    elif self.escape_attempts >= self.max_escape_attempts and (human_still_present or self.distance_from_last_known_human() < 0.45):
+                    elif self.escape_attempts > self.max_escape_attempts and (human_still_present or self.distance_from_last_known_human() < 0.45):
                         self.get_logger().info('Trapped - max escape attempts reached, starting shake defense')
                         self.cancel_current_goal()
                         self.start_shake_defense()

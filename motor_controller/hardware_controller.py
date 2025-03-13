@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import rclpy
+import os
+import glob
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from .controllers.motor_controller import MotorController
@@ -8,6 +10,8 @@ from .controllers.display_controller import DisplayController
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
 from .utils.soundbytes import get_jingle
+import random
+from ament_index_python.packages import get_package_share_directory
 
 class HardwareController(Node):
     """Controls robot hardware including motors, display and buzzer"""
@@ -23,7 +27,7 @@ class HardwareController(Node):
         self.declare_parameter('pwm_frequency', 1000)
         
         # Declare display and buzzer parameters
-        self.declare_parameter('buzzer_pin', 25)
+        self.declare_parameter('buzzer_pin', 21)  # Use pin 21 instead of 25
         self.declare_parameter('oled_address', '0x3C')
         self.declare_parameter('oled_width', 128)
         self.declare_parameter('oled_height', 64)
@@ -49,6 +53,13 @@ class HardwareController(Node):
         
         # Create display controller
         self.display_controller = DisplayController(self)
+        
+        # Find the images folder
+        self.pkg_dir = get_package_share_directory('motor_controller')
+        self.images_dir = os.path.join(self.pkg_dir, 'utils', 'images')
+        
+        # Create a map of available images
+        self.image_map = self._get_available_images()
         
         # Create subscriber for wheel speeds
         self.wheel_speeds_sub = self.create_subscription(
@@ -81,11 +92,62 @@ class HardwareController(Node):
         )
         
         # Display startup message
-        self.display_controller.show_text("Robot Ready")
-        sound = get_jingle('success')
+        self.show_status_image("ok", fallback_text="Robot Ready")
+        sound = get_jingle('startup')
         self.display_controller.sound_buzzer(sound)
         
         self.get_logger().info('Hardware controller initialized with display/buzzer support')
+
+    def _get_available_images(self):
+        """Build a dictionary mapping status names to image files"""
+        image_map = {}
+        
+        try:
+            if os.path.exists(self.images_dir):
+                # Find all image files in the images directory
+                image_files = glob.glob(os.path.join(self.images_dir, "*.png"))
+                image_files.extend(glob.glob(os.path.join(self.images_dir, "*.jpg")))
+                image_files.extend(glob.glob(os.path.join(self.images_dir, "*.bmp")))
+                image_files.extend(glob.glob(os.path.join(self.images_dir, "*.jpeg")))
+                
+                # Create mapping from base name to file path
+                for img_path in image_files:
+                    basename = os.path.basename(img_path)
+                    name, _ = os.path.splitext(basename)
+                    image_map[name.lower()] = img_path
+                
+                self.get_logger().info(f'Found {len(image_map)} images in {self.images_dir}')
+            else:
+                self.get_logger().warn(f'Images directory not found: {self.images_dir}')
+        except Exception as e:
+            self.get_logger().error(f'Error loading images: {str(e)}')
+        
+        return image_map
+
+    def show_status_image(self, status_name, fallback_text=None):
+        """Show an image for the given status or fallback to text"""
+        status_name = status_name.lower().strip()
+        
+        # Check if we have an exact match
+        if status_name in self.image_map:
+            self.get_logger().info(f'Showing image for status: {status_name}')
+            self.display_controller.show_image(self.image_map[status_name])
+            return True
+            
+        # Check for partial matches (e.g., "human_detected" matches "human")
+        for img_name, img_path in self.image_map.items():
+            if status_name.startswith(img_name) or img_name.startswith(status_name):
+                self.get_logger().info(f'Showing partial match image: {img_name} for {status_name}')
+                self.display_controller.show_image(img_path)
+                return True
+        
+        # No matching image found, fall back to text
+        if fallback_text:
+            self.display_controller.show_text(fallback_text)
+        else:
+            self.display_controller.show_text(f"Status: {status_name}")
+        
+        return False
 
     def wheel_speeds_callback(self, msg: Twist):
         try:
@@ -117,10 +179,13 @@ class HardwareController(Node):
     def status_callback(self, msg: String):
         """Handle status updates for display"""
         try:
-            msg = msg.data
+            status_text = msg.data.strip()
             
-            # Display on OLED
-            self.display_controller.show_text(msg)
+
+            
+            # Try to display an image for this status
+            if not self.show_status_image(status_text, fallback_text=status_text):
+                self.get_logger().info(f'No image for status: {status_text}, showing text only')
             
         except Exception as e:
             self.get_logger().error(f'Error processing display status: {str(e)}')

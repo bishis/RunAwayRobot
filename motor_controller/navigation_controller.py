@@ -461,7 +461,7 @@ class NavigationController(Node):
                         self.publish_sound("stuck")
                         self.reset_escape_state()
                         self.start_escape_monitoring()
-                elif self.escape_attempts > self.max_escape_attempts and (human_still_present or self.distance_from_last_known_human() < 0.45):
+                elif self.escape_attempts >= self.max_escape_attempts and (human_still_present or self.distance_from_last_known_human() < 0.45):
                     self.get_logger().info('Trapped - max escape attempts reached, starting shake defense')
                     self.cancel_current_goal()
                     self.start_shake_defense()
@@ -733,7 +733,7 @@ class NavigationController(Node):
                             self.publish_sound("error")
                             self.reset_escape_state()
                             self.start_escape_monitoring()
-                    elif self.escape_attempts > self.max_escape_attempts and (human_still_present or self.distance_from_last_known_human() < 0.45):
+                    elif self.escape_attempts >= self.max_escape_attempts and (human_still_present or self.distance_from_last_known_human() < 0.45):
                         self.get_logger().info('Trapped - max escape attempts reached, starting shake defense')
                         self.cancel_current_goal()
                         self.start_shake_defense()

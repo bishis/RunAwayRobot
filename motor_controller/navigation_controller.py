@@ -1234,7 +1234,7 @@ class NavigationController(Node):
         """Publish image to the image topic"""
         msg = String()
         msg.data = f"{image};"
-        self.image_pub.publish(msg)
+        self.status_pub.publish(msg)
         
     def publish_sound(self, sound: str):
         """Publish sound to the sound topic"""

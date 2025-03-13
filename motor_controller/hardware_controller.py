@@ -27,7 +27,7 @@ class HardwareController(Node):
         self.declare_parameter('pwm_frequency', 1000)
         
         # Declare display and buzzer parameters
-        self.declare_parameter('buzzer_pin', 21)  # Use pin 21 instead of 25
+        self.declare_parameter('buzzer_pin', 21)
         self.declare_parameter('oled_address', '0x3C')
         self.declare_parameter('oled_width', 128)
         self.declare_parameter('oled_height', 64)
@@ -54,9 +54,9 @@ class HardwareController(Node):
         # Create display controller
         self.display_controller = DisplayController(self)
         
-        # Find the images folder
+        # Find the images folder - update to use the package directory
         self.pkg_dir = get_package_share_directory('motor_controller')
-        self.images_dir = os.path.join(self.pkg_dir, 'utils', 'images')
+        self.images_dir = os.path.join(self.pkg_dir, 'images')
         
         # Create a map of available images
         self.image_map = self._get_available_images()

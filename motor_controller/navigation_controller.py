@@ -298,6 +298,7 @@ class NavigationController(Node):
             if not self.nav2_ready:
                 return
             if not self.is_navigating:
+                self.publish_image("exploring")
                 # Store current waypoint before generating new one
                 self.previous_waypoint = self.current_goal
                 
@@ -379,6 +380,7 @@ class NavigationController(Node):
             self.get_logger().info(f'    Stamp: {goal_msg.header.stamp.sec}.{goal_msg.header.stamp.nanosec}')
             
             # Send the goal with timeout handling
+            self.publish_sound("new_waypoint")
             send_goal_future = self.nav_client.send_goal_async(
                 nav_goal,
                 feedback_callback=self.feedback_callback
@@ -489,6 +491,7 @@ class NavigationController(Node):
                     self.waypoint_generator.force_waypoint_change()
             else:
                 self.get_logger().info('Navigation succeeded')
+                self.publish_sound("success")
                 if self.current_goal is not None and not self.is_escape_waypoint(self.current_goal):
                     self.planning_attempts = 0
                     self.reset_navigation_state()
@@ -805,6 +808,7 @@ class NavigationController(Node):
         """Handle tracking information from human coordinates"""
         try:
             # Extract human position from PoseStamped
+            self.publish_sound("human_detected")
             human_x = msg.pose.position.x
             human_y = msg.pose.position.y
             
@@ -870,6 +874,9 @@ class NavigationController(Node):
                         self.waypoint_generator.cancel_waypoint()  # Clear any exploration waypoints
                     
                         escape_point = self.human_avoidance.plan_escape()
+                        
+                        self.publish_sound("escape")
+                        self.publish_image("escaping")
                         
                         if escape_point is not None:
                             self.get_logger().info(
@@ -1188,6 +1195,8 @@ class NavigationController(Node):
         """Find a better hiding spot after initial escape is successful"""
         self.get_logger().info('Looking for a better hiding spot...')
         self.get_logger().info('Waiting for 3 seconds to update map before searching for hiding spot')
+
+        self.publish_sound("hiding")
         
         if self.last_human_position is None:
             self.get_logger().warn('No human position data available for hiding spot search')

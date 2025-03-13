@@ -565,9 +565,7 @@ class NavigationController(Node):
             if self.current_goal_handle is not None:
 
                 self.wheel_speeds_pub.publish(Twist())
-
-                self.clear_visualization_markers()
-                
+       
                 # Log what type of goal
                 if self.is_escape_waypoint(self.current_goal):
                     self.get_logger().info('Canceling escape goal')
@@ -590,6 +588,7 @@ class NavigationController(Node):
                         cancel_result = cancel_future.result()
                         if cancel_result is not None and cancel_result.accepted:
                             self.get_logger().info('Goal cancellation confirmed by nav2')
+                            self.clear_visualization_markers()
                         else:
                             self.get_logger().warn('Goal cancellation was rejected by nav2')
                     else:

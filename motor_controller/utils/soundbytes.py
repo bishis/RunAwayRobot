@@ -87,8 +87,10 @@ def low_battery_jingle():
 def new_waypoint_jingle():
     """Short confirmation for new waypoint"""
     return [
-        (1047, 0.9, 0.9), # C6
-        (1319, 0.9, 0.9)  # E6
+        (784, 0.5, 0.1),    # G5
+        (988, 0.5, 0.1),    # B5
+        (1319, 0.7, 0.15),  # E6
+        (1568, 0.8, 0.3)    # G6
     ]
 
 # Map jingle names to functions for easy lookup

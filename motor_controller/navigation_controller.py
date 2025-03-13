@@ -133,7 +133,7 @@ class NavigationController(Node):
         self.human_avoidance = HumanAvoidanceController(self, self.waypoint_generator)
 
         # Add escape-specific parameters
-        self.max_escape_attempts = 2  # Number of retry attempts for escape
+        self.max_escape_attempts = 1  # Number of retry attempts for escape
         self.escape_attempts = 0  # Counter for escape attempts
         
         # Add storage for last seen human position
@@ -752,7 +752,6 @@ class NavigationController(Node):
                     elif self.escape_attempts > self.max_escape_attempts and human_still_present:
                         self.get_logger().info('Trapped')
                         self.cancel_current_goal()
-                        time.sleep(0.5)
                         self.start_shake_defense()
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')

@@ -1088,6 +1088,9 @@ class NavigationController(Node):
     def start_shake_defense(self):
         """Start a shaking motion to try to escape when trapped"""
         
+        self.publish_sound("error")
+        self.publish_image("stuck")
+        
         # Don't start shake defense if an escape is in progress
         if self.is_executing_escape:
             self.get_logger().info('Escape plan already in progress, not starting shake defense')
@@ -1197,6 +1200,7 @@ class NavigationController(Node):
         self.get_logger().info('Waiting for 3 seconds to update map before searching for hiding spot')
 
         self.publish_sound("hiding")
+        self.publish_image("thinking")
         
         if self.last_human_position is None:
             self.get_logger().warn('No human position data available for hiding spot search')

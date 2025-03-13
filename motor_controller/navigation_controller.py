@@ -464,6 +464,7 @@ class NavigationController(Node):
                 elif self.escape_attempts > self.max_escape_attempts and (human_still_present or self.distance_from_last_known_human() < 0.45):
                     self.get_logger().info('Trapped - max escape attempts reached, starting shake defense')
                     self.cancel_current_goal()
+                    self.reset_escape_state()
                     self.start_shake_defense()
                     return
                 else:
@@ -736,6 +737,7 @@ class NavigationController(Node):
                     elif self.escape_attempts > self.max_escape_attempts and (human_still_present or self.distance_from_last_known_human() < 0.45):
                         self.get_logger().info('Trapped - max escape attempts reached, starting shake defense')
                         self.cancel_current_goal()
+                        self.reset_escape_state()
                         self.start_shake_defense()
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
@@ -1106,6 +1108,8 @@ class NavigationController(Node):
         """Execute one step of the shake motion"""
         try:
             # Check currently trying to escape - if so, don't shake
+            if self.current_goal is not None:
+                return
             if self.is_executing_escape:
                 self.get_logger().info('Escape plan in progress, not executing shake motion')
                 if hasattr(self, 'shake_timer') and self.shake_timer:

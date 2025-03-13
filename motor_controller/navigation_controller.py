@@ -808,8 +808,6 @@ class NavigationController(Node):
         """Handle tracking information from human coordinates"""
         try:
             # Extract human position from PoseStamped
-            self.publish_sound("human_detected")
-            self.publish_image("human")
             human_x = msg.pose.position.x
             human_y = msg.pose.position.y
             
@@ -822,6 +820,8 @@ class NavigationController(Node):
             if self.shake_timer:
                 return
             
+            self.publish_sound("human_detected")
+            self.publish_image("human")
             # Calculate distance to human using Euclidean distance
             if self.current_pose is not None:
                 dx = human_x - self.current_pose.pose.position.x

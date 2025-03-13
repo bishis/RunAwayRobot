@@ -1199,7 +1199,6 @@ class NavigationController(Node):
     def find_and_move_to_hiding_spot(self, skip_waiting=False):
         """Find a better hiding spot after initial escape is successful"""
         self.get_logger().info('Looking for a better hiding spot...')
-        self.get_logger().info('Waiting for 3 seconds to update map before searching for hiding spot')
 
         self.publish_sound("hiding")
         self.publish_image("thinking")
@@ -1214,6 +1213,7 @@ class NavigationController(Node):
         
         self.reset_escape_state()
         if not skip_waiting:
+            self.get_logger().info('Waiting for 3 seconds to update map before searching for hiding spot')
             time.sleep(3)
         
         robot_pos = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)

@@ -368,9 +368,7 @@ class NavigationController(Node):
             # Add check for escape goal and clear emergency stop
             if self.is_escape_waypoint(goal_msg):
                 self.get_logger().info('Escape goal detected - clearing emergency stop state')
-                # Give the robot a moment to stabilize after emergency stop
                 time.sleep(0.5)  # Short delay
-                # Clear any velocity commands
                 stop_cmd = Twist()
                 self.wheel_speeds_pub.publish(stop_cmd)
             

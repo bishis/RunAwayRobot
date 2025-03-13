@@ -142,7 +142,7 @@ class DisplayController:
         except Exception as e:
             self.node.get_logger().error(f'Error displaying text: {str(e)}')
     
-    def sound_buzzer(self, pattern=None, duration=1.0, frequency=1000, volume=0.5):
+    def sound_buzzer(self, pattern=None, duration=2.0, frequency=1000, volume=0.5):
         """
         Sound the buzzer with a specific pattern and frequency
         

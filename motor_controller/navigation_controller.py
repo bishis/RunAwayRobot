@@ -1241,13 +1241,13 @@ class NavigationController(Node):
     def publish_image(self, image: str):
         """Publish image to the image topic"""
         msg = String()
-        msg.data = f"{image};"
+        msg.data = f"{image}"
         self.status_pub.publish(msg)
         
     def publish_sound(self, sound: str):
         """Publish sound to the sound topic"""
         msg = String()
-        msg.data = f"{sound};"
+        msg.data = f"{sound}"
         self.alert_pub.publish(msg)
 
 

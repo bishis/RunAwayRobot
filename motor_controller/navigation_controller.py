@@ -428,11 +428,7 @@ class NavigationController(Node):
             self.get_logger().info(f'Navigation result status: {status}')
 
             # Check if human is still present
-            human_still_present = False
-            current_time = self.get_clock().now()
-            if self.last_human_timestamp is not None:
-                time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
-                human_still_present = time_since_human < 5.0
+            human_still_present = self.time_since_last_human()
             
             if status != GoalStatus.STATUS_SUCCEEDED and self.is_escape_waypoint(self.current_goal):
                 # Add debug information to help diagnose escape failures
@@ -682,12 +678,8 @@ class NavigationController(Node):
         
         try:
             # Check if human is still present
-            human_still_present = False
+            human_still_present = self.time_since_last_human()
             current_time = self.get_clock().now()
-            if self.last_human_timestamp is not None:
-                time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
-                # Consider human still present if seen in the last 2 seconds
-                human_still_present = time_since_human < 5.0
 
             # Check for overall goal timeout
             goal_timeout_reached = False
@@ -1145,14 +1137,8 @@ class NavigationController(Node):
             # Increment counter
             self.shake_count += 1
             
-            current_time = self.get_clock().now()
-            human_still_present = False
-            
-            if self.last_human_timestamp is not None:
-                time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
-                # Consider human still present if seen in the last 2 seconds
-                human_still_present = time_since_human < 3.0
-            
+            human_still_present = self.time_since_last_human()
+        
             if not human_still_present:
                 # Human is gone 
                 self.get_logger().info('Human no longer detected, stopping shake defense')
@@ -1256,6 +1242,16 @@ class NavigationController(Node):
         if self.last_human_position is None or self.current_pose is None:
             return float('inf')
         return np.linalg.norm(np.array(self.last_human_position) - np.array(self.current_pose.pose.position))
+    
+    def time_since_last_human(self):
+        """Calculate time since last human position"""
+        current_time = self.get_clock().now()
+        if self.last_human_timestamp is not None:
+            time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
+            # Consider human still present if seen in the last 2 seconds
+            return time_since_human < 5.0
+        else:
+            return False
 
 def main(args=None):
     rclpy.init(args=args)

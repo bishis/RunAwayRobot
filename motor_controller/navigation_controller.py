@@ -163,7 +163,7 @@ class NavigationController(Node):
         )
         
         # Add timestamp tracking for human obstacle persistence
-        self.human_obstacle_timeout = 2.0  # Keep obstacles for 2 seconds
+        self.human_obstacle_timeout = 2.0
         
         # Create timer to periodically update human obstacles
         # self.obstacle_update_timer = self.create_timer(0.2, self.update_human_obstacles)
@@ -174,11 +174,11 @@ class NavigationController(Node):
         # Add position tracking for stuck detection
         self.last_position_check = None
         self.last_check_position = None
-        self.stuck_threshold = 0.05  # 5cm movement threshold
-        self.stuck_timeout = 10.0     # 5 seconds without movement = stuck
+        self.stuck_threshold = 0.05  
+        self.stuck_timeout = 10.0 
 
         # Add tracking timeout parameters
-        self.human_tracking_timeout = 3.0  # Wait 2 seconds before ending tracking
+        self.human_tracking_timeout = 3.0
 
         # Add parameter for explicitly clearing costmaps
         self.clear_costmaps_after_escape = True
@@ -188,13 +188,12 @@ class NavigationController(Node):
         self.is_executing_escape = False
 
         # Add these parameters after other initializations
-        self.tf_timeout = 0.1  # Short timeout for transform lookups
-        self.tf_retry_count = 3  # Number of retries for transform lookups
-        self.tf_fallback_to_latest = True  # Use latest available transform if requested time is not available
-        self.tf_use_sim_time = False  # Whether using simulation time
-        self.tf_last_error_time = self.get_clock().now()  # Track last error time to avoid spamming logs
+        self.tf_timeout = 0.1  
+        self.tf_retry_count = 3  
+        self.tf_fallback_to_latest = True
+        self.tf_use_sim_time = False
+        self.tf_last_error_time = self.get_clock().now()
 
-        # Add these publishers in the __init__ method
         self.status_pub = self.create_publisher(String, 'robot_status', 10)
         self.alert_pub = self.create_publisher(String, 'sound_alert', 10)
 

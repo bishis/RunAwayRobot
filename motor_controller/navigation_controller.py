@@ -297,7 +297,7 @@ class NavigationController(Node):
             if not self.nav2_ready:
                 return
             if not self.is_navigating:
-                self.publish_image("exploring")
+                self.publish_image("searching")
                 # Store current waypoint before generating new one
                 self.previous_waypoint = self.current_goal
                 
@@ -325,6 +325,7 @@ class NavigationController(Node):
                     ):
                         self.current_goal = waypoint  # Store new goal
                         self.send_goal(waypoint)
+                        self.publish_image("exploring")
                         # Green for exploration
                         markers = self.waypoint_generator.create_visualization_markers(waypoint, is_escape=False)
                         self.marker_pub.publish(markers)
@@ -1080,6 +1081,7 @@ class NavigationController(Node):
         """Start a shaking motion to try to escape when trapped"""
         
         self.publish_sound("error")
+        self.publish_image("thinking")
         self.publish_image("stuck")
 
         if self.exploration_loop_timer:

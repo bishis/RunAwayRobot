@@ -179,6 +179,7 @@ class DisplayController:
                 
             if pattern is None:
                 # Simple tone for specified duration
+                self.node.get_logger().info(f'No pattern, playing tone at {frequency} Hz for {duration} seconds')
                 self.buzzer.frequency = frequency
                 self.buzzer.value = volume
                 time.sleep(duration)

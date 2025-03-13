@@ -53,6 +53,8 @@ class HardwareController(Node):
         
         # Create display controller
         self.display_controller = DisplayController(self)
+
+        self.previous_image = None
         
         # Find the images folder - update to use the package directory
         self.pkg_dir = get_package_share_directory('motor_controller')
@@ -180,10 +182,11 @@ class HardwareController(Node):
         """Handle status updates for display"""
         try:
             status_text = msg.data.strip()
-            if status_text == "":
+            if status_text == "" or status_text == self.previous_image:
                 return    # Try to display an image for this status
             if not self.show_status_image(status_text, fallback_text=status_text):
                 self.get_logger().info(f'No image for status: {status_text}, showing text only')
+            self.previous_image = status_text
             
         except Exception as e:
             self.get_logger().error(f'Error processing display status: {str(e)}')

@@ -809,6 +809,7 @@ class NavigationController(Node):
         try:
             # Extract human position from PoseStamped
             self.publish_sound("human_detected")
+            self.publish_image("human")
             human_x = msg.pose.position.x
             human_y = msg.pose.position.y
             

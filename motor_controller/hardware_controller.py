@@ -111,6 +111,7 @@ class HardwareController(Node):
                 image_files.extend(glob.glob(os.path.join(self.images_dir, "*.jpg")))
                 image_files.extend(glob.glob(os.path.join(self.images_dir, "*.bmp")))
                 image_files.extend(glob.glob(os.path.join(self.images_dir, "*.jpeg")))
+                image_files.extend(glob.glob(os.path.join(self.images_dir, "*.gif")))
                 
                 # Create mapping from base name to file path
                 for img_path in image_files:
@@ -132,15 +133,21 @@ class HardwareController(Node):
         
         # Check if have an exact match
         if status_name in self.image_map:
-            self.get_logger().info(f'Showing image for status: {status_name}')
-            self.display_controller.show_image(self.image_map[status_name])
+            if status_name.endswith('.gif'):
+                self.display_controller.show_gif(self.image_map[status_name])
+            else:
+                self.get_logger().info(f'Showing image for status: {status_name}')
+                self.display_controller.show_image(self.image_map[status_name])
             return True
             
         # Check for partial matches (e.g., "human_detected" matches "human")
         for img_name, img_path in self.image_map.items():
             if status_name.startswith(img_name) or img_name.startswith(status_name):
                 self.get_logger().info(f'Showing partial match image: {img_name} for {status_name}')
-                self.display_controller.show_image(img_path)
+                if img_name.endswith('.gif'):
+                    self.display_controller.show_gif(img_path)
+                else:
+                    self.display_controller.show_image(img_path)
                 return True
         
         # No matching image found, fall back to text

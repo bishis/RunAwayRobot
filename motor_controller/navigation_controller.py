@@ -507,7 +507,7 @@ class NavigationController(Node):
                         self.escape_attempts = 0
                         
                         # Try to find a better hiding spot
-                        if not self.find_and_move_to_hiding_spot():
+                        if not self.find_and_move_to_hiding_spot(skip_waiting=False):
                             # If no hiding spot found, just reset and monitor
                             self.get_logger().info('No hiding spot found - turning to face human')
                             self.reset_escape_state()
@@ -1004,6 +1004,8 @@ class NavigationController(Node):
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
             self.reset_escape_state()
+            self.find_and_move_to_hiding_spot(skip_waiting=True)
+        
 
     def clear_visualization_markers(self):
         """Clear all visualization markers"""
@@ -1194,7 +1196,7 @@ class NavigationController(Node):
         else:
             return False
 
-    def find_and_move_to_hiding_spot(self):
+    def find_and_move_to_hiding_spot(self, skip_waiting=False):
         """Find a better hiding spot after initial escape is successful"""
         self.get_logger().info('Looking for a better hiding spot...')
         self.get_logger().info('Waiting for 3 seconds to update map before searching for hiding spot')
@@ -1211,7 +1213,8 @@ class NavigationController(Node):
             return False
         
         self.reset_escape_state()
-        time.sleep(3)
+        if not skip_waiting:
+            time.sleep(3)
         
         robot_pos = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
         human_pos = self.last_human_position

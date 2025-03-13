@@ -167,6 +167,7 @@ class DisplayController:
             daemon=True
         )
         self.buzzer_thread.start()
+        return False
     
     def _buzzer_thread_function(self, pattern, duration, frequency, volume):
         """Thread function to handle buzzer patterns using GPIO Zero PWM"""

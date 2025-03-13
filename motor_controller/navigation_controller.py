@@ -1225,6 +1225,8 @@ class NavigationController(Node):
             self.get_logger().info(f'Found hiding spot at ({hiding_point.pose.position.x:.2f}, {hiding_point.pose.position.y:.2f})')
             
             self.is_moving_to_hiding_spot = True
+            self.publish_sound("escape")
+            self.publish_image("escaping")
             
             markers = self.waypoint_generator.create_visualization_markers(hiding_point, is_hiding=True)
             self.marker_pub.publish(markers)

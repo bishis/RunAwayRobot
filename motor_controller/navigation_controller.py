@@ -464,7 +464,7 @@ class NavigationController(Node):
                             self.get_logger().error("Still navigating, can't send new escape goal")
                     else:
                         self.get_logger().error('Failed to find escape point!')
-                        self.publish_sound("escape_failed")
+                        self.publish_sound("stuck")
                         self.reset_escape_state()
                         self.start_escape_monitoring()
                 elif self.escape_attempts > self.max_escape_attempts and (human_still_present or self.distance_from_last_known_human() < 0.45):
@@ -744,7 +744,7 @@ class NavigationController(Node):
                             self.send_goal(escape_point)  # Retry escape point
                         else:
                             self.get_logger().error('Failed to find escape point!')
-                            self.publish_sound("escape_failed")
+                            self.publish_sound("error")
                             self.reset_escape_state()
                             self.start_escape_monitoring()
                     elif self.escape_attempts > self.max_escape_attempts and (human_still_present or self.distance_from_last_known_human() < 0.45):
@@ -923,6 +923,7 @@ class NavigationController(Node):
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
         self.escape_monitor_timer = self.create_timer(0.1, self.monitor_escape_sequence)
+        self.publish_sound("rotate")
 
     def monitor_escape_sequence(self):
         """Monitor the escape sequence: turn -> resume"""
@@ -1125,6 +1126,7 @@ class NavigationController(Node):
                     self.shake_timer = None
                 return
             self.publish_image("stuck")
+            self.publish_sound("error")
 
             # Create shake command
             cmd = Twist()

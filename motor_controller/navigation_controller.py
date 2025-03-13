@@ -471,7 +471,6 @@ class NavigationController(Node):
                 elif self.escape_attempts > self.max_escape_attempts and human_still_present:
                     self.get_logger().info('Trapped - max escape attempts reached, starting shake defense')
                     self.cancel_current_goal()
-                    time.sleep(0.5)  # Ensure previous commands are finished
                     self.start_shake_defense()
                     return
                 else:
@@ -1092,6 +1091,10 @@ class NavigationController(Node):
         
         self.publish_sound("error")
         self.publish_image("stuck")
+
+        if self.exploration_loop_timer:
+            self.exploration_loop_timer.cancel()
+            self.exploration_loop_timer = None
         
         # Don't start shake defense if an escape is in progress
         if self.is_executing_escape:
@@ -1099,9 +1102,6 @@ class NavigationController(Node):
             return
         
         self.get_logger().warn('Starting shake defense - robot is trapped!')
-        
-        # Cancel any current navigation goals
-        self.cancel_current_goal()
         
         # Create a timer for the shake motion
         self.shake_count = 0
@@ -1124,7 +1124,7 @@ class NavigationController(Node):
                     self.shake_timer.cancel()
                     self.shake_timer = None
                 return
-            
+            self.publish_image("stuck")
             # Check if human is still present
             current_time = self.get_clock().now()
             human_still_present = False

@@ -40,15 +40,7 @@ def shutdown_jingle():
 def human_detected_jingle():
     """Alert pattern with repeating motif for human detection"""
     return [
-        (880, 0.7, 0.07),   # A5 - Alert
-        (0, 0, 0.03),       # Pause
-        (880, 0.8, 0.07),   # A5 - Alert
-        (0, 0, 0.03),       # Pause
-        (988, 0.8, 0.1),    # B5
-        (1175, 0.9, 0.1),   # D6
-        (0, 0, 0.05),       # Pause
-        (1175, 0.9, 0.07),  # D6
-        (1319, 1.0, 0.15)   # E6
+        (880, 0.7, 0.07)   # A5 - Alert
     ]
 
 def escape_jingle():

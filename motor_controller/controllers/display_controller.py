@@ -23,6 +23,10 @@ class DisplayController:
         self.is_buzzer_active = False
         self.buzzer_thread = None
         
+        # Add animation control
+        self.animation_thread = None
+        self.is_animation_active = False
+        
         # Initialize components
         self.setup_display()
         self.setup_buzzer()
@@ -262,10 +266,111 @@ class DisplayController:
         
         except Exception as e:
             self.node.get_logger().error(f'Error displaying image: {str(e)}')
-
+    
+    def show_gif(self, gif_path, loops=1, clear_first=True):
+        """
+        Display an animated GIF on the OLED display
+        
+        Args:
+            gif_path: Path to the GIF file
+            loops: Number of times to loop the animation (0 for infinite)
+            clear_first: Whether to clear the display before starting
+        """
+        if not self.is_display_active or self.oled is None:
+            self.node.get_logger().warn('Display not active, cannot show GIF')
+            return
+        
+        # Stop any existing animation thread
+        self.stop_animation()
+        
+        try:
+            # Load the GIF file
+            gif = Image.open(gif_path)
+            
+            # Check if it's actually a GIF
+            if not hasattr(gif, 'is_animated') or not gif.is_animated:
+                self.node.get_logger().warn(f'Image at {gif_path} is not an animated GIF')
+                # Just display as a static image
+                self.show_image(gif_path, clear_first)
+                return
+            
+            # Start animation thread
+            self.animation_thread = threading.Thread(
+                target=self._animation_thread_function,
+                args=(gif, loops, clear_first),
+                daemon=True
+            )
+            self.is_animation_active = True
+            self.animation_thread.start()
+            self.node.get_logger().info(f'Started GIF animation with {gif.n_frames} frames')
+        
+        except Exception as e:
+            self.node.get_logger().error(f'Error displaying GIF: {str(e)}')
+    
+    def _animation_thread_function(self, gif, loops, clear_first):
+        """Thread function to handle GIF animations"""
+        try:
+            # Clear display if requested
+            if clear_first and self.oled is not None:
+                self.oled.clear()
+            
+            # Get the number of frames
+            n_frames = gif.n_frames
+            current_loop = 0
+            
+            # Loop through the animation
+            while self.is_animation_active and (loops == 0 or current_loop < loops):
+                for frame_idx in range(n_frames):
+                    if not self.is_animation_active:
+                        break
+                    
+                    # Seek to the specific frame
+                    gif.seek(frame_idx)
+                    
+                    # Get the frame duration in milliseconds
+                    try:
+                        # Some GIFs don't have duration info for frames
+                        duration = gif.info.get('duration', 100) / 1000  # Convert to seconds
+                    except:
+                        duration = 0.1  # Default to 100ms
+                    
+                    # Extract the frame
+                    frame = gif.copy().convert('1').resize((self.oled.width, self.oled.height))
+                    
+                    # Display the frame
+                    if self.oled is not None:
+                        self.oled.display(frame)
+                    
+                    # Wait for the frame duration
+                    time.sleep(duration)
+                
+                # Increment loop counter
+                current_loop += 1
+                
+                # Reset to first frame if we're doing another loop
+                if self.is_animation_active and (loops == 0 or current_loop < loops):
+                    gif.seek(0)
+            
+            self.node.get_logger().debug('GIF animation finished')
+        except Exception as e:
+            self.node.get_logger().error(f'Error in animation thread: {str(e)}')
+        finally:
+            self.is_animation_active = False
+    
+    def stop_animation(self):
+        """Stop any currently playing animation"""
+        if hasattr(self, 'animation_thread') and self.animation_thread is not None:
+            self.is_animation_active = False
+            # Wait for animation thread to end, but not too long
+            if self.animation_thread.is_alive():
+                self.animation_thread.join(timeout=0.5)
+            self.animation_thread = None
     
     def cleanup(self):
         """Clean up resources"""
+        # Stop animation
+        self.stop_animation()
+        
         # Stop buzzer
         self.stop_buzzer()
         

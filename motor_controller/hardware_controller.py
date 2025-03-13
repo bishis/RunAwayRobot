@@ -92,8 +92,8 @@ class HardwareController(Node):
         )
         
         # Display startup message
-        self.show_status_image("ok", fallback_text="Robot Ready")
-        sound = get_jingle('escape')
+        self.show_status_image("robot", fallback_text="Robot Ready")
+        sound = get_jingle('startup')
         self.display_controller.sound_buzzer(sound)
         
         self.get_logger().info('Hardware controller initialized with display/buzzer support')
@@ -180,10 +180,8 @@ class HardwareController(Node):
         """Handle status updates for display"""
         try:
             status_text = msg.data.strip()
-            
-
-            
-            # Try to display an image for this status
+            if status_text == "":
+                return    # Try to display an image for this status
             if not self.show_status_image(status_text, fallback_text=status_text):
                 self.get_logger().info(f'No image for status: {status_text}, showing text only')
             
@@ -193,6 +191,8 @@ class HardwareController(Node):
     def alert_callback(self, msg: String):
         """Handle sound alert requests"""
         try:
+            if msg.data.strip() == "":
+                return
             alert_type = msg.data.strip()
             sound = get_jingle(alert_type)
             self.display_controller.sound_buzzer(sound)

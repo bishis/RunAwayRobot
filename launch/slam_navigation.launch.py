@@ -24,7 +24,7 @@ def generate_launch_description():
         description='Full path to the ROS2 parameters file'
     )
 
-    # First: Launch SLAM Toolbox
+    # Launch SLAM Toolbox
     slam_toolbox_cmd = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             os.path.join(get_package_share_directory('slam_toolbox'),
@@ -36,7 +36,7 @@ def generate_launch_description():
         }.items()
     )
 
-    # Second: Launch SLAM lifecycle manager
+    # Launch SLAM lifecycle manager
     slam_lifecycle_manager_cmd = Node(
         package='nav2_lifecycle_manager',
         executable='lifecycle_manager',
@@ -49,7 +49,7 @@ def generate_launch_description():
         }]
     )
 
-    # Third: Launch RF2O Odometry after SLAM is ready
+    # Launch RF2O Odometry after SLAM is ready
     rf2o_cmd = TimerAction(
         period=2.0,
         actions=[
@@ -70,7 +70,7 @@ def generate_launch_description():
         ]
     )
 
-    # Fourth: Launch Navigation stack after SLAM and odometry are ready
+    # Launch Navigation stack after SLAM and odometry are ready
     navigation_cmd = TimerAction(
         period=4.0,
         actions=[
@@ -82,7 +82,7 @@ def generate_launch_description():
         ]
     )
 
-    # Fifth: Launch RViz2 after navigation is ready
+    # Launch RViz2 after navigation is ready
     rviz_cmd = TimerAction(
         period=6.0,
         actions=[
@@ -95,7 +95,7 @@ def generate_launch_description():
         ]
     )
 
-    # Finally: Launch camera-related nodes last
+    # Launch camera-related nodes last
     camera_nodes_cmd = TimerAction(
         period=8.0,
         actions=[
@@ -129,7 +129,6 @@ def generate_launch_description():
         SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
 
-        # Launch nodes in order with delays
         slam_toolbox_cmd,
         slam_lifecycle_manager_cmd,
         rf2o_cmd,

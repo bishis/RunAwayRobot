@@ -49,7 +49,6 @@ def generate_launch_description():
         'autostart', default_value='true',
         description='Automatically startup the nav2 stack')
 
-    # Create our own temporary YAML files that include substitutions
     param_substitutions = {
         'use_sim_time': use_sim_time,
         'autostart': autostart}
@@ -161,7 +160,7 @@ def generate_launch_description():
     ld.add_action(start_local_costmap_cmd)
     ld.add_action(start_global_costmap_cmd)
     
-    # Then add a delay before starting other components
+    # Add a delay before starting other components
     ld.add_action(TimerAction(
         period=2.0,  # 2-second delay
         actions=[
@@ -181,7 +180,7 @@ def generate_launch_description():
 
     # Add the navigation controller last
     ld.add_action(TimerAction(
-        period=8.0,  # 8-second delay
+        period=8.0,
         actions=[start_navigation_controller_cmd]
     ))
 

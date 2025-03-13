@@ -74,15 +74,14 @@ class WaypointGenerator:
         self.map_origin = None
         
         # Waypoints storage
-        self.waypoints = []  # This should be revalidated when map updates
+        self.waypoints = []  
 
-        # Add minimum time between waypoint changes
-        self.min_waypoint_time = 5.0  # seconds
+        self.min_waypoint_time = 5.0 
         self.last_waypoint_change = None
 
         # Add last goal tracking
         self.last_goal = None
-        self.min_goal_distance = 0.3  # Minimum distance between consecutive goals
+        self.min_goal_distance = 0.3  
 
     def map_callback(self, msg):
         """Process incoming map updates"""
@@ -155,7 +154,7 @@ class WaypointGenerator:
         while queue:
             x, y = queue.pop(0)
             
-            # Check if we've reached the target point
+            # Check if reached the target point
             if x == map_x and y == map_y:
                 return True
             
@@ -207,9 +206,7 @@ class WaypointGenerator:
             if reached:
                 self.node.get_logger().info(f'Reached waypoint (distance: {distance:.2f}m)')
                 self.reached_waypoint = True
-                # Force new waypoint when current one is reached
                 self.force_waypoint_change()
-                # Clear current waypoint to prevent re-sending
                 self.current_waypoint = None
             
             return reached
@@ -236,7 +233,6 @@ class WaypointGenerator:
            y == self.current_waypoint.pose.position.y:
             threshold *= 0.8  # More permissive for existing waypoint
         
-        # Check distance to nearest wall
         wall_distance = distance_transform_edt(map_data < 50) * resolution
         return wall_distance[map_y, map_x] < threshold
 
@@ -261,7 +257,7 @@ class WaypointGenerator:
         self.node.get_logger().info('Cancelling current waypoint')
         self.current_waypoint = None
         self.waypoint_cancelled = True
-        self.force_new_waypoint = False  # Don't force new waypoint immediately
+        self.force_new_waypoint = False  
         
         # Return empty marker array to clear visualization
         empty_markers = MarkerArray()
@@ -347,7 +343,7 @@ class WaypointGenerator:
         max_search_time = 1.0  # Maximum time to search in seconds
         
         while True:
-            # Check if we've exceeded our time limit
+            # Exceeded our time limit
             current_time = self.node.get_clock().now()
             if (current_time - start_time).nanoseconds / 1e9 > max_search_time:
                 self.node.get_logger().info('Waypoint search time limit reached')
@@ -430,7 +426,7 @@ class WaypointGenerator:
         if best_point is None:
             return None
         
-        # Once we find a valid waypoint, stick to it
+        # Once find a valid waypoint, stick to it
         if best_point is not None:
             # Check if waypoint is near walls
             attempts = 0
@@ -464,7 +460,7 @@ class WaypointGenerator:
             self.reached_waypoint = False
             self.node.get_logger().info('New waypoint selected')
             
-        # Update last change time when we do change waypoint
+        # Update last change time when change waypoint
         self.last_waypoint_change = current_time
         return self.current_waypoint
 

@@ -290,7 +290,7 @@ class NavigationController(Node):
 
     def exploration_loop(self):
         """Modified exploration loop to handle human tracking and map completion"""
-        # First check if we've lost track of human
+        # First check if lost track of human
         if self.check_tracking_timeout():
             return
             
@@ -339,7 +339,7 @@ class NavigationController(Node):
     def send_goal(self, goal_msg: PoseStamped):
         """Send navigation goal with proper error handling"""
         try:
-            # Check if we should cancel an existing goal first
+            # Check should cancel an existing goal first
             if self.is_navigating and self.current_goal is not None:
                 curr_x = self.current_goal.pose.position.x
                 curr_y = self.current_goal.pose.position.y
@@ -496,7 +496,7 @@ class NavigationController(Node):
                     self.planning_attempts = 0
                     self.reset_navigation_state()
                 elif self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
-                    # Check if we're already at a hiding spot
+                    # Check if at a hiding spot
                     if hasattr(self, 'is_moving_to_hiding_spot') and self.is_moving_to_hiding_spot:
                         self.get_logger().info('Successfully reached hiding spot')
                         self.reset_escape_state()
@@ -547,7 +547,7 @@ class NavigationController(Node):
         """Reset navigation state and try new waypoint"""
         self.reset_goal_state()  # Reset base goal state first
         
-        # Force waypoint generator to pick new point if we've failed too many times
+        # Force waypoint generator to pick new point if failed too many times
         if self.planning_attempts >= self.max_planning_attempts:
             self.planning_attempts = 0
             self.waypoint_generator.force_waypoint_change()
@@ -579,7 +579,7 @@ class NavigationController(Node):
 
                 self.clear_visualization_markers()
                 
-                # Log what type of goal we're cancelling
+                # Log what type of goal
                 if self.is_escape_waypoint(self.current_goal):
                     self.get_logger().info('Canceling escape goal')
                 else:
@@ -726,7 +726,7 @@ class NavigationController(Node):
                 (current_position[1] - self.last_check_position[1]) ** 2
             )
             
-            # Check if we've been stuck for longer than the timeout OR if goal timeout was reached
+            # Check if stuck for longer than the timeout OR if goal timeout was reached
             if (distance_moved < self.stuck_threshold and time_diff > self.stuck_timeout) or goal_timeout_reached:
                 if not goal_timeout_reached:
                     self.get_logger().warn(
@@ -776,7 +776,7 @@ class NavigationController(Node):
                 self.last_check_position = None
                 self.get_logger().info('Reset tracking')
             
-            # Update tracking if we've moved enough or enough time has passed
+            # Update tracking if moved enough or enough time has passed
             elif distance_moved > self.stuck_threshold or time_diff > 10.0:
                 self.last_position_check = current_time
                 self.last_check_position = current_position
@@ -788,7 +788,7 @@ class NavigationController(Node):
         """Handle changes in tracking status"""
         was_tracking = self.is_tracking_human
         
-        # Don't start tracking if we're executing an escape
+        # Don't start tracking if executing an escape
         if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
             self.get_logger().info('Ignoring tracking request - currently executing escape plan')
             self.is_tracking_human = False
@@ -945,7 +945,7 @@ class NavigationController(Node):
                 cmd = self.human_avoidance.turn_to_angle(target_angle)  # Fix: only get cmd, not turn_time
                 self.wheel_speeds_pub.publish(cmd)
                 
-                # Check if we've been trying to turn for too long or if we're done turning
+                # Check if  trying to turn for too long or done 
                 current_time = self.get_clock().now()
                 
                 # Initialize turn start time if not set
@@ -955,7 +955,7 @@ class NavigationController(Node):
                 # Calculate elapsed time
                 turn_time = (current_time - self.turn_start_time).nanoseconds / 1e9
                 
-                # Check if we have reached the target angle or timed out
+                # Check have reached the target angle or timed out
                 if abs(cmd.angular.z) < 0.01 or turn_time > self.turn_timeout:
                     self.get_logger().info('Turned to face last known human position, resuming exploration')
                     # Reset turn timer
@@ -1118,7 +1118,7 @@ class NavigationController(Node):
     def execute_shake_motion(self):
         """Execute one step of the shake motion"""
         try:
-            # Check if we're currently trying to escape - if so, don't shake
+            # Check currently trying to escape - if so, don't shake
             if self.is_executing_escape:
                 self.get_logger().info('Escape plan in progress, not executing shake motion')
                 if hasattr(self, 'shake_timer') and self.shake_timer:
@@ -1136,7 +1136,7 @@ class NavigationController(Node):
                 human_still_present = time_since_human < 3.0
             
             if not human_still_present:
-                # Human is gone, we can stop shaking
+                # Human is gone 
                 self.get_logger().info('Human no longer detected, stopping shake defense')
                 self.wheel_speeds_pub.publish(Twist())  # Stop motion
             
@@ -1180,7 +1180,7 @@ class NavigationController(Node):
             self.reset_escape_state()
 
     def check_tracking_timeout(self):
-        """Check if we should stop tracking due to not seeing human"""
+        """Check should stop tracking due to not seeing human"""
         if not self.is_tracking_human or self.last_human_timestamp is None:
             return False
         

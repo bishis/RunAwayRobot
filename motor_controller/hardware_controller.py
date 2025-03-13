@@ -128,7 +128,7 @@ class HardwareController(Node):
         """Show an image for the given status or fallback to text"""
         status_name = status_name.lower().strip()
         
-        # Check if we have an exact match
+        # Check if have an exact match
         if status_name in self.image_map:
             self.get_logger().info(f'Showing image for status: {status_name}')
             self.display_controller.show_image(self.image_map[status_name])

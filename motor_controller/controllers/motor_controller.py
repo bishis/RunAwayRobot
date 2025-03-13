@@ -96,8 +96,6 @@ class MotorController:
             where speeds are the scaled differential drive values and pwm are the actual motor powers
         """
         # Convert to differential drive using the correct formula
-        # v_L = v_x - (ω × wheel_width/2)
-        # v_R = v_x + (ω × wheel_width/2)
         left_speed = linear + (angular * self.wheel_width / 2.0)
         right_speed = linear - (angular * self.wheel_width / 2.0)
         

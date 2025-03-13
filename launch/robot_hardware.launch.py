@@ -27,10 +27,10 @@ def generate_launch_description():
             executable='hardware_controller',
             name='hardware_controller',
             parameters=[{
-                'speed_channel_pin': 12,     # GPIO12 for forward/reverse
-                'turn_channel_pin': 13,      # GPIO13 for left/right turning
-                'max_linear_speed': 0.1,     # m/s
-                'max_angular_speed': 1.0,    # rad/s
+                'speed_channel_pin': 12,
+                'turn_channel_pin': 13,      
+                'max_linear_speed': 0.1,     
+                'max_angular_speed': 1.0,    
             }],
             output='screen'
         ),

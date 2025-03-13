@@ -71,7 +71,6 @@ class HumanEscape(WaypointGenerator):
             self.last_human_distance_to_waypoint = human_to_waypoint
             
             # Calculate if human is closer to waypoint than robot or if human could intercept
-            # We also consider the rate of approach - if human is getting closer quickly
             human_could_intercept = (
                 human_to_waypoint < robot_to_waypoint * 1.2 or  # Human is closer or nearly as close
                 (is_human_getting_closer and human_to_waypoint < self.min_intercept_distance * 2.5)  # Human is approaching waypoint quickly
@@ -109,7 +108,7 @@ class HumanEscape(WaypointGenerator):
         MAX_PREVIOUS_WAYPOINTS = 3
         
         # Minimum distance between new waypoint and previous waypoints
-        MIN_WAYPOINT_SEPARATION = 1.0  # 1 meter minimum separation
+        MIN_WAYPOINT_SEPARATION = 0.4  
         
         # If previous attempt failed, add that waypoint to failed list
         if previous_attempt_failed and self.previous_escape_waypoint is not None:
@@ -205,7 +204,7 @@ class HumanEscape(WaypointGenerator):
             # Calculate distance transform from walls
             wall_distance = distance_transform_edt(map_data < 50) * resolution
             
-            # Predict human movement direction if we have multiple positions
+            # Predict human movement direction
             human_velocity_x, human_velocity_y = 0.0, 0.0
             if hasattr(self, 'human_positions') and len(self.human_positions) >= 2:
                 # Use the two most recent positions to estimate velocity
@@ -380,7 +379,7 @@ class HumanEscape(WaypointGenerator):
                             break
                     
                     # Calculate LOS (line of sight) score - GREATLY increase importance for hidden points
-                    los_score = 0.0 if has_line_of_sight else 100.0  # Increased from 30 to 100
+                    los_score = 0.0 if has_line_of_sight else 100.0
                     
                     # Calculate score based on distance from human, future distance, wall clearance and direction
                     total_score = (
@@ -415,7 +414,7 @@ class HumanEscape(WaypointGenerator):
             if final_point is None:
                 self.node.get_logger().error('No valid escape points found that increase distance from human!')
                 
-                # If we've tried many points and none work, start fresh
+                # Tried many points and none work, start fresh
                 if len(self.failed_waypoints) > 5:
                     self.node.get_logger().warn('Too many failed waypoints, clearing failed list')
                     self.failed_waypoints = []
@@ -463,7 +462,6 @@ class HumanEscape(WaypointGenerator):
             self.previous_escape_waypoint = waypoint
             
             # Don't clear failed waypoints when finding a new waypoint to maintain history
-            # We'll limit the size of the failed list when it gets too large
             if len(self.failed_waypoints) > 10:
                 # Remove oldest failed waypoints when list gets too long
                 excess = len(self.failed_waypoints) - 10
@@ -534,7 +532,7 @@ class HumanEscape(WaypointGenerator):
                 self.node.get_logger().info("Starting new escape path tracking")
                 return None
             
-            # Don't replan if we just started this escape (give it at least 1 second)
+            # Don't replan if just started this escape
             time_since_escape_start = (current_time - self.escape_start_time).nanoseconds / 1e9
             if time_since_escape_start < 1.0:
                 return None
@@ -573,8 +571,6 @@ class HumanEscape(WaypointGenerator):
         self.node.get_logger().info('Forcing new escape waypoint')
         self.previous_escape_waypoint = None
         self.last_human_distance_to_waypoint = float('inf')
-        
-        # Don't clear failed_waypoints list to avoid selecting previously failed waypoints
         
         # Reset dynamic escape monitoring
         self.dynamic_escape_active = True
@@ -643,7 +639,7 @@ class HumanEscape(WaypointGenerator):
                     free_space = (current_data == 0) & (self.obstacle_grid == 0)
                     
                     # Create a mask for unknown space in reference map
-                    # We need to check if a point was unknown in reference but is now known
+                    # Check if a point was unknown in reference but is now known
                     if ref_width == map_width and ref_height == map_height:
                         # Simple case: same dimensions
                         ref_data = np.array(self.reference_map.data).reshape((ref_height, ref_width))
@@ -653,21 +649,15 @@ class HumanEscape(WaypointGenerator):
                         newly_explored_mask = unknown_in_ref & free_space
                         self.node.get_logger().info(f'Found {np.sum(newly_explored_mask)} newly explored cells')
                     else:
-                        # Complex case: try to find corresponding regions in both maps
                         self.node.get_logger().info("Maps have different dimensions, using world coordinates to compare")
                         
-                        # Create empty masks sized to current map
                         newly_explored_mask = np.zeros_like(free_space, dtype=bool)
                         
-                        # Mark frontier cells (cells near unexplored space) as potential new areas
                         if True:  # Always try this as a fallback
-                            # Identify unexplored regions in current map
                             unknown_areas = (current_data == -1)
                             
-                            # Dilate unknown areas to find frontier cells
                             frontier_mask = ndimage.binary_dilation(unknown_areas) & free_space
                             
-                            # Mark frontier cells as newly explored
                             newly_explored_mask = frontier_mask
                             self.node.get_logger().info(f'Using frontier approach: {np.sum(frontier_mask)} frontier cells')
                 except Exception as e:
@@ -680,7 +670,6 @@ class HumanEscape(WaypointGenerator):
             else:
                 frontier_distance = None
             
-            # Prepare for search
             self.node.get_logger().info(f'Searching entire map ({map_width}x{map_height}) for hiding spots')
             
             # Create free space mask
@@ -706,8 +695,6 @@ class HumanEscape(WaypointGenerator):
             # Find hiding candidates
             hiding_candidates = []
             
-            # Search with a more efficient approach - use grid array operations
-            # Create distance matrices
             y_indices, x_indices = np.indices((map_height, map_width))
             
             # Calculate distances in grid coordinates
@@ -746,7 +733,7 @@ class HumanEscape(WaypointGenerator):
                 if too_close_to_failed:
                     continue
                 
-                # Check line of sight to human - we want NO line of sight
+                # Check line of sight to human
                 if not self.has_line_of_sight(x, y, human_grid_x, human_grid_y):
                     # Get distances
                     dist_from_robot = robot_dist[y, x]
@@ -756,10 +743,10 @@ class HumanEscape(WaypointGenerator):
                     score = 0.0
                     
                     # Distance scoring: prefer points far from human but not too far from robot
-                    score += min(dist_from_human * 1.2, 15.0)  # Up to 15 points for distance from human
+                    score += min(dist_from_human * 1.2, 20.0) 
                     
                     # Moderate penalty for being far from robot
-                    score -= dist_from_robot * 0.3  # Less penalty (was 0.5)
+                    score -= dist_from_robot * 0.3
                     
                     # Bonus for escape paths
                     try:
@@ -768,14 +755,12 @@ class HumanEscape(WaypointGenerator):
                     except Exception:
                         pass
                     
-                    # MAJOR bonus for newly explored or frontier areas
                     if newly_explored_mask is not None and newly_explored_mask[y, x]:
-                        score += 10.0  # Very high bonus for newly explored cells
+                        score += 15.0  
                     elif frontier_distance is not None:
-                        # Points near frontiers are valuable
                         dist_to_frontier = frontier_distance[y, x]
-                        if dist_to_frontier < 3.0:  # Within 3m of frontier
-                            score += max(0, 6.0 - dist_to_frontier * 2.0)  # Up to 6 bonus points
+                        if dist_to_frontier < 3.0:  
+                            score += max(0, 6.0 - dist_to_frontier * 2.0)
                     
                     # Add direction preference - better to move away from human
                     away_dir_x = (world_x - human_pos[0])
@@ -783,13 +768,12 @@ class HumanEscape(WaypointGenerator):
                     robot_dir_x = (world_x - robot_pos[0])
                     robot_dir_y = (world_y - robot_pos[1])
                     
-                    # Calculate dot product to see if directions align
                     robot_mag = math.sqrt(robot_dir_x**2 + robot_dir_y**2)
                     away_mag = math.sqrt(away_dir_x**2 + away_dir_y**2)
                     
                     if robot_mag > 0 and away_mag > 0:
                         dot_product = (robot_dir_x * away_dir_x + robot_dir_y * away_dir_y) / (robot_mag * away_mag)
-                        score += dot_product * 3.0  # Up to 3 points for moving away from human
+                        score += dot_product * 3.0 
                     
                     hiding_candidates.append((world_x, world_y, dist_from_robot, score))
                     
@@ -797,19 +781,15 @@ class HumanEscape(WaypointGenerator):
                     if len(hiding_candidates) >= 200:
                         break
             
-            # Process candidates
             if hiding_candidates:
-                # Sort by score (highest first)
                 hiding_candidates.sort(key=lambda x: x[3], reverse=True)
                 
-                # Take the best candidate
                 best_spot = hiding_candidates[0]
                 self.node.get_logger().info(
                     f'Best hiding spot at ({best_spot[0]:.2f}, {best_spot[1]:.2f}), '
                     f'distance: {best_spot[2]:.2f}m, score: {best_spot[3]:.2f}'
                 )
                 
-                # Create PoseStamped message
                 pose = PoseStamped()
                 pose.header.frame_id = "map"
                 stamp = self.node.get_clock().now().to_msg()
@@ -827,7 +807,6 @@ class HumanEscape(WaypointGenerator):
                 dy = best_spot[1] - human_pos[1]
                 yaw = math.atan2(dy, dx)
                 
-                # Convert yaw to quaternion
                 qx, qy, qz, qw = tf_transformations.quaternion_from_euler(0, 0, yaw)
                 pose.pose.orientation.x = qx
                 pose.pose.orientation.y = qy

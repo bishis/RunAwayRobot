@@ -37,7 +37,7 @@ class PersonDetector(Node):
         
         # Load YOLO model with error handling
         try:
-            # First check if we need to install ultralytics
+            # First check if need to install ultralytics
             try:
                 from ultralytics import YOLO
             except ImportError:
@@ -215,7 +215,7 @@ class PersonDetector(Node):
     def process_data(self):
         """Process latest synchronized data at fixed frequency"""
         with self.data_lock:
-            # Check if we have recent data and TF is ready
+            # Check if have recent data and TF is ready
             if (self.latest_image is None or self.latest_scan is None or 
                 self.latest_timestamp is None or not self.tf_ready):
                 if not self.tf_ready:
@@ -283,7 +283,7 @@ class PersonDetector(Node):
                         if marker is not None:  # Only add valid markers
                             marker_array.markers.append(marker)
                 
-                    # Only publish if we have valid markers
+                    # Only publish if have valid markers
                     if marker_array.markers:
                         self.map_marker_pub.publish(marker_array)
                     
@@ -381,7 +381,7 @@ class PersonDetector(Node):
     def check_tf_availability(self):
         """Check if required TF transforms are available"""
         try:
-            # Check if we can get transform from camera to map
+            # Check if can get transform from camera to map
             self.tf_buffer.lookup_transform(
                 'map',
                 'camera_link',
@@ -417,8 +417,8 @@ class PersonDetector(Node):
             marker.scale = Vector3()
             
             # Calculate angle range for person width
-            leg_width = 0.2  # Reduce width to 20cm for legs
-            person_width_rad = math.atan2(leg_width, 1.0)  # Angular width at 1m
+            leg_width = 0.2 
+            person_width_rad = math.atan2(leg_width, 1.0)
             center_angle = -math.atan2((x - self.cx), self.fx)
             
             # Look at a range of angles around the legs
@@ -426,9 +426,9 @@ class PersonDetector(Node):
             end_angle = center_angle + person_width_rad/2
             
             # Also adjust marker size for legs
-            marker.scale.x = 0.25  # Reduce diameter to match leg width
-            marker.scale.y = 0.25  # Reduce diameter to match leg width
-            marker.scale.z = 1.0  # Reduce height since we're tracking legs
+            marker.scale.x = 0.25 
+            marker.scale.y = 0.25 
+            marker.scale.z = 1.0  
             
             # Set color based on track_id
             marker.color = ColorRGBA()
@@ -510,7 +510,7 @@ class PersonDetector(Node):
                         human_pose.pose.orientation.w = math.cos(yaw / 2.0)
                         
                     except TransformException:
-                        # If we can't get robot position, just use default orientation
+                        # If can't get robot position, just use default orientation
                         human_pose.pose.orientation.w = 1.0
                     
                     # Publish human coordinates

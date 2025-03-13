@@ -18,7 +18,6 @@ class DisplayController:
         self.oled = None
         self.is_display_active = False
         
-        # Initialize buzzer with GPIO Zero PWM
         self.buzzer_pin = 21
         self.buzzer = None
         self.is_buzzer_active = False
@@ -226,10 +225,6 @@ class DisplayController:
         """
         Play a single tone at the specified frequency
         
-        Args:
-            frequency: Tone frequency in Hz
-            duration: Duration in seconds
-            volume: Volume level (0.0 to 1.0)
         """
         self.sound_buzzer(frequency=frequency, duration=duration, volume=volume)
     
@@ -237,9 +232,6 @@ class DisplayController:
         """
         Display an image on the OLED display
         
-        Args:
-            image_source: Either a file path (string) or a PIL Image object
-            clear_first: Whether to clear the display first
         """
         if not self.is_display_active or self.oled is None:
             return

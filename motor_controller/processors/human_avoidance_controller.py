@@ -28,7 +28,6 @@ class HumanAvoidanceController:
         """
         self.node = node
         
-        # Initialize with proper generator for escape planning
         if waypoint_generator is None:
             self.waypoint_generator = HumanEscape(node)
         else:
@@ -50,11 +49,11 @@ class HumanAvoidanceController:
         self.max_rotation_speed = 0.03
         
         # Frame zones - simpler tracking
-        self.center_zone = 0.25  # Consider centered within ±25% of frame center
+        self.center_zone = 0.25 
         
         # Add turn timeout tracking
         self.turn_start_time = None
-        self.turn_timeout = 10.0  # 10 seconds max for turning
+        self.turn_timeout = 10.0 
         
         # Tracking state
         self.last_image_x = None
@@ -102,7 +101,7 @@ class HumanAvoidanceController:
                 self.is_turning = False  # Set turning flag to False when facing human
                 return 0.0
             
-            # Set turning flag based on whether we need to turn
+            # Set turning flag based on whether need to turn
             self.is_turning = abs(turn_speed) > 0.02
             
             self.node.get_logger().info(
@@ -188,7 +187,7 @@ class HumanAvoidanceController:
             self.stop_backing_safety_timer()
             return cmd, True  # Trigger escape
         
-        # Handle turning to face human (using robot pose and human position)
+        # Handle turning to face human
         if robot_pose is not None and human_pos is not None:
             human_x, human_y = human_pos
             
@@ -205,19 +204,17 @@ class HumanAvoidanceController:
                 # Human is centered - stop turning
                 cmd = Twist()
                 
-                # Check if we need to escape when in ready-to-flee mode
+                # Check to escape when in ready-to-flee mode
                 if rear_status == 'ready' and human_distance < self.min_safe_distance:
                     self.node.get_logger().warn('Ready to flee and human too close - initiating escape!')
                     self.stop_backing_safety_timer()
                     return cmd, True  # Trigger escape
                 
-                # Only allow backup when human is centered and we're not too close to wall
                 if human_distance < self.min_safe_distance and rear_distance > self.ready_to_flee_distance:
-                    # Calculate backup speed to maintain 0.5m from wall
                     target_distance = self.ready_to_flee_distance  # Stop at 0.5m from wall
                     distance_to_target = rear_distance - target_distance
                     
-                    if distance_to_target > 0:  # Only back up if we have room
+                    if distance_to_target > 0: 
                         # Scale speed based on distance to target
                         speed_ratio = min(1.0, distance_to_target / 0.5)  # Full speed when >0.5m from target
                         backup_speed = self.max_backup_speed * speed_ratio
@@ -228,7 +225,7 @@ class HumanAvoidanceController:
                             f'(wall distance: {rear_distance:.2f}m, target: {target_distance:.2f}m)'
                         )
                         
-                        # Start the backing safety timer if we're backing up
+                        # Start the backing safety timer
                         self.start_backing_safety_timer()
                     else:
                         self.node.get_logger().info('At target distance from wall - holding position')
@@ -239,8 +236,7 @@ class HumanAvoidanceController:
                 
                 return cmd, False
             
-        else:  # No human detected or missing pose data
-            # Stop all motion
+        else:
             stop_cmd = Twist()
             self.is_turning = False  # Reset turning flag
             self.last_image_x = None
@@ -251,12 +247,11 @@ class HumanAvoidanceController:
         """Plan escape route when human is too close"""
         self.node.get_logger().info('Planning escape route...')
         
-        # Ensure we have current map data
+        # Ensure current map data
         if not self.escape_planner.current_map:
             self.node.get_logger().error('No map data available for escape planning!')
             return None
         
-        # Use dedicated escape planner
         escape_point = self.escape_planner.get_furthest_waypoint(previous_attempt_failed)
         
         if escape_point is not None:
@@ -369,15 +364,12 @@ class HumanAvoidanceController:
                 # Send immediate stop command
                 stop_cmd = Twist()
                 self.node.wheel_speeds_pub.publish(stop_cmd)
-                
-                # Stop the timer since we're no longer backing up
+
+                # Stop the timer since
                 self.stop_backing_safety_timer()
-                
-                # Optional: could trigger escape here if needed
-                # self.node.execute_escape_plan()
+
         except Exception as e:
             self.node.get_logger().error(f'Error in backing safety check: {str(e)}')
-            # On error, stop backing to be safe
             stop_cmd = Twist()
             self.node.wheel_speeds_pub.publish(stop_cmd)
 

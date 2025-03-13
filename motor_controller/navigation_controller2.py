@@ -235,7 +235,7 @@ class NavigationController(Node):
         self.current_map = msg
         self.waypoint_generator.update_map(msg)
         
-        # Check if we're in EXPLORING state and were waiting for map
+        # Check in EXPLORING state and were waiting for map
         if self.fsm.current_state == NavigationState.EXPLORING:
             self.get_logger().info("Map now available - retrying exploration")
             self.retry_exploration()
@@ -374,8 +374,7 @@ class NavigationController(Node):
             
             # Try to get the result safely
             result_wrapper = future.result()
-            
-            # Log what we actually have for debugging
+
             self.get_logger().info(f"Result type: {type(result_wrapper)}")
             
             # Get the status code from goal_handle fields that most likely exist
@@ -384,7 +383,7 @@ class NavigationController(Node):
             elif hasattr(result_wrapper, 'goal_id') and hasattr(result_wrapper.goal_id, 'status'):
                 status = result_wrapper.goal_id.status
             else:
-                # If we can't determine status, assume failure
+                # If can't determine status, assume failure
                 self.get_logger().error("Could not determine goal status")
                 self.fsm.trigger_event(NavigationEvent.GOAL_FAILED)
                 return
@@ -789,7 +788,7 @@ class NavigationController(Node):
         """Retry exploration after a delay"""
         self.get_logger().info("Retrying exploration...")
         
-        # Check if we're in a transition debounce period
+        # Check if in a transition debounce period
         if self.state_transition_debounce:
             self.get_logger().warn("State transition debounced - waiting")
             return

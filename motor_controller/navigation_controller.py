@@ -564,10 +564,7 @@ class NavigationController(Node):
         try:
             if self.current_goal_handle is not None:
 
-                cmd = Twist()
-                cmd.linear.x = 0.0
-                cmd.angular.z = 0.0
-                self.wheel_speeds_pub.publish(cmd)
+                self.wheel_speeds_pub.publish(Twist())
 
                 self.clear_visualization_markers()
                 

@@ -133,7 +133,7 @@ class NavigationController(Node):
         self.human_avoidance = HumanAvoidanceController(self, self.waypoint_generator)
 
         # Add escape-specific parameters
-        self.max_escape_attempts = 1  # Number of retry attempts for escape
+        self.max_escape_attempts = 3  # Number of retry attempts for escape
         self.escape_attempts = 0  # Counter for escape attempts
         
         # Add storage for last seen human position
@@ -432,7 +432,6 @@ class NavigationController(Node):
             current_time = self.get_clock().now()
             if self.last_human_timestamp is not None:
                 time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
-                # Consider human still present if seen in the last 2 seconds
                 human_still_present = time_since_human < 5.0
             
             if status != GoalStatus.STATUS_SUCCEEDED and self.is_escape_waypoint(self.current_goal):
@@ -468,7 +467,7 @@ class NavigationController(Node):
                         self.publish_sound("escape_failed")
                         self.reset_escape_state()
                         self.start_escape_monitoring()
-                elif self.escape_attempts > self.max_escape_attempts and human_still_present:
+                elif self.escape_attempts > self.max_escape_attempts and (human_still_present or self.distance_from_last_known_human() < 0.45):
                     self.get_logger().info('Trapped - max escape attempts reached, starting shake defense')
                     self.cancel_current_goal()
                     self.start_shake_defense()
@@ -748,14 +747,15 @@ class NavigationController(Node):
                             self.publish_sound("escape_failed")
                             self.reset_escape_state()
                             self.start_escape_monitoring()
-                    elif self.escape_attempts > self.max_escape_attempts and human_still_present:
-                        self.get_logger().info('Trapped')
+                    elif self.escape_attempts > self.max_escape_attempts and (human_still_present or self.distance_from_last_known_human() < 0.45):
+                        self.get_logger().info('Trapped - max escape attempts reached, starting shake defense')
                         self.cancel_current_goal()
                         self.start_shake_defense()
                     else:
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
                         self.cancel_current_goal()
                         self.reset_escape_state()
+                        self.start_escape_monitoring
                 else:
                     self.planning_attempts += 1
                     if self.planning_attempts >= self.max_planning_attempts:
@@ -1125,7 +1125,24 @@ class NavigationController(Node):
                     self.shake_timer = None
                 return
             self.publish_image("stuck")
-            # Check if human is still present
+
+            # Create shake command
+            cmd = Twist()
+            
+            # Alternate between turning left and right
+            if self.shake_count % 2 == 0:
+                cmd.angular.z = 0.8 * self.shake_direction
+            else:
+                self.shake_direction *= -1  # Flip direction
+                cmd.angular.z = 0.8 * self.shake_direction
+            
+            # Publish command
+            self.wheel_speeds_pub.publish(cmd)
+            self.get_logger().info(f'Shake motion' + f'angular={cmd.angular.z:.2f}, linear={cmd.linear.x:.2f}')
+            
+            # Increment counter
+            self.shake_count += 1
+            
             current_time = self.get_clock().now()
             human_still_present = False
             
@@ -1149,25 +1166,6 @@ class NavigationController(Node):
                 self.reset_escape_state()
                 self.resume_exploration()
                 return
-            
-            # Create shake command
-            cmd = Twist()
-            
-            # Alternate between turning left and right with some forward/backward motion
-            if self.shake_count % 2 == 0:
-                # Even counts: turn with some linear motion
-                cmd.angular.z = 0.8 * self.shake_direction
-            else:
-                # Odd counts: turn the other way
-                self.shake_direction *= -1  # Flip direction
-                cmd.angular.z = 0.8 * self.shake_direction
-            
-            # Publish command
-            self.wheel_speeds_pub.publish(cmd)
-            self.get_logger().info(f'Shake motion' + f'angular={cmd.angular.z:.2f}, linear={cmd.linear.x:.2f}')
-            
-            # Increment counter
-            self.shake_count += 1
             
         except Exception as e:
             self.get_logger().error(f'Error in shake motion: {str(e)}')
@@ -1249,6 +1247,11 @@ class NavigationController(Node):
         msg.data = f"{sound}"
         self.alert_pub.publish(msg)
 
+    def distance_from_last_known_human(self):
+        """Calculate distance from last known human position"""
+        if self.last_human_position is None or self.current_pose is None:
+            return float('inf')
+        return np.linalg.norm(np.array(self.last_human_position) - np.array(self.current_pose.pose.position))
 
 def main(args=None):
     rclpy.init(args=args)

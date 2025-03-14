@@ -79,7 +79,6 @@ class NavigationController(Node):
             self.get_logger().info('Still waiting for navigation action server...')
         self.get_logger().info('Navigation server connected!')
         
-        # State variables
         self.latest_scan = None
         self.current_goal = None
         self.is_navigating = False
@@ -205,7 +204,6 @@ class NavigationController(Node):
                 except TransformException:
                     # Log warning only on last attempt to avoid spamming
                     if attempt == self.tf_retry_count - 1:
-                        # Rate limit error messages
                         current_time = self.get_clock().now()
                         if (current_time - self.tf_last_error_time).nanoseconds / 1e9 > 5.0:  # Only log every 5 seconds
                             self.get_logger().warn(f'Transform lookup failed after {attempt+1} attempts. Using last known pose.')

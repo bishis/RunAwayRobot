@@ -1315,7 +1315,7 @@ class NavigationController(Node):
             self.get_logger().error(f'Error checking map completion: {str(e)}')
             return False
 
-    def is_human_on_path(self, human_radius=0.5):
+    def is_human_on_path(self, human_radius=0.2):
         """Check if the human obstacle is on the current navigation path
         """
         # Verify we have the necessary data

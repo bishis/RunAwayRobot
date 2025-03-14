@@ -272,7 +272,7 @@ class NavigationController(Node):
             if not self.nav2_ready:
                 return
             if not self.is_navigating:
-                self.publish_image("searching")
+                self.publish_image("thinking")
                 # Store current waypoint before generating new one
                 self.previous_waypoint = self.current_goal
                 
@@ -282,7 +282,7 @@ class NavigationController(Node):
                     if self.previous_waypoint and \
                        abs(waypoint.pose.position.x - self.previous_waypoint.pose.position.x) < 0.1 and \
                        abs(waypoint.pose.position.y - self.previous_waypoint.pose.position.y) < 0.1:
-                        self.get_logger().warn('bishi Generated waypoint is too similar to previous, forcing new one')
+                        self.get_logger().warn('Generated waypoint is too similar to previous, forcing new one')
                         self.waypoint_generator.force_waypoint_change()
                         return
                         
@@ -985,14 +985,12 @@ class NavigationController(Node):
         except Exception as e:
             self.get_logger().error(f'Error clearing markers: {str(e)}')
             
-    def publish_human_obstacle(self, radius=0.22):
+    def publish_human_obstacle(self, radius=0.24):
         """Publish human obstacle as PointCloud2 with direct coordinates"""
         if self.last_human_position is None:
             return
         
         try:
-            # Create point cloud message with current timestamp
-            # Using current time instead of trying to synchronize with transforms
             pc2 = PointCloud2()
             current_time = self.get_clock().now()
             pc2.header.stamp = current_time.to_msg()
@@ -1011,7 +1009,6 @@ class NavigationController(Node):
             points = []
             human_x, human_y = self.last_human_position
             
-            # Use fewer height levels and lower resolution to reduce processing
             height_levels = [0.1, 0.7, 1.4] 
             resolution = 0.05
             
@@ -1020,7 +1017,7 @@ class NavigationController(Node):
                     for dy in np.arange(-radius, radius + resolution, resolution):
                         dist_sq = dx*dx + dy*dy
                         if dist_sq <= radius*radius:
-                            intensity = 254.0
+                            intensity = 200.0
                             points.append((human_x + dx, human_y + dy, height, intensity))
             
             # Pack point cloud

@@ -1269,6 +1269,68 @@ class NavigationController(Node):
         else:
             return False
 
+    def is_map_complete(self, known_threshold=0.85, min_map_size=100):
+        """
+        Check if the current map is sufficiently explored
+        
+        Args:
+            known_threshold: Fraction of map that should be known (0.0-1.0)
+            min_map_size: Minimum map size (in cells) to consider for completeness
+            
+        Returns:
+            bool: True if map is complete, False otherwise
+        """
+        try:
+            # Get the current occupancy grid from the costmap
+            # First check if we have received any maps
+            if not hasattr(self, 'current_map') or self.current_map is None:
+                self.get_logger().info('No map data available to check completeness')
+                return False
+            
+            # Get map dimensions and data
+            width = self.current_map.info.width
+            height = self.current_map.info.height
+            data = self.current_map.data
+            
+            # Check if map is too small to evaluate
+            if width * height < min_map_size:
+                self.get_logger().info(f'Map too small to evaluate completeness: {width}x{height}')
+                return False
+            
+            # Count cell types
+            total_cells = width * height
+            known_cells = 0
+            unknown_cells = 0
+            
+            for cell in data:
+                if cell == -1:  # Unknown
+                    unknown_cells += 1
+                else:  # Known (free or occupied)
+                    known_cells += 1
+                
+            # Calculate percentage of known cells
+            if total_cells > 0:
+                known_percentage = known_cells / total_cells
+                
+                # Log completion status
+                self.get_logger().info(f'Map completion: {known_percentage:.2%} known of {total_cells} cells')
+                
+                # Check if we've reached the completion threshold
+                if known_percentage >= known_threshold:
+                    # Also check for remaining frontiers
+                    frontiers = self.waypoint_generator.find_exploration_frontiers()
+                    if len(frontiers) <= 2:  # Only a couple of small frontiers left
+                        self.get_logger().info('Map considered complete based on known cells and few remaining frontiers')
+                        return True
+                    else:
+                        self.get_logger().info(f'Map has sufficient known cells but still has {len(frontiers)} frontiers')
+            
+            return False
+            
+        except Exception as e:
+            self.get_logger().error(f'Error checking map completion: {str(e)}')
+            return False
+
 def main(args=None):
     rclpy.init(args=args)
     node = NavigationController()

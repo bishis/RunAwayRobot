@@ -302,7 +302,7 @@ local_costmap:
           sensor_frame: map
           data_type: "PointCloud2"
           expected_update_rate: 0.0
-          observation_persistence: 0.2
+          observation_persistence: 0.9
           obstacle_range: 4.0
           raytrace_range: 4.5
           mark_threshold: 1

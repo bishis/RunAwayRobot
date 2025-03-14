@@ -279,12 +279,12 @@ class NavigationController(Node):
                 waypoint = self.waypoint_generator.generate_waypoint()
                 if waypoint:
                     # Check if waypoint is same as previous
-                    if self.previous_waypoint and \
-                       abs(waypoint.pose.position.x - self.previous_waypoint.pose.position.x) < 0.1 and \
-                       abs(waypoint.pose.position.y - self.previous_waypoint.pose.position.y) < 0.1:
-                        self.get_logger().warn('Generated waypoint is too similar to previous, forcing new one')
-                        self.waypoint_generator.force_waypoint_change()
-                        return
+                    # if self.previous_waypoint and \
+                    #    abs(waypoint.pose.position.x - self.previous_waypoint.pose.position.x) < 0.1 and \
+                    #    abs(waypoint.pose.position.y - self.previous_waypoint.pose.position.y) < 0.1:
+                    #     self.get_logger().warn('Generated waypoint is too similar to previous, forcing new one')
+                    #     self.waypoint_generator.force_waypoint_change()
+                    #     return
                         
                     # Check if waypoint is near wall
                     if self.current_map and not self.waypoint_generator.is_near_wall(

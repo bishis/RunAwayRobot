@@ -1036,13 +1036,13 @@ class NavigationController(Node):
             ]
             pc2.fields = fields
             
-            # Generate points - simplify to reduce processing load
+            # Generate points
             points = []
             human_x, human_y = self.last_human_position
             
             # Use fewer height levels and lower resolution to reduce processing
-            height_levels = [0.1, 0.7, 1.4]  # Reduced height levels
-            resolution = 0.05  # Reduced resolution
+            height_levels = [0.1, 0.7, 1.4] 
+            resolution = 0.05
             
             for height in height_levels:
                 for dx in np.arange(-radius, radius + resolution, resolution):
@@ -1087,7 +1087,6 @@ class NavigationController(Node):
             self.exploration_loop_timer.cancel()
             self.exploration_loop_timer = None
         
-        # Don't start shake defense if an escape is in progress
         if self.is_executing_escape:
             self.get_logger().info('Escape plan already in progress, not starting shake defense')
             return
@@ -1096,7 +1095,7 @@ class NavigationController(Node):
         
         # Create a timer for the shake motion
         self.shake_count = 0
-        self.shake_direction = 1  # Start with right turn
+        self.shake_direction = 1 
         
         # Create a timer that runs the shake motion at 5Hz
         if hasattr(self, 'shake_timer') and self.shake_timer:

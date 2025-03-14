@@ -1265,13 +1265,6 @@ class NavigationController(Node):
     def is_map_complete(self, known_threshold=0.85, min_map_size=100):
         """
         Check if the current map is sufficiently explored
-        
-        Args:
-            known_threshold: Fraction of map that should be known (0.0-1.0)
-            min_map_size: Minimum map size (in cells) to consider for completeness
-            
-        Returns:
-            bool: True if map is complete, False otherwise
         """
         try:
             # First check if we have received any maps
@@ -1307,9 +1300,8 @@ class NavigationController(Node):
                 # Log completion status
                 self.get_logger().info(f'Map completion: {known_percentage:.2%} known of {total_cells} cells')
                 
-                # Check if we've reached the completion threshold
                 if known_percentage >= known_threshold:
-                    # Also check for remaining frontiers
+                    # Check for remaining frontiers
                     frontiers = self.waypoint_generator.find_exploration_frontiers()
                     if len(frontiers) <= 2:  
                         self.get_logger().info('Map considered complete based on known cells and few remaining frontiers')

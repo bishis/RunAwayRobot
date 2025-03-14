@@ -29,33 +29,25 @@ class HumanAvoidanceController:
         else:
             self.waypoint_generator = waypoint_generator
         
-        # Add escape planner
         self.escape_planner = HumanEscape(node)
         
-        # Get tf_buffer from node
         self.tf_buffer = self.node.tf_buffer
         self.wheel_speeds_pub = self.node.wheel_speeds_pub
         
-        # Distance thresholds
         self.min_safe_distance = 1.25  
         self.ready_to_flee_distance = 0.5  
         self.max_backup_speed = 0.15  
         
-        # Tracking parameters
         self.max_rotation_speed = 0.03
         
-        # Frame zones - simpler tracking
         self.center_zone = 0.25 
         
-        # Add turn timeout tracking
         self.turn_start_time = None
         self.turn_timeout = 10.0 
         
-        # Tracking state
         self.last_image_x = None
         self.is_turning = False
         
-        # Get latest scan data from node
         self.latest_scan = None
         if hasattr(node, 'latest_scan'):
             self.latest_scan = node.latest_scan

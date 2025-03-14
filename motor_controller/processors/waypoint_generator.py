@@ -42,14 +42,12 @@ class WaypointGenerator:
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self.node)
         
-        # State variables
         self.current_map = None
         self.current_waypoint = None
         self.last_waypoint_time = None
         self.force_new_waypoint = False
         self.reached_waypoint = False
         
-        # Add stability parameters
         self.min_score_threshold = 0.6  # Minimum score to consider a new waypoint
         self.score_improvement_threshold = 0.2  # Required improvement to switch waypoints
         self.last_best_score = -float('inf')

@@ -382,46 +382,76 @@ collision_monitor:
     use_sim_time: false
     base_frame_id: "base_link"
     odom_frame_id: "odom"
-    observation_sources: ["scan"]
+    cmd_vel_in_topic: "cmd_vel"
+    cmd_vel_out_topic: "wheel_speeds"
+    state_topic: "collision_monitor_state"
+    transform_tolerance: 0.5
+    source_timeout: 5.0
+    base_shift_correction: true
+    stop_pub_timeout: 2.0
+    enable_stamped_cmd_vel: true
+    use_realtime_priority: false
     
-    # Polygon parameters for robot footprint
-    polygons: ["robot_footprint"]
-    robot_footprint:
+    # Define multiple polygon types for different behaviors
+    polygons: ["PolygonStop", "PolygonSlow", "PolygonLimit", "FootprintApproach"]
+    
+    # Emergency stop polygon - closest to the robot, uses similar dimensions to footprint
+    PolygonStop:
       type: "polygon"
-      points: "[[-0.15, -0.16], [-0.15, 0.16], [0.17, 0.16], [0.17, -0.16]]"  
-      action_type: "stop"  
-      min_points: 2
+      points: "[[-0.17, -0.20], [-0.17, 0.20], [0.18, 0.20], [0.18, -0.20]]"
+      action_type: "stop"
+      min_points: 3
+      visualize: true
+      polygon_pub_topic: "polygon_stop"
+      enabled: true
+    
+    # Slow down polygon - medium distance
+    PolygonSlow:
+      type: "polygon"
+      points: "[[-0.25, -0.28], [-0.25, 0.28], [0.30, 0.28], [0.30, -0.28]]"
+      action_type: "slowdown"
+      min_points: 3
+      slowdown_ratio: 0.3
+      visualize: true
+      polygon_pub_topic: "polygon_slowdown"
+      enabled: true
+    
+    # Speed limiting polygon - outer area
+    PolygonLimit:
+      type: "polygon"
+      points: "[[-0.35, -0.38], [-0.35, 0.38], [0.40, 0.38], [0.40, -0.38]]"
+      action_type: "limit"
+      min_points: 3
+      linear_limit: 0.08
+      angular_limit: 0.8
+      visualize: true
+      polygon_pub_topic: "polygon_limit"
+      enabled: true
+    
+    # Approach polygon using the robot's footprint
+    FootprintApproach:
+      type: "polygon"
+      action_type: "approach"
+      footprint_topic: "/local_costmap/published_footprint"
+      time_before_collision: 2.0
+      simulation_time_step: 0.02
+      min_points: 5
       visualize: true
       enabled: true
-
-    # Scan configuration
+    
+    # Observation sources configuration
+    observation_sources: ["scan"]
     scan:
+      source_timeout: 0.2
       type: "scan"
       topic: "/scan"
       min_height: 0.05
       max_height: 0.5
-      obstacle_range: 0.5     
-      raytrace_range: 1.0     
-      observation_persistence: 0.0  
+      obstacle_range: 0.5
+      raytrace_range: 1.0
+      observation_persistence: 0.0
       inf_is_valid: false
       marking: true
       clearing: true
       data_type: "LaserScan"
-
-    # Collision checking parameters
-    stop_on_collision: true          
-    scan_obstacle_range: 0.4         
-    slowdown_radius: 0.3             
-    approach_velocity_scaling: 0.5   
-    collision_range: 0.2            
-    
-    # Publishing parameters
-    publish_rate: 10.0
-    observation_points_per_scan: 2
-    velocity_scaling_factor: 0.5      
-    min_velocity_scaling: 0.2         
-    
-    # Footprint parameters
-    footprint_topic: "/local_costmap/published_footprint"
-    base_frame_id: "base_link"
-    transform_tolerance: 0.5 
+      enabled: true

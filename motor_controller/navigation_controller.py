@@ -984,8 +984,8 @@ class NavigationController(Node):
         # Clear old markers before resuming
         self.clear_visualization_markers()
         
-        # self.exploration_loop_timer = self.create_timer(0.1, self.exploration_loop)
-        # self.reset_navigation_state()
+        self.exploration_loop_timer = self.create_timer(0.1, self.exploration_loop)
+        self.reset_navigation_state()
 
     def escape_again(self):
         """Escape again"""

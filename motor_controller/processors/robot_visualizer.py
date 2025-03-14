@@ -9,19 +9,16 @@ class RobotVisualizer(Node):
     def __init__(self):
         super().__init__('robot_visualizer')
         
-        # Robot dimensions (in meters)
-        self.robot_length = 0.29  # 29cm
-        self.robot_width = 0.34   # 34cm
+        self.robot_length = 0.29  
+        self.robot_width = 0.34   
         
-        # Create publisher for robot footprint visualization
         self.footprint_pub = self.create_publisher(
             MarkerArray, 
             'robot_footprint', 
             10
         )
         
-        # Create timer to publish footprint
-        self.create_timer(0.1, self.publish_footprint)  # 10Hz update rate
+        self.create_timer(0.2, self.publish_footprint)
 
     def publish_footprint(self):
         """Publish robot footprint visualization"""
@@ -29,7 +26,7 @@ class RobotVisualizer(Node):
         
         # Create marker for robot footprint
         marker = Marker()
-        marker.header.frame_id = 'base_link'  # Attach to robot base
+        marker.header.frame_id = 'base_link'
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.ns = 'robot_footprint'
         marker.id = 0
@@ -38,7 +35,7 @@ class RobotVisualizer(Node):
         
         # Set marker properties
         marker.scale.x = 0.02  # Line width
-        marker.color = ColorRGBA(r=1.0, g=1.0, b=0.0, a=0.8)  # Yellow, semi-transparent
+        marker.color = ColorRGBA(r=1.0, g=1.0, b=0.0, a=0.8)  
         
         # Create points for rectangle corners
         half_length = self.robot_length / 2.0

@@ -51,7 +51,6 @@ class HardwareController(Node):
             pwm_frequency=pwm_frequency
         )
         
-        # Create display controller
         self.display_controller = DisplayController(self)
 
         self.previous_image = None
@@ -63,7 +62,6 @@ class HardwareController(Node):
         # Create a map of available images
         self.image_map = self._get_available_images()
         
-        # Create subscriber for wheel speeds
         self.wheel_speeds_sub = self.create_subscription(
             Twist,
             'wheel_speeds',
@@ -71,14 +69,12 @@ class HardwareController(Node):
             10
         )
         
-        # Create publisher for actual speeds (for debugging)
         self.actual_speeds_pub = self.create_publisher(
             Twist,
             'actual_speeds',
             10
         )
         
-        # Create subscribers for display and sound
         self.status_sub = self.create_subscription(
             String,
             'robot_status',

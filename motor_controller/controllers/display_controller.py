@@ -23,7 +23,6 @@ class DisplayController:
         self.is_buzzer_active = False
         self.buzzer_thread = None
         
-        # Add animation control
         self.animation_thread = None
         self.is_animation_active = False
         

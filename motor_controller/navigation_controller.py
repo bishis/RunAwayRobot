@@ -64,20 +64,16 @@ class NavigationController(Node):
             goal_tolerance=0.3
         )
         
-        # Add current_map storage
         self.current_map = None
         
-        # Publishers and subscribers
         self.wheel_speeds_pub = self.create_publisher(Twist, 'wheel_speeds', 10)
         self.cmd_vel_sub = self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.scan_sub = self.create_subscription(LaserScan, 'scan', self.scan_callback, 10)
         self.map_sub = self.create_subscription(OccupancyGrid, 'map', self.map_callback, 10)
         self.marker_pub = self.create_publisher(MarkerArray, 'exploration_markers', 10)
         
-        # Navigation action client
         self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
         
-        # Add debug logging for goal sending
         self.get_logger().info('Waiting for navigation action server...')
         while not self.nav_client.wait_for_server(timeout_sec=1.0):
             self.get_logger().info('Still waiting for navigation action server...')
@@ -91,25 +87,20 @@ class NavigationController(Node):
         self.previous_waypoint = None
         self.is_moving_to_hiding_spot = False
 
-        # Add state for Nav2 readiness
         self.nav2_ready = False
         self.nav2_check_timer = self.create_timer(1.0, self.check_nav2_ready)
         
-        # Create timer for exploration control every 0.1 seconds
         self.exploration_loop_timer = self.create_timer(0.1, self.exploration_loop)
 
-        # Add timeout parameters
-        self.goal_timeout = 30.0  # 30 seconds total timeout per goal
+        self.goal_timeout = 30.0 
         self.planning_attempts = 0
         self.max_planning_attempts = 2  # Max attempts before giving up
         self.goal_start_time = None
 
         self.shake_timer = None
         
-        # Add timer to check goal progress every 0.1 seconds
         self.goal_check_timer = self.create_timer(0.1, self.check_goal_progress)  
         
-        # Add human tracking subscribers
         self.tracking_active_sub = self.create_subscription(
             Bool,
             '/human_tracking_active',
@@ -132,25 +123,19 @@ class NavigationController(Node):
 
         self.human_avoidance = HumanAvoidanceController(self, self.waypoint_generator)
 
-        # Add escape-specific parameters
         self.max_escape_attempts = 3  # Number of retry attempts for escape
         self.escape_attempts = 0  # Counter for escape attempts
         
-        # Add storage for last seen human position
         self.last_human_position = None
         self.last_human_timestamp = None
         self.turn_timeout = 10.0
 
-        # Add timer for escape monitoring (initially disabled)
         self.escape_monitor_timer = None
 
-        #Previous escape waypoint
         self.previous_escape_waypoint_failed = False
 
-        # Add map publisher for human obstacle updates
         self.map_pub = self.create_publisher(OccupancyGrid, 'map', 1)
 
-        # Create publisher for human obstacles with proper frame
         self.human_obstacles_pub = self.create_publisher(
             PointCloud2, 
             '/human_obstacles',
@@ -162,32 +147,24 @@ class NavigationController(Node):
             )
         )
         
-        # Add timestamp tracking for human obstacle persistence
         self.human_obstacle_timeout = 2.0
         
-        # Create timer to periodically update human obstacles
         self.obstacle_update_timer = self.create_timer(0.2, self.update_human_obstacles)
 
-        # Add a service client for triggering path replanning
         self.make_plan_client = self.create_client(Empty, '/global_costmap/global_costmap/clear_except_static')
 
-        # Add position tracking for stuck detection
         self.last_position_check = None
         self.last_check_position = None
         self.stuck_threshold = 0.05  
         self.stuck_timeout = 10.0 
 
-        # Add tracking timeout parameters
         self.human_tracking_timeout = 3.0
 
-        # Add parameter for explicitly clearing costmaps
         self.clear_costmaps_after_escape = True
         self.clear_after_human = True
 
-        # Add after other initializations
         self.is_executing_escape = False
 
-        # Add these parameters after other initializations
         self.tf_timeout = 0.1  
         self.tf_retry_count = 3  
         self.tf_fallback_to_latest = True
@@ -346,7 +323,6 @@ class NavigationController(Node):
                 new_x = goal_msg.pose.position.x
                 new_y = goal_msg.pose.position.y
                 
-                # Calculate distance between current goal and new goal
                 distance = math.sqrt((curr_x - new_x) ** 2 + (curr_y - new_y) ** 2)
                 self.get_logger().debug(f'Distance between current and new goal: {distance}m')
                 
@@ -429,7 +405,6 @@ class NavigationController(Node):
             human_still_present = self.time_since_last_human()
             
             if status != GoalStatus.STATUS_SUCCEEDED and self.is_escape_waypoint(self.current_goal):
-                # Add debug information to help diagnose escape failures
                 self.get_logger().warn(f"Escape navigation failed with status {status}")
                 
                 # Wait for a brief moment to let the navigation system clean up
@@ -439,8 +414,6 @@ class NavigationController(Node):
                 if self.escape_attempts <= self.max_escape_attempts:
                     self.get_logger().warn(f'Retrying escape plan (attempt {self.escape_attempts + 1}/{self.max_escape_attempts})')
                     
-                    # Important: Cancel the current goal BEFORE planning a new one,
-                    # and wait for confirmation that it's truly cancelled
                     if self.cancel_current_goal():
                         self.get_logger().info("Previous goal cancelled successfully, planning new escape")
                         # Wait for previous goal cancellation to complete fully
@@ -1171,7 +1144,7 @@ class NavigationController(Node):
         current_time = self.get_clock().now()
         time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
         if hasattr(self, 'is_rotating_to_human') and self.is_rotating_to_human:
-            tracking_timeout = self.human_tracking_timeout * 2.0  # Double timeout during rotation
+            tracking_timeout = self.human_tracking_timeout * 2.0
             self.get_logger().debug(f'Using extended tracking timeout during rotation: {tracking_timeout:.1f}s')
         else:
             tracking_timeout = self.human_tracking_timeout
@@ -1263,7 +1236,6 @@ class NavigationController(Node):
         current_time = self.get_clock().now()
         if self.last_human_timestamp is not None:
             time_since_human = (current_time - self.last_human_timestamp).nanoseconds / 1e9
-            # Consider human still present if seen in the last 2 seconds
             return time_since_human < 5.0
         else:
             return False
@@ -1317,7 +1289,7 @@ class NavigationController(Node):
                 if known_percentage >= known_threshold:
                     # Also check for remaining frontiers
                     frontiers = self.waypoint_generator.find_exploration_frontiers()
-                    if len(frontiers) <= 2:  # Only a couple of small frontiers left
+                    if len(frontiers) <= 2:  
                         self.get_logger().info('Map considered complete based on known cells and few remaining frontiers')
                         return True
                     else:

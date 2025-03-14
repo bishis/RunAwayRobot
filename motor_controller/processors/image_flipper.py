@@ -9,7 +9,6 @@ class ImageFlipper(Node):
     def __init__(self):
         super().__init__('image_flipper')
         
-        # Create subscriber for compressed image
         self.image_sub = self.create_subscription(
             CompressedImage,
             '/camera/image_raw/compressed',  # Subscribe to compressed image
@@ -17,7 +16,6 @@ class ImageFlipper(Node):
             10
         )
         
-        # Create publisher for flipped compressed image
         self.image_pub = self.create_publisher(
             CompressedImage,
             '/camera/image_raw_flipped/compressed',  # Publish compressed image

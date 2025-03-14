@@ -15,7 +15,6 @@ class HumanEscape(WaypointGenerator):
     
     def __init__(self, node):
         super().__init__(node)
-        # Add tracking for dynamic escape monitoring
         self.dynamic_escape_active = False
         self.last_human_distance_to_waypoint = float('inf')
         self.min_intercept_distance = 1.0  # Minimum distance to consider human intercepting

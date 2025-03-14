@@ -35,9 +35,8 @@ class PersonDetector(Node):
         home = str(Path.home())
         self.model_path = os.path.join(home, 'yolov8n.pt')
         
-        # Load YOLO model with error handling
+        # Load YOLO model
         try:
-            # First check if need to install ultralytics
             try:
                 from ultralytics import YOLO
             except ImportError:
@@ -69,7 +68,6 @@ class PersonDetector(Node):
             self.get_logger().error(f'Failed to load YOLO model: {str(e)}')
             raise
         
-        # Create CV bridge
         self.bridge = CvBridge()
         
         # Cache for synchronized data
@@ -93,10 +91,8 @@ class PersonDetector(Node):
         )
         self.ts.registerCallback(self.synchronized_callback)
         
-        # Create high-frequency processing timer
-        self.create_timer(0.05, self.process_data)  # 20Hz processing
+        self.create_timer(0.05, self.process_data)
         
-        # Create publishers
         self.detection_pub = self.create_publisher(
             DetectionArray, 
             '/person_detections',
@@ -148,9 +144,9 @@ class PersonDetector(Node):
         
         # Initialize SORT tracker
         self.tracker = Sort(
-            max_age=3,  # Reduce max age for faster tracking updates
-            min_hits=1,  # Reduce required hits for faster initial tracking
-            iou_threshold=0.25  # Lower IOU threshold for better tracking
+            max_age=3,  
+            min_hits=1, 
+            iou_threshold=0.25 
         )
         
         # Add tracked persons publisher
@@ -161,30 +157,27 @@ class PersonDetector(Node):
         )
         
         # Add LIDAR parameters
-        self.lidar_window_size = 3  # Window size for LIDAR measurements
+        self.lidar_window_size = 3 
         
-        # Optimize tracking parameters
-        self.conf_threshold = 0.7  # Lower threshold for faster detection
+        self.conf_threshold = 0.7 
         self.model.conf = self.conf_threshold
-        self.model.iou = 0.35  # Lower IOU for better tracking
-        self.model.max_det = 10  # Increase max detections
+        self.model.iou = 0.35 
+        self.model.max_det = 10  
         
-        # Optimize SORT parameters for faster response
         self.tracker = Sort(
-            max_age=2,  # Reduce max age for faster updates
-            min_hits=1,  # Immediate tracking
-            iou_threshold=0.2  # Lower IOU threshold for better tracking
+            max_age=2, 
+            min_hits=1, 
+            iou_threshold=0.2  
         )
         
-        # Reduce position filtering for faster response
-        self.max_history = 2  # Shorter history
-        self.position_weights = [0.7, 0.3]  # More weight on current position
+        self.max_history = 2 
+        self.position_weights = [0.7, 0.3]  
         
         # Adjust tracking parameters
-        self.min_tracking_confidence = 0.4  # Lower confidence threshold
-        self.target_distance = 1.0  # Target following distance
-        self.p_gain_angular = 1.5  # Increase angular gain for faster turning
-        self.p_gain_linear = 0.8   # Increase linear gain for faster approach
+        self.min_tracking_confidence = 0.5
+        self.target_distance = 1.0  
+        self.p_gain_angular = 1.5  
+        self.p_gain_linear = 0.8 
         
         self.tracking_active_pub = self.create_publisher(
             Bool,
@@ -280,7 +273,7 @@ class PersonDetector(Node):
                             confidence=1.0
                         )
                         
-                        if marker is not None:  # Only add valid markers
+                        if marker is not None:  
                             marker_array.markers.append(marker)
                 
                     # Only publish if have valid markers
@@ -343,7 +336,6 @@ class PersonDetector(Node):
                         )[1]).tobytes()
                         self.debug_img_pub.publish(compressed_msg)
                 
-                # Always publish markers and detection array
                 self.map_marker_pub.publish(marker_array)
                 self.detection_pub.publish(detection_array)
                 
@@ -367,7 +359,6 @@ class PersonDetector(Node):
         if len(self.position_history) > self.max_history:
             self.position_history.pop(0)
             
-        # Use numpy for faster calculation
         positions = np.array([[p.pose.position.x, p.pose.position.y] 
                             for p in self.position_history])
         weights = np.array(self.position_weights)
@@ -425,7 +416,6 @@ class PersonDetector(Node):
             start_angle = center_angle - person_width_rad/2
             end_angle = center_angle + person_width_rad/2
             
-            # Also adjust marker size for legs
             marker.scale.x = 0.25 
             marker.scale.y = 0.25 
             marker.scale.z = 1.0  

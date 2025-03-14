@@ -58,7 +58,6 @@ class WaypointGenerator:
         self.wall_check_distance = 0.4  # Distance to check for walls
         self.max_wall_retry = 5  # Maximum attempts to find non-wall waypoint
         
-        # Add waypoint cancellation state
         self.waypoint_cancelled = False
 
         # Map subscription
@@ -89,7 +88,7 @@ class WaypointGenerator:
         if self.current_map:
             # Check if map has significantly changed
             for old, new in zip(self.current_map.data, msg.data):
-                if abs(old - new) > 10:  # Threshold for significant change
+                if abs(old - new) > 10:
                     map_changed = True
                     break
         
@@ -275,7 +274,7 @@ class WaypointGenerator:
         current_time = self.node.get_clock().now()
         
         # Add minimum distance between waypoints
-        MIN_WAYPOINT_SEPARATION = 0.4  # Minimum 0.4 meter between waypoints
+        MIN_WAYPOINT_SEPARATION = 0.4 
         
         # Check if minimum time has elapsed since last change
         if self.last_waypoint_change and not self.force_new_waypoint:
@@ -340,7 +339,7 @@ class WaypointGenerator:
         
         # Use time-bound approach instead of fixed attempts
         start_time = self.node.get_clock().now()
-        max_search_time = 1.0  # Maximum time to search in seconds
+        max_search_time = 1.5
         
         while True:
             # Exceeded our time limit
@@ -382,7 +381,7 @@ class WaypointGenerator:
                 )
                 if dist_to_prev < MIN_WAYPOINT_SEPARATION:
                     too_close_to_previous = True
-                    continue  # Skip this point if too close to previous
+                    continue 
             
             if dist_to_robot < self.min_distance or too_close_to_previous:
                 continue
@@ -426,7 +425,6 @@ class WaypointGenerator:
         if best_point is None:
             return None
         
-        # Once find a valid waypoint, stick to it
         if best_point is not None:
             # Check if waypoint is near walls
             attempts = 0
@@ -460,17 +458,11 @@ class WaypointGenerator:
             self.reached_waypoint = False
             self.node.get_logger().info('New waypoint selected')
             
-        # Update last change time when change waypoint
         self.last_waypoint_change = current_time
         return self.current_waypoint
 
     def create_visualization_markers(self, waypoint: PoseStamped = None, is_escape: bool = False, is_hiding: bool = False) -> MarkerArray:
         """Create visualization markers for waypoint and frontiers
-        
-        Args:
-            waypoint: Optional waypoint to visualize
-            is_escape: If True, use red color for escape waypoint
-            is_hiding: If True, use purple color for hiding spot
         """
         markers = MarkerArray()
         
@@ -581,11 +573,10 @@ class WaypointGenerator:
             marker.scale.y = self.waypoint_size
             marker.scale.z = self.waypoint_size
             
-            # Set color (blue for normal waypoints)
             marker.color.r = 0.0
             marker.color.g = 0.0
             marker.color.b = 1.0
-            marker.color.a = 0.6  # Semi-transparent
+            marker.color.a = 0.6
             
             markers.markers.append(marker)
             

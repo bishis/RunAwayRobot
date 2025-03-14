@@ -973,6 +973,7 @@ class NavigationController(Node):
         if self.escape_monitor_timer:
             self.escape_monitor_timer.cancel()
         self.escape_monitor_timer = None
+        self.wheel_speeds_pub.publish(Twist())
         self.get_logger().info('Cleaned up escape monitoring')
 
     def resume_exploration(self):

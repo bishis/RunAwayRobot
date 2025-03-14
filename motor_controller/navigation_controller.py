@@ -1240,7 +1240,23 @@ class NavigationController(Node):
         """Calculate distance from last known human position"""
         if self.last_human_position is None or self.current_pose is None:
             return float('inf')
-        return np.linalg.norm(np.array(self.last_human_position) - np.array(self.current_pose.pose.position))
+        
+        # Extract coordinates properly - ensure we're working with same types
+        if hasattr(self.last_human_position, 'x') and hasattr(self.last_human_position, 'y'):
+            # If it's a Point object
+            human_pos = np.array([self.last_human_position.x, self.last_human_position.y])
+        else:
+            # If it's already a tuple or list
+            human_pos = np.array(self.last_human_position)
+        
+        # Get robot position coordinates
+        robot_pos = np.array([
+            self.current_pose.pose.position.x,
+            self.current_pose.pose.position.y
+        ])
+        
+        # Calculate Euclidean distance between points
+        return np.linalg.norm(human_pos - robot_pos)
     
     def time_since_last_human(self):
         """Calculate time since last human position"""

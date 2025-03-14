@@ -1193,6 +1193,19 @@ class NavigationController(Node):
         if hiding_point is not None:
             self.get_logger().info(f'Found hiding spot at ({hiding_point.pose.position.x:.2f}, {hiding_point.pose.position.y:.2f})')
             
+            # Calculate distance to potential hiding spot
+            distance_to_hiding_spot = math.sqrt(
+                (hiding_point.pose.position.x - robot_pos[0])**2 + 
+                (hiding_point.pose.position.y - robot_pos[1])**2
+            )
+            
+            # If already close to a good hiding spot, don't move
+            if distance_to_hiding_spot < 0.3:
+                self.get_logger().info(f'Current position (distance: {distance_to_hiding_spot:.2f}m) is already a good hiding spot. Staying here.')
+                self.publish_sound("success")
+                self.publish_image("trap")
+                return False
+            
             self.is_moving_to_hiding_spot = True
             self.publish_sound("escape")
             self.publish_image("escaping")

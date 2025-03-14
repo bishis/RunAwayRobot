@@ -199,7 +199,7 @@ planner_server:
     allow_unknown: true
     max_iterations: 1000000
     max_on_approach_iterations: 1000
-    max_planning_time: 5.0
+    max_planning_time: 6.0
     
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
@@ -216,9 +216,7 @@ planner_server:
       bilateral_sigma_dist: 5.0
       bilateral_sigma_color: 15.0
       smoothing_weight: 0.1
-      skip_straight_line_planning: true
       # Accept more paths even if not ideal
-      min_path_length: 0.5
       heuristic_fallback: true  
 
 behavior_server:

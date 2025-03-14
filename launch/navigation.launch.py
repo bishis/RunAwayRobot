@@ -11,13 +11,11 @@ def generate_launch_description():
     # Get the launch directory
     pkg_share = FindPackageShare('motor_controller').find('motor_controller')
     
-    # Create the launch configuration variables
     namespace = LaunchConfiguration('namespace')
     use_sim_time = LaunchConfiguration('use_sim_time')
     autostart = LaunchConfiguration('autostart')
     params_file = LaunchConfiguration('params_file')
     
-    # Launch configuration variables specific to simulation
     lifecycle_nodes = [
         'controller_server',
         'planner_server',
@@ -84,7 +82,6 @@ def generate_launch_description():
         output='screen',
         parameters=[configured_params])
 
-    # Costmap nodes - adjust local costmap for transform issues
     start_local_costmap_cmd = Node(
         package='nav2_costmap_2d',
         executable='nav2_costmap_2d',
@@ -114,7 +111,6 @@ def generate_launch_description():
         output='screen',
         parameters=[configured_params])
 
-    # Adjust lifecycle manager with increased timeout
     start_lifecycle_manager_cmd = Node(
         package='nav2_lifecycle_manager',
         executable='lifecycle_manager',
@@ -123,7 +119,7 @@ def generate_launch_description():
         parameters=[{'use_sim_time': use_sim_time,
                     'autostart': autostart,
                     'node_names': lifecycle_nodes,
-                    'bond_timeout': 10.0}])  # Increased bond timeout
+                    'bond_timeout': 10.0}])  
 
     start_navigation_controller_cmd = Node(
         package='motor_controller',
@@ -156,13 +152,11 @@ def generate_launch_description():
     ld.add_action(declare_autostart_cmd)
 
     # Add the actions to launch all of the navigation nodes with proper sequencing
-    # First launch costmaps
     ld.add_action(start_local_costmap_cmd)
     ld.add_action(start_global_costmap_cmd)
     
-    # Add a delay before starting other components
     ld.add_action(TimerAction(
-        period=2.0,  # 2-second delay
+        period=2.0,  
         actions=[
             start_controller_server_cmd,
             start_planner_server_cmd,

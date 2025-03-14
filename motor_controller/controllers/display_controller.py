@@ -159,7 +159,6 @@ class DisplayController:
         # Cancel any existing buzzer thread
         self.stop_buzzer()
         
-        # Handle the case where pattern might be directly from a jingle function
         if callable(pattern):
             pattern = pattern()
         
@@ -270,11 +269,6 @@ class DisplayController:
     def show_gif(self, gif_path, loops=1, clear_first=True):
         """
         Display an animated GIF on the OLED display
-        
-        Args:
-            gif_path: Path to the GIF file
-            loops: Number of times to loop the animation (0 for infinite)
-            clear_first: Whether to clear the display before starting
         """
         if not self.is_display_active or self.oled is None:
             self.node.get_logger().warn('Display not active, cannot show GIF')

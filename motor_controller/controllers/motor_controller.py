@@ -52,14 +52,6 @@ class MotorController:
     def scale_motor_speeds(self, left_speed: float, right_speed: float, angular: float) -> tuple[float, float]:
         """
         Scale motor speeds to handle normalization and minimum thresholds.
-        
-        Args:
-            left_speed: Raw left motor speed (-1.0 to 1.0)
-            right_speed: Raw right motor speed (-1.0 to 1.0)
-            angular: Angular velocity command for determining turn mode
-            
-        Returns:
-            tuple[float, float]: Scaled (left_speed, right_speed)
         """
             
         # Scale the entire range from MIN_SPEED to 1.0
@@ -86,14 +78,6 @@ class MotorController:
     def set_speeds(self, linear: float, angular: float) -> tuple[float, float, float, float]:
         """
         Update motor speeds based on linear and angular velocity commands.
-        
-        Args:
-            linear: Forward/backward speed (-1.0 to 1.0)
-            angular: Left/right turning speed (-1.0 to 1.0)
-            
-        Returns:
-            tuple[float, float, float, float]: (left_speed, right_speed, left_pwm, right_pwm)
-            where speeds are the scaled differential drive values and pwm are the actual motor powers
         """
         # Convert to differential drive using the correct formula
         left_speed = linear + (angular * self.wheel_width / 2.0)

@@ -21,10 +21,6 @@ class HumanAvoidanceController:
     def __init__(self, node, waypoint_generator=None):
         """
         Initialize the human avoidance controller
-        
-        Args:
-            node: The ROS node to use for logging and parameters
-            waypoint_generator: WaypointGenerator instance for exploration
         """
         self.node = node
         
@@ -41,9 +37,9 @@ class HumanAvoidanceController:
         self.wheel_speeds_pub = self.node.wheel_speeds_pub
         
         # Distance thresholds
-        self.min_safe_distance = 1.25  # Start backing up at 1m
-        self.ready_to_flee_distance = 0.5  # Distance to enter ready-to-flee mode
-        self.max_backup_speed = 0.15   # Increase backup speed
+        self.min_safe_distance = 1.25  
+        self.ready_to_flee_distance = 0.5  
+        self.max_backup_speed = 0.15  
         
         # Tracking parameters
         self.max_rotation_speed = 0.03
@@ -96,9 +92,9 @@ class HumanAvoidanceController:
             angle_diff = normalize_angle(desired_yaw - robot_yaw)
             
             # Check if human is in center zone (robot is facing human)
-            if abs(angle_diff) <= 0.32:  # ~17.2 degrees tolerance
+            if abs(angle_diff) <= 0.32: 
                 self.node.get_logger().info('Robot facing human - stopping turn')
-                self.is_turning = False  # Set turning flag to False when facing human
+                self.is_turning = False
                 return 0.0
             
             # Set turning flag based on whether need to turn
@@ -182,8 +178,7 @@ class HumanAvoidanceController:
 
         if rear_status == 'critical':
             self.node.get_logger().warn('Critical distance detected - initiating escape!')
-            self.is_turning = False  # Reset turning flag
-            # Make sure to cancel any active backing timer
+            self.is_turning = False
             self.stop_backing_safety_timer()
             return cmd, True  # Trigger escape
         
@@ -211,7 +206,7 @@ class HumanAvoidanceController:
                     return cmd, True  # Trigger escape
                 
                 if human_distance < self.min_safe_distance and rear_distance > self.ready_to_flee_distance:
-                    target_distance = self.ready_to_flee_distance  # Stop at 0.5m from wall
+                    target_distance = self.ready_to_flee_distance 
                     distance_to_target = rear_distance - target_distance
                     
                     if distance_to_target > 0: 
@@ -238,7 +233,7 @@ class HumanAvoidanceController:
             
         else:
             stop_cmd = Twist()
-            self.is_turning = False  # Reset turning flag
+            self.is_turning = False
             self.last_image_x = None
             self.stop_backing_safety_timer()
             return stop_cmd, False
@@ -290,9 +285,9 @@ class HumanAvoidanceController:
             angle_diff = normalize_angle(target_angle - current_yaw)
             
             # Calculate rotation speed based on angle difference
-            MAX_ROTATION_SPEED = 0.3  # rad/s
-            MIN_ROTATION_SPEED = 0.04  # rad/s
-            ANGLE_THRESHOLD = 0.1  # radians
+            MAX_ROTATION_SPEED = 0.3 
+            MIN_ROTATION_SPEED = 0.04 
+            ANGLE_THRESHOLD = 0.1  
             
             if abs(angle_diff) < ANGLE_THRESHOLD:
                 # Close enough to target angle

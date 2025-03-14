@@ -395,7 +395,6 @@ collision_monitor:
     # Define multiple polygon types for different behaviors
     polygons: ["PolygonStop", "PolygonSlow", "PolygonLimit", "FootprintApproach"]
     
-    # Emergency stop polygon - closest to the robot, uses similar dimensions to footprint
     PolygonStop:
       type: "polygon"
       points: "[[-0.17, -0.20], [-0.17, 0.20], [0.18, 0.20], [0.18, -0.20]]"
@@ -405,7 +404,6 @@ collision_monitor:
       polygon_pub_topic: "polygon_stop"
       enabled: true
     
-    # Slow down polygon - medium distance
     PolygonSlow:
       type: "polygon"
       points: "[[-0.25, -0.28], [-0.25, 0.28], [0.30, 0.28], [0.30, -0.28]]"
@@ -416,7 +414,6 @@ collision_monitor:
       polygon_pub_topic: "polygon_slowdown"
       enabled: true
     
-    # Speed limiting polygon - outer area
     PolygonLimit:
       type: "polygon"
       points: "[[-0.35, -0.38], [-0.35, 0.38], [0.40, 0.38], [0.40, -0.38]]"
@@ -428,7 +425,6 @@ collision_monitor:
       polygon_pub_topic: "polygon_limit"
       enabled: true
     
-    # Approach polygon using the robot's footprint
     FootprintApproach:
       type: "polygon"
       action_type: "approach"
@@ -439,7 +435,6 @@ collision_monitor:
       visualize: true
       enabled: true
     
-    # Observation sources configuration
     observation_sources: ["scan"]
     scan:
       source_timeout: 0.2

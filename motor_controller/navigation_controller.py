@@ -286,7 +286,6 @@ class NavigationController(Node):
                         self.waypoint_generator.force_waypoint_change()
                         return
                         
-                    # Additional check for current pose to avoid revisiting same position
                     if self.current_pose:
                         dist_to_current = math.sqrt(
                             (waypoint.pose.position.x - self.current_pose.pose.position.x)**2 +

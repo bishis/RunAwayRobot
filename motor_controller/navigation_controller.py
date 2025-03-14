@@ -286,6 +286,17 @@ class NavigationController(Node):
                         self.waypoint_generator.force_waypoint_change()
                         return
                         
+                    # Additional check for current pose to avoid revisiting same position
+                    if self.current_pose:
+                        dist_to_current = math.sqrt(
+                            (waypoint.pose.position.x - self.current_pose.pose.position.x)**2 +
+                            (waypoint.pose.position.y - self.current_pose.pose.position.y)**2
+                        )
+                        if dist_to_current < 0.5:  # If less than 0.5m from current position
+                            self.get_logger().warn('Generated waypoint too close to current position, forcing new one')
+                            self.waypoint_generator.force_waypoint_change()
+                            return
+                    
                     # Check if waypoint is near wall
                     if self.current_map and not self.waypoint_generator.is_near_wall(
                         waypoint.pose.position.x,
@@ -519,6 +530,10 @@ class NavigationController(Node):
             # Reset previous waypoint to avoid comparison issues
             self.previous_waypoint = None
             
+        # Add a small delay before requesting a new waypoint
+        self.get_logger().info('Adding a short delay before generating new waypoint')
+        time.sleep(0.5)  # Short delay to let costmaps update
+        
         # Force exploration loop to generate new waypoint
         self.exploration_loop()
 

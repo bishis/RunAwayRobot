@@ -1281,7 +1281,6 @@ class NavigationController(Node):
             bool: True if map is complete, False otherwise
         """
         try:
-            # Get the current occupancy grid from the costmap
             # First check if we have received any maps
             if not hasattr(self, 'current_map') or self.current_map is None:
                 self.get_logger().info('No map data available to check completeness')

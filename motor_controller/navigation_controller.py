@@ -743,7 +743,7 @@ class NavigationController(Node):
                         self.get_logger().error('Max escape attempts reached, giving up escape plan')
                         self.cancel_current_goal()
                         self.reset_escape_state()
-                        self.start_escape_monitoring
+                        self.start_escape_monitoring()
                 else:
                     self.planning_attempts += 1
                     if self.planning_attempts >= self.max_planning_attempts:

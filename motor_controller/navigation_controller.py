@@ -1315,6 +1315,64 @@ class NavigationController(Node):
             self.get_logger().error(f'Error checking map completion: {str(e)}')
             return False
 
+    def is_human_on_path(self, human_radius=0.5):
+        """Check if the human obstacle is on the current navigation path
+        """
+        # Verify we have the necessary data
+        if self.last_human_position is None or not hasattr(self, 'current_path') or self.current_path is None:
+            return False
+        
+        human_x, human_y = self.last_human_position
+        
+        # Check each segment of the path
+        for i in range(len(self.current_path.poses) - 1):
+            # Get segment start and end points
+            start_x = self.current_path.poses[i].pose.position.x
+            start_y = self.current_path.poses[i].pose.position.y
+            end_x = self.current_path.poses[i+1].pose.position.x
+            end_y = self.current_path.poses[i+1].pose.position.y
+            
+            # Calculate the shortest distance from human to this path segment
+            distance = self.point_to_line_segment_distance(
+                human_x, human_y, 
+                start_x, start_y, 
+                end_x, end_y
+            )
+            
+            # If distance is less than human radius, there's an intersection
+            if distance < human_radius:
+                self.get_logger().info(f'Human detected on path: distance {distance:.2f}m (segment {i})')
+                return True
+        
+        return False
+
+    def point_to_line_segment_distance(self, px, py, x1, y1, x2, y2):
+        """Calculate the shortest distance from point (px,py) to line segment (x1,y1)-(x2,y2)
+        """
+        # Vector from line start to end
+        dx = x2 - x1
+        dy = y2 - y1
+        
+        # If the line segment is just a point
+        if dx == 0 and dy == 0:
+            return math.sqrt((px - x1)**2 + (py - y1)**2)
+        
+        # Calculate projection
+        t = ((px - x1) * dx + (py - y1) * dy) / (dx**2 + dy**2)
+        
+        # If projection is outside the segment, use distance to nearest endpoint
+        if t < 0:
+            return math.sqrt((px - x1)**2 + (py - y1)**2)
+        if t > 1:
+            return math.sqrt((px - x2)**2 + (py - y2)**2)
+        
+        # Calculate the closest point on the line segment
+        closest_x = x1 + t * dx
+        closest_y = y1 + t * dy
+        
+        # Return the distance to the closest point
+        return math.sqrt((px - closest_x)**2 + (py - closest_y)**2)
+
 def main(args=None):
     rclpy.init(args=args)
     node = NavigationController()

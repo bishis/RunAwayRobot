@@ -45,7 +45,7 @@ controller_server:
     controller_frequency: 9.0
     min_x_velocity_threshold: 0.05
     min_y_velocity_threshold: 0.001
-    min_theta_velocity_threshold: 0.2
+    min_theta_velocity_threshold: 0.1
     failure_tolerance: 1.0
     progress_checker_plugin: "progress_checker"
     goal_checker_plugin: "goal_checker"
@@ -87,8 +87,7 @@ controller_server:
       min_vel_x: -0.05
       max_vel_x: 0.1
       
-      # Reduce path following strictness
-      path_distance_bias: 8.0      
+      path_distance_bias: 8.0
       goal_distance_bias: 24.0   
       goal_align_bias: 4.0        
       
@@ -145,8 +144,8 @@ controller_server:
       yaw_goal_tolerance: 1.0
       
       vx_samples: 8
-      vtheta_samples: 12
-      sim_time: 2.0
+      vtheta_samples: 20
+      sim_time: 2.5
       min_speed_theta: 0.0
       trans_stopped_velocity: 0.1
       theta_stopped_velocity: 0.1   
@@ -159,7 +158,7 @@ controller_server:
       oscillation_reset_angle: 0.75
       
       max_obstacle_dist: 0.8
-      min_obstacle_dist: 0.32
+      min_obstacle_dist: 0.31
       
       prune_plan: true
       debug_trajectory_details: true
@@ -248,22 +247,17 @@ behavior_server:
 local_costmap:
   local_costmap:
     ros__parameters:
-      # Increase update and publish frequencies
       update_frequency: 5.0
       publish_frequency: 2.0
       
-      # Increase the size of the local costmap
-      width: 5  # Increase from 4 to 5
-      height: 5  # Increase from 4 to 5
+      width: 5 
+      height: 5  
       
-      # Ensure the robot is well-centered in the costmap
-      transform_tolerance: 0.5  # More tolerance for transforms
+      transform_tolerance: 0.5
       
-      # Add these parameters for more robust costmap behavior
       always_send_full_costmap: true
-      use_maximum: true  # Use maximum of multiple readings at a point
+      use_maximum: true
       
-      # Other settings remain the same
       global_frame: odom
       robot_base_frame: base_link
       rolling_window: true
@@ -273,8 +267,8 @@ local_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 5.0
-        inflation_radius: 0.55
+        cost_scaling_factor: 8.0
+        inflation_radius: 0.4
 
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"

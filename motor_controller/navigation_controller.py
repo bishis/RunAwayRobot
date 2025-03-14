@@ -1066,7 +1066,8 @@ class NavigationController(Node):
             
             # Publish
             self.human_obstacles_pub.publish(pc2)
-            self.replan_path()
+            if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
+                self.replan_path()
             
         except Exception as e:
             self.get_logger().error(f'Error publishing human obstacle: {str(e)}')

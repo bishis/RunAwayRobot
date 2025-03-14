@@ -279,12 +279,12 @@ class NavigationController(Node):
                 waypoint = self.waypoint_generator.generate_waypoint()
                 if waypoint:
                     # Check if waypoint is same as previous
-                    # if self.previous_waypoint and \
-                    #    abs(waypoint.pose.position.x - self.previous_waypoint.pose.position.x) < 0.1 and \
-                    #    abs(waypoint.pose.position.y - self.previous_waypoint.pose.position.y) < 0.1:
-                    #     self.get_logger().warn('Generated waypoint is too similar to previous, forcing new one')
-                    #     self.waypoint_generator.force_waypoint_change()
-                    #     return
+                    if self.previous_waypoint and \
+                       abs(waypoint.pose.position.x - self.previous_waypoint.pose.position.x) < 0.1 and \
+                       abs(waypoint.pose.position.y - self.previous_waypoint.pose.position.y) < 0.1:
+                        self.get_logger().warn('Generated waypoint is too similar to previous, forcing new one')
+                        self.waypoint_generator.force_waypoint_change()
+                        return
                         
                     # Check if waypoint is near wall
                     if self.current_map and not self.waypoint_generator.is_near_wall(
@@ -315,20 +315,6 @@ class NavigationController(Node):
         """Send navigation goal with proper error handling"""
         try:
             # Check should cancel an existing goal first
-            if self.current_goal is not None:
-                current_goal_x = self.current_goal.pose.position.x
-                current_goal_y = self.current_goal.pose.position.y
-                new_goal_x = goal_msg.pose.position.x
-                new_goal_y = goal_msg.pose.position.y
-                
-                distance = math.sqrt((current_goal_x - new_goal_x) ** 2 + (current_goal_y - new_goal_y) ** 2)
-                self.get_logger().debug(f'Distance between current and new goal: {distance}m')
-                
-                # If new goal is very close to current goal, don't resend
-                if distance < 0.01:
-                    self.get_logger().info(f'Already navigating to this goal (within {distance:.2f}m)')
-                    return
-
             if self.is_navigating and self.current_goal is not None:
                 curr_x = self.current_goal.pose.position.x
                 curr_y = self.current_goal.pose.position.y

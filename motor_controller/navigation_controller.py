@@ -1066,8 +1066,6 @@ class NavigationController(Node):
             
             # Publish
             self.human_obstacles_pub.publish(pc2)
-            if self.current_goal is not None and self.is_escape_waypoint(self.current_goal):
-                self.replan_path()
             
         except Exception as e:
             self.get_logger().error(f'Error publishing human obstacle: {str(e)}')
@@ -1268,92 +1266,6 @@ class NavigationController(Node):
             # Consider human still present if seen in the last 2 seconds
             return time_since_human < 5.0
         else:
-            return False
-
-    def replan_path(self):
-        """
-        Force replanning of the current path to goal.
-        
-        This cancels the current goal, clears costmaps, and generates a new plan
-        to the same destination.
-        
-        Returns:
-            bool: True if replanning succeeded, False otherwise
-        """
-        # Check if we have an active goal
-        if not self.is_navigating or self.current_goal is None:
-            self.get_logger().warn('Cannot replan - no active goal')
-            return False
-        
-        self.get_logger().info('Replanning path to current goal...')
-        self.publish_image("thinking")
-        self.publish_sound("warning")
-        
-        # Store the current goal
-        current_goal = copy.deepcopy(self.current_goal)
-        
-        # Cancel the current goal
-        self.cancel_current_goal()
-        
-        # Short delay to ensure cancellation is processed
-        time.sleep(0.2)
-        
-        # Clear costmaps to remove potential obstacles
-        self.clear_costmaps()
-        
-        # Another short delay to allow costmap clearing to take effect
-        time.sleep(0.2)
-        
-        # Log goal information
-        self.get_logger().info(f'Replanning to goal at ({current_goal.pose.position.x:.2f}, {current_goal.pose.position.y:.2f})')
-        
-        # Create visualization markers
-        if self.is_escape_waypoint(current_goal):
-            markers = self.waypoint_generator.create_visualization_markers(current_goal, is_escape=True)
-            self.get_logger().info('Replanning escape path')
-        else:
-            markers = self.waypoint_generator.create_visualization_markers(current_goal, is_escape=False)
-            self.get_logger().info('Replanning exploration path')
-        
-        # Publish visualization markers
-        self.marker_pub.publish(markers)
-        
-        # Reset planning attempts
-        self.planning_attempts = 0
-        
-        # Send the goal again
-        success = self.send_goal(current_goal)
-        
-        if success:
-            self.get_logger().info('Path replanned successfully')
-            self.publish_image("thinking")
-            return True
-        else:
-            self.get_logger().error('Failed to replan path')
-            self.publish_sound("error")
-            return False
-
-    def clear_costmaps(self):
-        """Clear all navigation costmaps except static layer"""
-        try:
-            # Create empty request
-            request = Empty.Request()
-            
-            # Call the service
-            future = self.make_plan_client.call_async(request)
-            
-            # Wait for the service call to complete
-            rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
-            
-            if future.done():
-                self.get_logger().info('Costmaps cleared successfully')
-                return True
-            else:
-                self.get_logger().warn('Timeout while clearing costmaps')
-                return False
-            
-        except Exception as e:
-            self.get_logger().error(f'Error clearing costmaps: {str(e)}')
             return False
 
 def main(args=None):

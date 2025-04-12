@@ -203,8 +203,8 @@ planner_server:
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
       tolerance: 1.0  
-      use_astar: false
-      allow_unknown: true
+      use_astar: true
+      allow_unknown: false
       default_tolerance: 1.0
       visualize_potential: false
       use_final_approach_orientation: false

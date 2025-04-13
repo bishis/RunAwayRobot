@@ -50,30 +50,25 @@ class MotorController:
         signal.signal(signal.SIGINT, self.cleanup)
 
     def scale_motor_speeds(self, left_speed: float, right_speed: float, angular: float) -> tuple[float, float]:
-        """
-        Scale motor speeds to handle normalization and minimum thresholds.
-        """
-            
-        # Scale the entire range from MIN_SPEED to 1.0
-        MIN_SPEED = 0.825
+        MIN_SPEED = 0.8  # A lower base value for turning; tune as needed
 
-        def scale_to_min_speed(speed: float) -> float:
-            if speed == 0.0:
-                return 0.0
-            # Map from [-1, 1] to [-1, -MIN_SPEED] U [MIN_SPEED, 1]
-            direction = 1.0 if speed > 0 else -1.0
-            scaled = MIN_SPEED + (abs(speed) * (1.0 - MIN_SPEED))
-            return direction * scaled
-            
-        left_speed = scale_to_min_speed(left_speed)
-        right_speed = scale_to_min_speed(right_speed)
-        # Normalize speeds if they exceed [-1, 1]
+        # Find the absolute speeds.
+        abs_left, abs_right = abs(left_speed), abs(right_speed)
+        
+        # Determine if both speeds are nonzero and below the minimum
+        if left_speed != 0 and abs_left < MIN_SPEED:
+            left_speed = (left_speed/abs_left) * MIN_SPEED
+        if right_speed != 0 and abs_right < MIN_SPEED:
+            right_speed = (right_speed/abs_right) * MIN_SPEED
+        
+        # Optionally, apply normalization if any speed exceeds 1.0.
         max_speed = max(abs(left_speed), abs(right_speed))
         if max_speed > 1.0:
             left_speed /= max_speed
             right_speed /= max_speed
-                
+            
         return left_speed, right_speed
+                
 
     def set_speeds(self, linear: float, angular: float) -> tuple[float, float, float, float]:
         """

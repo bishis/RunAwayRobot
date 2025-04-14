@@ -773,6 +773,7 @@ class NavigationController(Node):
         if self.is_tracking_human and not was_tracking:
             if self.current_goal_handle is not None:
                 try:
+                    self.wheel_speeds_pub.publish(Twist())
                     self.current_goal_handle.cancel_goal_async()
                     self.get_logger().info('Goal cancelled successfully')
                 except Exception as e:

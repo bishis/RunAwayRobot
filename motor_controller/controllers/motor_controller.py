@@ -50,7 +50,7 @@ class MotorController:
         signal.signal(signal.SIGINT, self.cleanup)
 
     def scale_motor_speeds(self, left_speed: float, right_speed: float, angular: float) -> tuple[float, float]:
-        MIN_SPEED = 0.8  # A lower base value for turning; tune as needed
+        MIN_SPEED = 0.84  # A lower base value for turning; tune as needed
 
         # Find the absolute speeds.
         abs_left, abs_right = abs(left_speed), abs(right_speed)

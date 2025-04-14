@@ -173,6 +173,8 @@ class NavigationController(Node):
         self.status_pub = self.create_publisher(String, 'robot_status', 10)
         self.alert_pub = self.create_publisher(String, 'sound_alert', 10)
 
+        self.stop_timer = None
+
     def get_current_pose(self):
         """Get current robot pose with robust transform handling"""
         try:
@@ -830,13 +832,18 @@ class NavigationController(Node):
                     if self.is_rotating_to_human:
                         self.get_logger().debug(f'Rotating to face human (angular.z={cmd_vel.angular.z:.2f})')
                         
-                    # Always publish the avoidance command
+                    # Publish the command
                     self.wheel_speeds_pub.publish(cmd_vel)
                     
-                    # Log command details
-                    self.get_logger().info(
-                        f'Human tracking: dist={human_distance:.2f}m, '
-                        f'angle={human_angle:.2f}rad, turn={cmd_vel.angular.z:.3f}'
+                    # Cancel any existing stop timer
+                    if self.stop_timer:
+                        self.stop_timer.cancel()
+                        
+                    # Create new stop timer
+                    self.stop_timer = self.create_timer(
+                        0.5,  # 0.5 second delay
+                        lambda: self.send_stop_command(),
+                        oneshot=True
                     )
                     
                     # Check for escape BEFORE any other processing                    
@@ -1373,6 +1380,11 @@ class NavigationController(Node):
         
         # Return the distance to the closest point
         return math.sqrt((px - closest_x)**2 + (py - closest_y)**2)
+
+    def send_stop_command(self):
+        """Force stop command after delay"""
+        self.get_logger().info('Sending forced stop after 0.5s delay')
+        self.wheel_speeds_pub.publish(Twist())
 
 def main(args=None):
     rclpy.init(args=args)

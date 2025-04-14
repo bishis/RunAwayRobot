@@ -683,6 +683,9 @@ class NavigationController(Node):
             
             self.check_human_close_to_goal()
 
+            is_map_complete = self.is_map_complete()
+            print(f"is_map_complete: {is_map_complete}")
+
             # Initialize tracking on first call
             if self.last_position_check is None or self.last_check_position is None:
                 self.last_position_check = current_time
@@ -1262,9 +1265,10 @@ class NavigationController(Node):
         else:
             return False
 
-    def is_map_complete(self, known_threshold=0.85, min_map_size=100):
+    def is_map_complete(self, known_threshold=0.85):
         """
-        Check if the current map is sufficiently explored
+        Check if the current map is sufficiently explored based on the
+        percentage of known cells and the number of remaining frontiers.
         """
         try:
             # First check if we have received any maps
@@ -1277,13 +1281,12 @@ class NavigationController(Node):
             height = self.current_map.info.height
             data = self.current_map.data
             
-            # Check if map is too small to evaluate
-            if width * height < min_map_size:
-                self.get_logger().info(f'Map too small to evaluate completeness: {width}x{height}')
-                return False
-            
-            # Count cell types
             total_cells = width * height
+            if total_cells == 0:
+                self.get_logger().info('Map has zero area; cannot evaluate completeness')
+                return False
+
+            # Count cell types
             known_cells = 0
             unknown_cells = 0
             
@@ -1292,27 +1295,24 @@ class NavigationController(Node):
                     unknown_cells += 1
                 else:  # Known (free or occupied)
                     known_cells += 1
-                
+            
             # Calculate percentage of known cells
-            if total_cells > 0:
-                known_percentage = known_cells / total_cells
-                
-                # Log completion status
-                self.get_logger().info(f'Map completion: {known_percentage:.2%} known of {total_cells} cells')
-                
-                if known_percentage >= known_threshold:
-                    # Check for remaining frontiers
-                    frontiers = self.waypoint_generator.find_exploration_frontiers()
-                    if len(frontiers) <= 2:  
-                        self.get_logger().info('Map considered complete based on known cells and few remaining frontiers')
-                        return True
-                    else:
-                        self.get_logger().info(f'Map has sufficient known cells but still has {len(frontiers)} frontiers')
+            known_percentage = known_cells / total_cells
+            self.get_logger().info(f'Map completion: {known_percentage:.2%} known of {total_cells} cells')
+            
+            if known_percentage >= known_threshold:
+                # Check for remaining frontiers
+                frontiers = self.waypoint_generator.find_exploration_frontiers()
+                if len(frontiers) <= 2:
+                    self.get_logger().info('Map considered complete based on known cells and few remaining frontiers')
+                    return True
+                else:
+                    self.get_logger().info(f'Map has sufficient known cells but still has {len(frontiers)} frontiers')
             
             return False
-            
+        
         except Exception as e:
-            self.get_logger().error(f'Error checking map completion: {str(e)}')
+            self.get_logger().error(f'Error checking map completeness: {str(e)}')
             return False
 
     def is_human_on_path(self, human_radius=0.2):

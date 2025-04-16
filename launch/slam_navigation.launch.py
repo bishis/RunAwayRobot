@@ -119,6 +119,20 @@ def generate_launch_description():
             )
         ]
     )
+    recorder_cmd = TimerAction(
+        period=10.0,
+        actions=[
+            Node(
+                package='motor_controller',
+                executable='publisher_node',
+                name='publisher_node',
+                output='screen',
+                parameters=[{
+                    'use_sim_time': LaunchConfiguration('use_sim_time')
+                }]
+            )
+        ]
+    )
 
     return LaunchDescription([
         # Launch arguments must come first
@@ -134,5 +148,6 @@ def generate_launch_description():
         rf2o_cmd,
         navigation_cmd,
         rviz_cmd,
-        camera_nodes_cmd
+        camera_nodes_cmd,
+        recorder_cmd
     ])

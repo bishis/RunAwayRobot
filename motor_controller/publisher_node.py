@@ -4,6 +4,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
+from pathlib import Path
 
 class PoseVelocityRecorder(Node):
     def __init__(self):
@@ -16,7 +17,14 @@ class PoseVelocityRecorder(Node):
         self.create_subscription(Odometry,     '/wheel_speeds',      self.odom_cb,  10)
 
         # CSV setup
-        self.csv_file = open('pose_velocity_log.csv', 'w', newline='')
+        # Prepare Documents directory
+        documents_dir = Path.home() / 'Documents'
+        documents_dir.mkdir(parents=True, exist_ok=True)
+
+        # Open the CSV in Documents
+        log_path = documents_dir / 'pose_velocity_log.csv'
+        self.get_logger().info(f'Logging pose+velocity to: {log_path}')
+        self.csv_file = open(str(log_path), 'w', newline='')
         self.writer = csv.writer(self.csv_file)
         self.writer.writerow([
             'time_sec', 'pos_x','pos_y','pos_z',

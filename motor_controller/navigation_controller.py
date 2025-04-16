@@ -840,11 +840,7 @@ class NavigationController(Node):
                         self.stop_timer.cancel()
                         
                     # Create new stop timer
-                    self.stop_timer = self.create_timer(
-                        0.5,  # 0.5 second delay
-                        lambda: self.send_stop_command(),
-                        oneshot=True
-                    )
+                    self.schedule_stop()
                     
                     # Check for escape BEFORE any other processing                    
                     if should_escape:
@@ -1397,10 +1393,22 @@ class NavigationController(Node):
         # Return the distance to the closest point
         return math.sqrt((px - closest_x)**2 + (py - closest_y)**2)
 
+    def schedule_stop(self):
+        """Schedule a timer to send a stop command once after 0.5 seconds."""
+        if hasattr(self, 'stop_timer') and self.stop_timer:
+            self.stop_timer.cancel()
+        self.stop_timer = self.create_timer(0.5, self.send_stop_command)
+
     def send_stop_command(self):
-        """Force stop command after delay"""
+        """Force stop command after delay."""
         self.get_logger().info('Sending forced stop after 0.5s delay')
-        self.wheel_speeds_pub.publish(Twist())
+        stop_msg = Twist()  # A default Twist message typically stops the robot (0 velocities)
+        self.wheel_speeds_pub.publish(stop_msg)
+        
+        # Cancel the timer to ensure this callback is only run once.
+        if hasattr(self, 'stop_timer'):
+            self.stop_timer.cancel()
+            self.get_logger().info('Stop timer cancelled after sending stop command.')
 
 def main(args=None):
     rclpy.init(args=args)

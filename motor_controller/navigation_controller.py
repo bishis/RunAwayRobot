@@ -1276,15 +1276,16 @@ class NavigationController(Node):
     def is_map_complete(self, known_threshold=0.85):
         """
         Check if the current map is sufficiently explored based on the
-        percentage of known cells and the number of remaining frontiers.
+        percentage of known cells (using a cropped region that excludes padded unknowns)
+        and the number of remaining frontiers.
         """
         try:
-            # First check if we have received any maps
+            # First check if we have received any maps.
             if not hasattr(self, 'current_map') or self.current_map is None:
                 self.get_logger().info('No map data available to check completeness')
                 return False
-            
-            # Get map dimensions and data
+
+            # Get map dimensions and data.
             width = self.current_map.info.width
             height = self.current_map.info.height
             data = self.current_map.data
@@ -1294,25 +1295,40 @@ class NavigationController(Node):
                 self.get_logger().info('Map has zero area; cannot evaluate completeness')
                 return False
 
-            # Count cell types
-            known_cells = 0
-            unknown_cells = 0
+            # Convert data to a 2D numpy array with shape (height, width)
+            map_array = np.array(data).reshape((height, width))
             
-            for cell in data:
-                if cell == -1:  # Unknown
-                    unknown_cells += 1
-                else:  # Known (free or occupied)
-                    known_cells += 1
+            # Create a boolean mask for known cells (anything not -1 is known)
+            known_mask = map_array != -1
+
+            # If no cells are known, return early.
+            if not known_mask.any():
+                self.get_logger().info('No known cells in map yet.')
+                return False
+
+            # Determine the bounding box for the known cells.
+            known_indices = np.argwhere(known_mask)
+            min_row, min_col = known_indices.min(axis=0)
+            max_row, max_col = known_indices.max(axis=0)
+
+            # Crop the map to the bounding box of known cells.
+            cropped_map = map_array[min_row:max_row+1, min_col:max_col+1]
+            cropped_total_cells = cropped_map.size
+            cropped_known_cells = np.count_nonzero(cropped_map != -1)
             
-            # Calculate percentage of known cells
-            known_percentage = known_cells / total_cells
-            self.get_logger().info(f'Map completion: {known_percentage:.2%} known of {total_cells} cells')
+            # Calculate the known percentage within the cropped region.
+            cropped_known_percentage = cropped_known_cells / cropped_total_cells
+            self.get_logger().info(
+                f'Cropped map completion: {cropped_known_percentage:.2%} known of {cropped_total_cells} cells '
+                f'(original grid: {total_cells} cells)'
+            )
             
-            if known_percentage >= known_threshold:
-                # Check for remaining frontiers
+            # Evaluate completeness: Check if the known percentage meets the threshold.
+            if cropped_known_percentage >= known_threshold:
+                # Check for remaining frontiers.
                 frontiers = self.waypoint_generator.find_exploration_frontiers()
                 if len(frontiers) <= 2:
-                    self.get_logger().info('Map considered complete based on known cells and few remaining frontiers')
+                    self.get_logger().info('Map considered complete based on cropped known cells and few remaining frontiers')
                     return True
                 else:
                     self.get_logger().info(f'Map has sufficient known cells but still has {len(frontiers)} frontiers')

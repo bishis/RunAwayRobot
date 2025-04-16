@@ -175,6 +175,14 @@ class NavigationController(Node):
 
         self.stop_timer = None
 
+        from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+        qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE
+        )
+        self.pose_pub = self.create_publisher(PoseStamped, 'robot_current_pose', qos)
+
     def get_current_pose(self):
         """Get current robot pose with robust transform handling"""
         try:
@@ -201,6 +209,7 @@ class NavigationController(Node):
                     
                     # Update current pose
                     self.current_pose = pose
+                    self.pose_pub.publish(pose)
                     return pose
                     
                 except TransformException:

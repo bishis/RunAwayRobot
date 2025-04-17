@@ -55,7 +55,7 @@ class MotorController:
         """
             
         # Scale the entire range from MIN_SPEED to 1.0
-        MIN_SPEED = 0.4
+        MIN_SPEED = 0.82
 
         def scale_to_min_speed(speed: float) -> float:
             if speed == 0.0:

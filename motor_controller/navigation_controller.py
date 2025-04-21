@@ -1406,7 +1406,7 @@ class NavigationController(Node):
         """Schedule a timer to send a stop command once after 0.5 seconds."""
         if hasattr(self, 'stop_timer') and self.stop_timer:
             self.stop_timer.cancel()
-        self.stop_timer = self.create_timer(0.5, self.send_stop_command)
+        self.stop_timer = self.create_timer(1.0, self.send_stop_command)
 
     def send_stop_command(self):
         """Force stop command after delay."""

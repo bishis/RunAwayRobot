@@ -55,8 +55,8 @@ class MotorController:
         """
             
         # Scale the entire range from MIN_SPEED to 1.0
-        MIN_SPEED = 0.82
-        speed_diff = abs(left_speed - right_speed)
+        MIN_SPEED = 0.81
+        speed_diff = abs((left_speed - right_speed)/1.45)
         def scale_to_min_speed(speed: float) -> float:
             if speed == 0.0:
                 return 0.0

@@ -49,31 +49,72 @@ class MotorController:
         # Register cleanup handler
         signal.signal(signal.SIGINT, self.cleanup)
 
-    def scale_motor_speeds(self, left_speed: float, right_speed: float, angular: float) -> tuple[float, float]:
-        """
-        Scale motor speeds to handle normalization and minimum thresholds.
-        """
-            
-        # Scale the entire range from MIN_SPEED to 1.0
-        MIN_SPEED = 0.82
+    import math
+    from typing import Tuple
 
-        def scale_to_min_speed(speed: float) -> float:
-            if speed == 0.0:
-                return 0.0
-            # Map from [-1, 1] to [-1, -MIN_SPEED] U [MIN_SPEED, 1]
-            direction = 1.0 if speed > 0 else -1.0
-            scaled = MIN_SPEED + (abs(speed) * (1.0 - MIN_SPEED))
-            return direction * scaled
-            
-        left_speed = scale_to_min_speed(left_speed)
-        right_speed = scale_to_min_speed(right_speed)
-        # Normalize speeds if they exceed [-1, 1]
-        max_speed = max(abs(left_speed), abs(right_speed))
-        if max_speed > 1.0:
-            left_speed /= max_speed
-            right_speed /= max_speed
-                
-        return left_speed, right_speed
+    def scale_motor_speeds(
+        self,
+        left_speed: float,          # raw wheel speeds from the planner, **metres s‑1**
+        right_speed: float,
+        angular: float,             # the planner’s angular command, **rad s‑1**
+        *,
+        min_vel_x: float   = -0.05, # planner limits (m s‑1)
+        max_vel_x: float   =  0.10,
+        min_vel_theta: float = 0.20,# planner limits (rad s‑1)
+        max_vel_theta: float = 1.30,
+        MIN_PWM: float = 0.82       # 0.82 means “82 % throttle is the lowest that
+    ) -> Tuple[float, float]:       #   will actually turn the motor”
+        """
+        Convert *physical* wheel‑speed requests (m s‑1) into the normalised
+        [-1 … 1] range accepted by your motor driver.
+
+        The procedure is:
+
+        1.  Express each wheel speed as a fraction of the planner’s
+            **maximum possible** wheel speed.
+        2.  If both fractions are ≈ 0, return 0, 0 (don’t force a minimum).
+        3.  Bring the *slower* wheel up to at least MIN_PWM of full power,
+            then scale the *faster* wheel by the **same factor** so the
+            left / right ratio is preserved.
+        4.  If that pushed anything over |1|, renormalise the pair.
+        """
+
+        # --- 1. Normalise the physical speeds to the planner’s extremes -----------
+        # In the worst case (spin‑in‑place) one wheel will see +max_vel_theta
+        # and the other −max_vel_theta, so that sets our per‑wheel ceiling.
+        # For straight motion it is ±max_vel_x.
+        # Take whichever is larger in magnitude for each wheel.
+        max_wheel_mag = max(abs(max_vel_x), abs(min_vel_x),
+                            abs(max_vel_theta))          # → m s‑1
+
+        nl = left_speed  / max_wheel_mag   # now in [‑1 … 1] (but maybe smaller)
+        nr = right_speed / max_wheel_mag
+
+        # --- 2. If both wheels are (almost) stopped, get out early ---------------
+        if abs(nl) < 1e-6 and abs(nr) < 1e-6:
+            return 0.0, 0.0
+
+        # --- 3. Raise the slower wheel to MIN_PWM while preserving the ratio -----
+        slow_mag = min(abs(nl), abs(nr))
+        # Handle the “one wheel exactly zero” edge‑case:
+        #   • If one wheel is already zero we *still* want the other wheel
+        #     to be ≥ MIN_PWM, otherwise the robot sits there buzzing.
+        if slow_mag == 0.0:
+            factor = MIN_PWM / max(abs(nl), abs(nr))
+        else:
+            factor = max(1.0, MIN_PWM / slow_mag)        # never scale < 1 ×
+
+        new_l = math.copysign(abs(nl) * factor, nl)
+        new_r = math.copysign(abs(nr) * factor, nr)
+
+        # --- 4. Final clip in case we crossed the ±1 boundary ---------------------
+        peak = max(abs(new_l), abs(new_r))
+        if peak > 1.0:
+            new_l /= peak
+            new_r /= peak
+
+        return new_l, new_r
+
                 
 
     def set_speeds(self, linear: float, angular: float) -> tuple[float, float, float, float]:
@@ -85,7 +126,7 @@ class MotorController:
         right_speed = linear - (angular * self.wheel_width / 2.0)
         
         # Apply scaling and minimum speeds
-        left_speed, right_speed = self.scale_motor_speeds(left_speed, right_speed, angular)
+        left_speed, right_speed = self.scale_motor_speeds(left_speed, right_speed, angular=angular)
         
         # Store PWM values
         left_pwm = abs(left_speed)

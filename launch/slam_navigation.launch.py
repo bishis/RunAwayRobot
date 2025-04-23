@@ -149,5 +149,5 @@ def generate_launch_description():
         navigation_cmd,
         rviz_cmd,
         camera_nodes_cmd,
-        recorder_cmd
+        # recorder_cmd
     ])

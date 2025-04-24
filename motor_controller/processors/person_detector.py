@@ -165,9 +165,9 @@ class PersonDetector(Node):
         self.model.max_det = 10  
         
         self.tracker = Sort(
-            max_age=2, 
-            min_hits=1, 
-            iou_threshold=0.2  
+            max_age=3, 
+            min_hits=2, 
+            iou_threshold=0.25  
         )
         
         self.max_history = 2 

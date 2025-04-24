@@ -145,7 +145,7 @@ class PersonDetector(Node):
         # Initialize SORT tracker
         self.tracker = Sort(
             max_age=3,  
-            min_hits=1, 
+            min_hits=2, 
             iou_threshold=0.25 
         )
         

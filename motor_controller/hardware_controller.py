@@ -158,9 +158,7 @@ class HardwareController(Node):
         try:
             # Get commanded speeds
             linear_x = msg.linear.x
-            linear_x = linear_x * 0.45
             angular_z = msg.angular.z
-            angular_z = angular_z * 2.5
             # Send commands to motor controller and get actual speeds
             left_speed, right_speed, left_pwm, right_pwm = self.motor_controller.set_speeds(linear_x, angular_z)
             

@@ -1196,8 +1196,8 @@ class NavigationController(Node):
         
         self.reset_escape_state()
         if not skip_waiting:
-            self.get_logger().info('Waiting for 3 seconds to update map before searching for hiding spot')
-            time.sleep(3)
+            self.get_logger().info('Waiting for 6 seconds to update map before searching for hiding spot')
+            time.sleep(6)
         
         robot_pos = (self.current_pose.pose.position.x, self.current_pose.pose.position.y)
         human_pos = self.last_human_position

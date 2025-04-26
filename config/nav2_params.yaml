@@ -194,7 +194,7 @@ planner_server:
     use_sim_time: false
     planner_plugins: ["GridBased"]
     tolerance: 1.0  
-    use_astar: false
+    use_astar: true
     allow_unknown: true
     max_iterations: 1000000
     max_on_approach_iterations: 1000
